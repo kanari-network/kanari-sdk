@@ -29,10 +29,7 @@ fn coin_ref(object_id: &str, balance: u64) -> ObjectRef {
     ObjectRef::new(
         object_id.to_string(),
         Some(1),
-        Some(format!(
-            "0x{}",
-            hex::encode(hash_data_blake3(&coin_data(object_id, balance)))
-        )),
+        Some(format!("0x{}", hex::encode(hash_data_blake3(&coin_data(object_id, balance))))),
     )
 }
 
@@ -62,9 +59,7 @@ fn fund_coin_object(
         },
     ));
     create_coin.mint(addr, balance);
-    state
-        .apply_changeset_without_supply_validation(&create_coin)
-        .unwrap();
+    state.apply_changeset_without_supply_validation(&create_coin).unwrap();
 }
 
 fn fund_app_object(
@@ -89,9 +84,7 @@ fn fund_app_object(
             version: 1,
         },
     ));
-    state
-        .apply_changeset_without_supply_validation(&changes)
-        .unwrap();
+    state.apply_changeset_without_supply_validation(&changes).unwrap();
 }
 
 fn signed_execute(
@@ -124,9 +117,7 @@ fn signed_execute(
         nonce,
     };
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
     signed_tx
 }
 
@@ -147,10 +138,7 @@ fn mutable_object_input_for_foreign_owned_object_is_rejected() {
     let err = engine
         .execute_transaction_immediate(signed_tx)
         .expect_err("cross-owner mutable input must be rejected");
-    assert!(
-        err.to_string().contains("not the sender"),
-        "unexpected error: {err}"
-    );
+    assert!(err.to_string().contains("not the sender"), "unexpected error: {err}");
 }
 
 #[test]
@@ -195,10 +183,7 @@ fn explicit_mutable_application_object_for_foreign_address_owner_is_rejected() {
             object_ref: ObjectRef::new(
                 object_id,
                 Some(1),
-                Some(format!(
-                    "0x{}",
-                    hex::encode(hash_data_blake3(&vec![0xEC; 64]))
-                )),
+                Some(format!("0x{}", hex::encode(hash_data_blake3(&vec![0xEC; 64])))),
             ),
             owner: Some(ObjectOwnerKind::AddressOwner(owner.address.clone())),
             mutable: true,

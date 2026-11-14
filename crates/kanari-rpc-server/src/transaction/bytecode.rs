@@ -7,18 +7,16 @@ use super::*;
 
 // Extract function names from module bytecode (returns None on error)
 pub(crate) fn extract_functions_from_bytes(bytes: &[u8]) -> Option<Vec<String>> {
-    CompiledModule::deserialize_with_defaults(bytes)
-        .ok()
-        .map(|module| {
-            module
-                .function_defs()
-                .iter()
-                .map(|func_def| {
-                    let fh = module.function_handle_at(func_def.function);
-                    module.identifier_at(fh.name).as_str().to_string()
-                })
-                .collect()
-        })
+    CompiledModule::deserialize_with_defaults(bytes).ok().map(|module| {
+        module
+            .function_defs()
+            .iter()
+            .map(|func_def| {
+                let fh = module.function_handle_at(func_def.function);
+                module.identifier_at(fh.name).as_str().to_string()
+            })
+            .collect()
+    })
 }
 
 // Best-effort lookup of module functions using the engine registry
@@ -45,19 +43,12 @@ pub(crate) fn lookup_module_functions(
                 .engine
                 .get_module_bytecode(&addr, &name)
                 .and_then(|bytes| extract_functions_from_bytes(&bytes))
-                .map(|fns| {
-                    fns.into_iter()
-                        .map(move |f| format!("{}::{}::{}", addr, name, f))
-                })
+                .map(|fns| fns.into_iter().map(move |f| format!("{}::{}::{}", addr, name, f)))
         })
         .flatten()
         .collect();
 
-    if results.is_empty() {
-        None
-    } else {
-        Some(results)
-    }
+    if results.is_empty() { None } else { Some(results) }
 }
 
 fn is_tx_context_token(module: &CompiledModule, token: &SignatureToken) -> bool {

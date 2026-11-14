@@ -32,10 +32,7 @@ impl UsdModule {
 
     /// Fully qualified `transfer_amount` entry point used by the faucet.
     pub fn transfer_entry() -> (String, String) {
-        (
-            Self::module_path(),
-            Self::function_names().transfer_amount.to_string(),
-        )
+        (Self::module_path(), Self::function_names().transfer_amount.to_string())
     }
 
     /// Get function names used in `usd.move`.
@@ -67,10 +64,7 @@ impl UsdModule {
             anyhow::bail!("invalid USD amount: {s:?}");
         }
         if frac_part.len() > Self::USD_DECIMALS as usize {
-            anyhow::bail!(
-                "too many fraction digits (max {}): {s:?}",
-                Self::USD_DECIMALS
-            );
+            anyhow::bail!("too many fraction digits (max {}): {s:?}", Self::USD_DECIMALS);
         }
         let mut frac_padded = frac_part.to_string();
         while frac_padded.len() < Self::USD_DECIMALS as usize {
@@ -78,14 +72,8 @@ impl UsdModule {
         }
         let combined = format!("{int_digits}{frac_padded}");
         let normalized = combined.trim_start_matches('0');
-        let normalized = if normalized.is_empty() {
-            "0"
-        } else {
-            normalized
-        };
-        normalized
-            .parse::<u64>()
-            .with_context(|| format!("USD amount overflows u64: {s:?}"))
+        let normalized = if normalized.is_empty() { "0" } else { normalized };
+        normalized.parse::<u64>().with_context(|| format!("USD amount overflows u64: {s:?}"))
     }
 
     /// Format base units into exact USD (`2500000` -> `"2.5"`), trimming
@@ -104,11 +92,7 @@ impl UsdModule {
         let split = digits.len() - scale;
         let (int_part, frac_part) = digits.split_at(split);
         let trimmed = frac_part.trim_end_matches('0');
-        if trimmed.is_empty() {
-            int_part.to_string()
-        } else {
-            format!("{int_part}.{trimmed}")
-        }
+        if trimmed.is_empty() { int_part.to_string() } else { format!("{int_part}.{trimmed}") }
     }
 
     /// Human display (`1500000` -> `"1.5 USD"`).

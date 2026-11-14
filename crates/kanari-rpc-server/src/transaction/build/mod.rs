@@ -62,10 +62,7 @@ fn invalid_build_gas_response(
     gas_price: u64,
 ) -> Option<RpcResponse> {
     if gas_limit == 0 {
-        return Some(invalid_params_response(
-            request_id,
-            "gas_limit must be non-zero",
-        ));
+        return Some(invalid_params_response(request_id, "gas_limit must be non-zero"));
     }
     if !gas_price_is_valid(gas_price) {
         return Some(invalid_params_response(

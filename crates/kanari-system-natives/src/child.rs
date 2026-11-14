@@ -56,12 +56,7 @@ pub struct GasParameters {
 
 impl GasParameters {
     pub fn zeros() -> Self {
-        Self {
-            record: 0.into(),
-            unrecord: 0.into(),
-            list: 0.into(),
-            per_byte: 0.into(),
-        }
+        Self { record: 0.into(), unrecord: 0.into(), list: 0.into(), per_byte: 0.into() }
     }
 
     pub fn production() -> Self {
@@ -105,15 +100,11 @@ pub struct ChildIndexExt {
 
 impl ChildIndexExt {
     pub fn new(resolver: Arc<dyn ChildIndexResolver>) -> Self {
-        Self {
-            resolver: Some(resolver),
-            pending: Vec::new(),
-        }
+        Self { resolver: Some(resolver), pending: Vec::new() }
     }
 
     pub fn record(&mut self, parent_hex: String, name_bytes: Vec<u8>, child_bytes: Vec<u8>) {
-        self.pending
-            .push((parent_hex, name_bytes, Some(child_bytes)));
+        self.pending.push((parent_hex, name_bytes, Some(child_bytes)));
     }
 
     pub fn unrecord(&mut self, parent_hex: String, name_bytes: Vec<u8>) {
@@ -301,10 +292,7 @@ fn native_list_children(
         gas_params.per_byte * NumBytes::new((children.len() * AccountAddress::LENGTH) as u64)
     );
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::vector_address(children)],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::vector_address(children)]))
 }
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {

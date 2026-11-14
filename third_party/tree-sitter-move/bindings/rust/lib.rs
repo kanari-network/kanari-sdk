@@ -45,8 +45,6 @@ mod tests {
     #[test]
     fn test_can_load_grammar() {
         let mut parser = tree_sitter::Parser::new();
-        parser
-            .set_language(&super::language())
-            .expect("Error loading move language");
+        parser.set_language(&super::language()).expect("Error loading move language");
     }
 }

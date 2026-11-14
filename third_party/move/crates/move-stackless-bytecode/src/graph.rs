@@ -43,13 +43,7 @@ impl<T: Ord + Copy + Debug> Graph<T> {
                 x.insert(edge.0);
             });
         }
-        Self {
-            entry,
-            nodes,
-            edges,
-            predecessors,
-            successors,
-        }
+        Self { entry, nodes, edges, predecessors, successors }
     }
 
     /// This function computes the loop headers and natural loops of a reducible graph.
@@ -71,10 +65,8 @@ impl<T: Ord + Copy + Debug> Graph<T> {
             }
         }
         if Graph::new(self.entry, self.nodes.clone(), non_back_edges).is_acyclic() {
-            let natural_loops = back_edges
-                .into_iter()
-                .map(|edge| self.natural_loop(edge))
-                .collect();
+            let natural_loops =
+                back_edges.into_iter().map(|edge| self.natural_loop(edge)).collect();
             Some(natural_loops)
         } else {
             None
@@ -129,11 +121,7 @@ impl<T: Ord + Copy + Debug> Graph<T> {
                 }
             }
         }
-        NaturalLoop {
-            loop_header,
-            loop_latch,
-            loop_body,
-        }
+        NaturalLoop { loop_header, loop_latch, loop_body }
     }
 }
 
@@ -279,17 +267,7 @@ mod tests {
     #[test]
     fn test2() {
         let nodes = vec![1, 2, 3, 4, 5, 6];
-        let edges = vec![
-            (1, 2),
-            (2, 1),
-            (2, 3),
-            (3, 2),
-            (4, 2),
-            (4, 3),
-            (5, 1),
-            (6, 5),
-            (6, 4),
-        ];
+        let edges = vec![(1, 2), (2, 1), (2, 3), (3, 2), (4, 2), (4, 3), (5, 1), (6, 5), (6, 4)];
         let source = 6;
         let graph = Graph::new(source, nodes, edges);
         assert!(graph.compute_reducible().is_none());
@@ -306,10 +284,7 @@ mod tests {
         let single_loop = &natural_loops[0];
         assert_eq!(single_loop.loop_header, 2);
         assert_eq!(single_loop.loop_latch, 5);
-        assert_eq!(
-            single_loop.loop_body,
-            vec![2, 3, 4, 5].into_iter().collect()
-        );
+        assert_eq!(single_loop.loop_body, vec![2, 3, 4, 5].into_iter().collect());
     }
 
     #[test]
@@ -325,16 +300,7 @@ mod tests {
     fn test5() {
         // nested natural loops
         let nodes = vec![1, 2, 3, 4, 5, 6];
-        let edges = vec![
-            (1, 2),
-            (2, 3),
-            (2, 4),
-            (2, 6),
-            (3, 5),
-            (4, 5),
-            (5, 2),
-            (3, 2),
-        ];
+        let edges = vec![(1, 2), (2, 3), (2, 4), (2, 6), (3, 5), (4, 5), (5, 2), (3, 2)];
         let source = 1;
         let graph = Graph::new(source, nodes, edges);
         let natural_loops = graph.compute_reducible().unwrap();

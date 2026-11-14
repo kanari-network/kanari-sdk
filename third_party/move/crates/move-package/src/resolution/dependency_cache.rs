@@ -33,10 +33,7 @@ pub struct DependencyCache {
 impl DependencyCache {
     pub fn new(skip_fetch_latest_git_deps: bool) -> DependencyCache {
         let fetched_deps = BTreeSet::new();
-        DependencyCache {
-            fetched_deps,
-            skip_fetch_latest_git_deps,
-        }
+        DependencyCache { fetched_deps, skip_fetch_latest_git_deps }
     }
 
     pub fn download_and_update_if_remote<Progress: Write>(
@@ -56,11 +53,7 @@ impl DependencyCache {
                 package_hooks::resolve_custom_dependency(dep_name, node_info)
             }
 
-            DependencyKind::Git(GitInfo {
-                git_url,
-                git_rev,
-                subdir: _,
-            }) => {
+            DependencyKind::Git(GitInfo { git_url, git_rev, subdir: _ }) => {
                 let repository_path = repository_path(kind);
                 // check if a give dependency type has already been fetched
                 if !self.fetched_deps.insert(repository_path.clone()) {

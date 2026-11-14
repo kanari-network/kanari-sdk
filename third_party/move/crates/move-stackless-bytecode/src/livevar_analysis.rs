@@ -82,11 +82,7 @@ impl FunctionTargetProcessor for LiveVarAnalysisProcessor {
         // Eliminate unused locals after dead code elimination.
         let (code, local_types, remap) = Self::eliminate_unused_vars(&func_target, code);
         data.rename_vars(&|idx| {
-            if let Some(new_idx) = remap.get(&idx) {
-                *new_idx
-            } else {
-                idx
-            }
+            if let Some(new_idx) = remap.get(&idx) { *new_idx } else { idx }
         });
         data.local_types = local_types;
         data.code = code;
@@ -97,8 +93,7 @@ impl FunctionTargetProcessor for LiveVarAnalysisProcessor {
             let offset_to_live_refs = LiveVarAnnotation(Self::analyze(&func_target, &data.code));
             // Annotate function target with computed life variable data.
             // TODO(mengxu): verify that recursion does not affect how live-var analysis is done
-            data.annotations
-                .set::<LiveVarAnnotation>(offset_to_live_refs, true);
+            data.annotations.set::<LiveVarAnnotation>(offset_to_live_refs, true);
         }
         data
     }
@@ -129,13 +124,8 @@ impl LiveVarAnalysisProcessor {
         // cannot reach an exit block
         let cfg = StacklessControlFlowGraph::new_backward(code, true);
         let analyzer = LiveVarAnalysis::new(func_target, 0, 0);
-        let state_map = analyzer.analyze_function(
-            LiveVarState {
-                livevars: BTreeSet::new(),
-            },
-            code,
-            &cfg,
-        );
+        let state_map =
+            analyzer.analyze_function(LiveVarState { livevars: BTreeSet::new() }, code, &cfg);
         analyzer.state_per_instruction(state_map, code, &cfg, |before, after| {
             LiveVarInfoAtCodeOffset {
                 before: before.livevars.clone(),
@@ -206,11 +196,7 @@ impl LiveVarState {
 
 impl<'a> LiveVarAnalysis<'a> {
     fn new(func_target: &'a FunctionTarget, next_label_id: usize, next_attr_id: usize) -> Self {
-        Self {
-            func_target,
-            next_label_id,
-            next_attr_id,
-        }
+        Self { func_target, next_label_id, next_attr_id }
     }
 
     fn transform_code(
@@ -228,10 +214,7 @@ impl<'a> LiveVarAnalysis<'a> {
             for index in &info.before {
                 // only mark the mutable references conditionally defined in function body as uninit
                 if *index >= num_args
-                    && self
-                        .func_target
-                        .get_local_type(*index)
-                        .is_mutable_reference()
+                    && self.func_target.get_local_type(*index).is_mutable_reference()
                 {
                     transformed_code.push(Bytecode::Call(
                         self.new_attr_id(),

@@ -28,10 +28,7 @@ impl RpcClientError {
                 rpc_error.message, rpc_error.code, reason
             )
         } else {
-            format!(
-                "RPC error: {} (code: {})",
-                rpc_error.message, rpc_error.code
-            )
+            format!("RPC error: {} (code: {})", rpc_error.message, rpc_error.code)
         };
         Self { rpc_error, message }
     }
@@ -71,11 +68,7 @@ pub struct RpcClient {
 impl RpcClient {
     /// Create new RPC client
     pub fn new(url: impl Into<String>) -> Self {
-        Self {
-            client: Client::new(),
-            url: url.into(),
-            request_id: AtomicU64::new(1),
-        }
+        Self { client: Client::new(), url: url.into(), request_id: AtomicU64::new(1) }
     }
 
     /// Get next request ID
@@ -112,9 +105,7 @@ impl RpcClient {
 
     /// Get owner information
     pub async fn get_owner(&self, owner: &str) -> Result<OwnerInfo> {
-        let response = self
-            .request(methods::GET_OWNER, serde_json::json!(owner))
-            .await?;
+        let response = self.request(methods::GET_OWNER, serde_json::json!(owner)).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse owner info")
@@ -125,9 +116,7 @@ impl RpcClient {
         let response = self
             .request(
                 methods::GET_OWNER_BALANCES,
-                serde_json::to_value(GetOwnerBalancesRequest {
-                    owner: owner.to_string(),
-                })?,
+                serde_json::to_value(GetOwnerBalancesRequest { owner: owner.to_string() })?,
             )
             .await?;
 
@@ -150,9 +139,7 @@ impl RpcClient {
         let response = self
             .request(
                 methods::GET_OBJECT,
-                serde_json::to_value(GetObjectRequest {
-                    object_id: object_id.to_string(),
-                })?,
+                serde_json::to_value(GetObjectRequest { object_id: object_id.to_string() })?,
             )
             .await?;
 
@@ -161,9 +148,7 @@ impl RpcClient {
     }
 
     pub async fn get_objects(&self, request: GetObjectsRequest) -> Result<OwnedObjectsResponse> {
-        let response = self
-            .request(methods::GET_OBJECTS, serde_json::to_value(request)?)
-            .await?;
+        let response = self.request(methods::GET_OBJECTS, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse object query response")
@@ -171,9 +156,7 @@ impl RpcClient {
 
     /// Get block by height
     pub async fn get_block(&self, height: u64) -> Result<BlockInfo> {
-        let response = self
-            .request(methods::GET_BLOCK, serde_json::json!(height))
-            .await?;
+        let response = self.request(methods::GET_BLOCK, serde_json::json!(height)).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse block info")
@@ -181,9 +164,7 @@ impl RpcClient {
 
     /// Get full block by height (including transactions and vertices)
     pub async fn get_full_block(&self, height: u64) -> Result<FullBlockData> {
-        let response = self
-            .request(methods::GET_FULL_BLOCK, serde_json::json!(height))
-            .await?;
+        let response = self.request(methods::GET_FULL_BLOCK, serde_json::json!(height)).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse full block data")
@@ -191,9 +172,7 @@ impl RpcClient {
 
     /// Get current block height
     pub async fn get_block_height(&self) -> Result<u64> {
-        let response = self
-            .request(methods::GET_BLOCK_HEIGHT, serde_json::json!(null))
-            .await?;
+        let response = self.request(methods::GET_BLOCK_HEIGHT, serde_json::json!(null)).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse block height")
@@ -201,12 +180,8 @@ impl RpcClient {
 
     /// Get transaction details by hash.
     pub async fn get_transaction(&self, hash: &str) -> Result<TransactionDetails> {
-        let response = self
-            .request(
-                methods::GET_TRANSACTION,
-                serde_json::json!({ "hash": hash }),
-            )
-            .await?;
+        let response =
+            self.request(methods::GET_TRANSACTION, serde_json::json!({ "hash": hash })).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse transaction details")
@@ -214,9 +189,7 @@ impl RpcClient {
 
     /// Get blockchain statistics
     pub async fn get_stats(&self) -> Result<BlockchainStats> {
-        let response = self
-            .request(methods::GET_STATS, serde_json::json!(null))
-            .await?;
+        let response = self.request(methods::GET_STATS, serde_json::json!(null)).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse stats")
@@ -227,21 +200,14 @@ impl RpcClient {
         &self,
         tx: kanari_rpc_api::ObjectTransferData,
     ) -> Result<TransactionStatus> {
-        let response = self
-            .request(methods::SUBMIT_OBJECT_TRANSFER, serde_json::to_value(tx)?)
-            .await?;
+        let response =
+            self.request(methods::SUBMIT_OBJECT_TRANSFER, serde_json::to_value(tx)?).await?;
 
         let result = response.result.context("No result in response")?;
 
         let status = TransactionStatus {
-            hash: result["hash"]
-                .as_str()
-                .require("missing transaction hash")?
-                .to_string(),
-            status: result["status"]
-                .as_str()
-                .require("missing transaction status")?
-                .to_string(),
+            hash: result["hash"].as_str().require("missing transaction hash")?.to_string(),
+            status: result["status"].as_str().require("missing transaction status")?.to_string(),
             block_height: None,
             gas_used: result["gas_used"].as_u64(),
             success: result["success"].as_bool().unwrap_or(matches!(
@@ -260,12 +226,8 @@ impl RpcClient {
         &self,
         request: BuildNativeTransferRequest,
     ) -> Result<ObjectTransferData> {
-        let response = self
-            .request(
-                methods::BUILD_NATIVE_TRANSFER,
-                serde_json::to_value(request)?,
-            )
-            .await?;
+        let response =
+            self.request(methods::BUILD_NATIVE_TRANSFER, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse prepared native transfer")
@@ -276,10 +238,7 @@ impl RpcClient {
         request: BuildNativeCoinConsolidationRequest,
     ) -> Result<CallFunctionRequest> {
         let response = self
-            .request(
-                methods::BUILD_NATIVE_COIN_CONSOLIDATION,
-                serde_json::to_value(request)?,
-            )
+            .request(methods::BUILD_NATIVE_COIN_CONSOLIDATION, serde_json::to_value(request)?)
             .await?;
 
         let result = response.result.context("No result in response")?;
@@ -289,21 +248,14 @@ impl RpcClient {
 
     /// Publish Move module
     pub async fn publish_module(&self, request: PublishModuleRequest) -> Result<TransactionStatus> {
-        let response = self
-            .request(methods::PUBLISH_MODULE, serde_json::to_value(request)?)
-            .await?;
+        let response =
+            self.request(methods::PUBLISH_MODULE, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
 
         let status = TransactionStatus {
-            hash: result["hash"]
-                .as_str()
-                .require("missing transaction hash")?
-                .to_string(),
-            status: result["status"]
-                .as_str()
-                .require("missing transaction status")?
-                .to_string(),
+            hash: result["hash"].as_str().require("missing transaction hash")?.to_string(),
+            status: result["status"].as_str().require("missing transaction status")?.to_string(),
             block_height: None,
             gas_used: result["gas_used"].as_u64(),
             success: result["success"].as_bool().unwrap_or(matches!(
@@ -322,12 +274,8 @@ impl RpcClient {
         &self,
         request: BuildPublishModuleRequest,
     ) -> Result<PublishModuleRequest> {
-        let response = self
-            .request(
-                methods::BUILD_PUBLISH_MODULE,
-                serde_json::to_value(request)?,
-            )
-            .await?;
+        let response =
+            self.request(methods::BUILD_PUBLISH_MODULE, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse prepared publish request")
@@ -335,31 +283,21 @@ impl RpcClient {
 
     /// Call Move function
     pub async fn call_function(&self, request: CallFunctionRequest) -> Result<TransactionStatus> {
-        let response = self
-            .request(methods::CALL_FUNCTION, serde_json::to_value(request)?)
-            .await?;
+        let response = self.request(methods::CALL_FUNCTION, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         // Preview failures carry the VM abort in `error_message`/`effects`;
         // surface it so callers don't get a bare "failed" status.
         if result["success"].as_bool() == Some(false)
-            && let Some(msg) = result
-                .get("error_message")
-                .and_then(|m| m.as_str())
-                .filter(|m| !m.is_empty())
+            && let Some(msg) =
+                result.get("error_message").and_then(|m| m.as_str()).filter(|m| !m.is_empty())
         {
             anyhow::bail!("Preview failed: {}", msg);
         }
 
         let status = TransactionStatus {
-            hash: result["hash"]
-                .as_str()
-                .require("missing transaction hash")?
-                .to_string(),
-            status: result["status"]
-                .as_str()
-                .require("missing transaction status")?
-                .to_string(),
+            hash: result["hash"].as_str().require("missing transaction hash")?.to_string(),
+            status: result["status"].as_str().require("missing transaction status")?.to_string(),
             block_height: None,
             gas_used: result["gas_used"].as_u64(),
             success: result["success"].as_bool().unwrap_or(matches!(
@@ -378,9 +316,8 @@ impl RpcClient {
         &self,
         request: BuildCallFunctionRequest,
     ) -> Result<CallFunctionRequest> {
-        let response = self
-            .request(methods::BUILD_CALL_FUNCTION, serde_json::to_value(request)?)
-            .await?;
+        let response =
+            self.request(methods::BUILD_CALL_FUNCTION, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse prepared call request")
@@ -390,12 +327,8 @@ impl RpcClient {
         &self,
         request: BuildTokenTransferRequest,
     ) -> Result<CallFunctionRequest> {
-        let response = self
-            .request(
-                methods::BUILD_TOKEN_TRANSFER,
-                serde_json::to_value(request)?,
-            )
-            .await?;
+        let response =
+            self.request(methods::BUILD_TOKEN_TRANSFER, serde_json::to_value(request)?).await?;
 
         let result = response.result.context("No result in response")?;
         serde_json::from_value(result).context("Failed to parse prepared token transfer request")

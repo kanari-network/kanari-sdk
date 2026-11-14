@@ -140,14 +140,8 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
         assert_eq!(typed, JsonValue::from(1u64));
     }
     if let Some(mismatched_fn) = scenario.has_mismatched_type_fn {
-        let mismatched = view_fn(
-            &second_runtime,
-            scenario,
-            &module_id,
-            &host_id,
-            mismatched_fn,
-        )
-        .context("mismatched typed field existence after add")?;
+        let mismatched = view_fn(&second_runtime, scenario, &module_id, &host_id, mismatched_fn)
+            .context("mismatched typed field existence after add")?;
         assert_eq!(mismatched, JsonValue::from(0u64));
     }
 
@@ -195,14 +189,9 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     state.commit()?;
 
     let fourth_runtime = MoveRuntime::new_with_kanari_natives_and_store(store)?;
-    let exists_after_remove = view(
-        &fourth_runtime,
-        scenario,
-        &module_id,
-        &host_id,
-        scenario.has_fn,
-    )
-    .context("check field absence after remove")?;
+    let exists_after_remove =
+        view(&fourth_runtime, scenario, &module_id, &host_id, scenario.has_fn)
+            .context("check field absence after remove")?;
     assert_eq!(exists_after_remove, JsonValue::from(0u64));
 
     if let Some(children_fn) = scenario.children_fn {
@@ -300,9 +289,7 @@ fn create_test_package(scenario: &DynamicFieldScenario) -> Result<PathBuf> {
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
     fs::write(
-        package_dir
-            .join("sources")
-            .join(format!("{}.move", scenario.module_name)),
+        package_dir.join("sources").join(format!("{}.move", scenario.module_name)),
         scenario.move_source,
     )?;
 
@@ -311,10 +298,8 @@ fn create_test_package(scenario: &DynamicFieldScenario) -> Result<PathBuf> {
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

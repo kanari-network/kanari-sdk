@@ -337,11 +337,7 @@ pub struct BlockLabel {
 #[allow(clippy::large_enum_variant)]
 pub enum LValue_ {
     Ignore,
-    Var {
-        mut_: Option<Mutability>,
-        var: Var,
-        unused_binding: bool,
-    },
+    Var { mut_: Option<Mutability>, var: Var, unused_binding: bool },
     Unpack(ModuleIdent, DatatypeName, Option<Vec<Type>>, Fields<LValue>),
 }
 pub type LValue = Spanned<LValue_>;
@@ -442,13 +438,7 @@ pub enum Exp_ {
     BinopExp(Box<Exp>, BinOp, Box<Exp>),
 
     Pack(ModuleIdent, DatatypeName, Option<Vec<Type>>, Fields<Exp>),
-    PackVariant(
-        ModuleIdent,
-        DatatypeName,
-        VariantName,
-        Option<Vec<Type>>,
-        Fields<Exp>,
-    ),
+    PackVariant(ModuleIdent, DatatypeName, VariantName, Option<Vec<Type>>, Fields<Exp>),
     ExpList(Vec<Exp>),
     Unit {
         trailing: bool,
@@ -488,19 +478,8 @@ pub type MatchArm = Spanned<MatchArm_>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchPattern_ {
-    Variant(
-        ModuleIdent,
-        DatatypeName,
-        VariantName,
-        Option<Vec<Type>>,
-        Fields<MatchPattern>,
-    ),
-    Struct(
-        ModuleIdent,
-        DatatypeName,
-        Option<Vec<Type>>,
-        Fields<MatchPattern>,
-    ),
+    Variant(ModuleIdent, DatatypeName, VariantName, Option<Vec<Type>>, Fields<MatchPattern>),
+    Struct(ModuleIdent, DatatypeName, Option<Vec<Type>>, Fields<MatchPattern>),
     Binder(Mutability, Var, /* unused binding */ bool),
     Literal(Value),
     Wildcard,
@@ -541,11 +520,7 @@ impl TName for Var {
 
 impl UseFuns {
     pub fn new(color: Color) -> Self {
-        Self {
-            color,
-            resolved: BTreeMap::new(),
-            implicit_candidates: UniqueMap::new(),
-        }
+        Self { color, resolved: BTreeMap::new(), implicit_candidates: UniqueMap::new() }
     }
 }
 
@@ -556,9 +531,7 @@ impl IndexSyntaxMethods {
         if let Some(index) = &self.index {
             Some(index.target_function)
         } else {
-            self.index_mut
-                .as_ref()
-                .map(|index_mut| index_mut.target_function)
+            self.index_mut.as_ref().map(|index_mut| index_mut.target_function)
         }
     }
 }
@@ -576,10 +549,7 @@ impl SyntaxMethodEntry {
 
     fn index_entry(&mut self) -> &mut IndexSyntaxMethods {
         if self.index.is_none() {
-            let new_index_syntax_method = IndexSyntaxMethods {
-                index: None,
-                index_mut: None,
-            };
+            let new_index_syntax_method = IndexSyntaxMethods { index: None, index_mut: None };
             self.index = Some(Box::new(new_index_syntax_method));
         }
         self.index.as_mut().unwrap()
@@ -890,8 +860,7 @@ impl Type_ {
         module: impl AsRef<str>,
         name: impl AsRef<str>,
     ) -> bool {
-        self.type_name()
-            .is_some_and(|tn| tn.value.is(address, module, name))
+        self.type_name().is_some_and(|tn| tn.value.is(address, module, name))
     }
 
     pub fn abilities(&self, loc: Loc) -> Option<AbilitySet> {
@@ -1125,11 +1094,7 @@ impl AstDebug for ResolvedUseFuns {
 
 impl AstDebug for UseFuns {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            color,
-            resolved,
-            implicit_candidates,
-        } = self;
+        let Self { color, resolved, implicit_candidates } = self;
         w.write(format!("use_funs#{} ", color));
         resolved.ast_debug(w);
         if !implicit_candidates.is_empty() {
@@ -1154,9 +1119,7 @@ impl AstDebug for SyntaxMethod {
             kind,
         } = self;
         let kind_str = format!("{:?}", kind.value);
-        w.write(format!(
-            "syntax({kind_str}) for {tname} -> {target_m}::{target_f}\n"
-        ));
+        w.write(format!("syntax({kind_str}) for {tname} -> {target_m}::{target_f}\n"));
     }
 }
 
@@ -1301,14 +1264,7 @@ impl AstDebug for (DatatypeName, &EnumDefinition) {
 
 impl AstDebug for (VariantName, &VariantDefinition) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            VariantDefinition {
-                index,
-                fields,
-                loc: _,
-            },
-        ) = self;
+        let (name, VariantDefinition { index, fields, loc: _ }) = self;
 
         w.write(format!("variant#{index} {name}"));
         match fields {
@@ -1368,11 +1324,7 @@ impl AstDebug for (FunctionName, &Function) {
 
 impl AstDebug for FunctionSignature {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let FunctionSignature {
-            type_parameters,
-            parameters,
-            return_type,
-        } = self;
+        let FunctionSignature { type_parameters, parameters, return_type } = self;
         type_parameters.ast_debug(w);
         w.write("(");
         w.comma(parameters, |w, (mut_, v, st)| {
@@ -1403,10 +1355,7 @@ impl AstDebug for Var_ {
 
 impl AstDebug for BlockLabel {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let BlockLabel {
-            is_implicit: _,
-            label: sp!(_, Var_ { name, id, color }),
-        } = self;
+        let BlockLabel { is_implicit: _, label: sp!(_, Var_ { name, id, color }) } = self;
         w.write(format!("'{name}"));
         if *id != 0 {
             w.write(format!("#{id}"));
@@ -1439,17 +1388,8 @@ impl AstDebug for Vec<DatatypeTypeParameter> {
 
 impl AstDebug for (ConstantName, &Constant) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            Constant {
-                warning_filter,
-                index,
-                attributes,
-                loc: _loc,
-                signature,
-                value,
-            },
-        ) = self;
+        let (name, Constant { warning_filter, index, attributes, loc: _loc, signature, value }) =
+            self;
         warning_filter.ast_debug(w);
         attributes.ast_debug(w);
         w.write(format!("const#{index} {name}:"));
@@ -1478,11 +1418,7 @@ impl AstDebug for TypeName_ {
 
 impl AstDebug for TParam {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let TParam {
-            id,
-            user_specified_name,
-            abilities,
-        } = self;
+        let TParam { id, user_specified_name, abilities } = self;
         w.write(format!("{}#{}", user_specified_name, id.0));
         ability_constraints_ast_debug(w, abilities);
     }
@@ -1601,9 +1537,7 @@ impl AstDebug for Exp_ {
         use Exp_ as E;
         match self {
             E::Unit { trailing } if !trailing => w.write("()"),
-            E::Unit {
-                trailing: _trailing,
-            } => w.write("/*()*/"),
+            E::Unit { trailing: _trailing } => w.write("/*()*/"),
             E::Value(v) => v.ast_debug(w),
             E::Var(v) => v.ast_debug(w),
             E::Constant(m, c) => w.write(format!("{}::{}", m, c)),
@@ -1814,13 +1748,8 @@ impl AstDebug for Exp_ {
 
 impl AstDebug for Lambda {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Lambda {
-            parameters: sp!(_, bs),
-            return_type,
-            return_label,
-            use_fun_color,
-            body: e,
-        } = self;
+        let Lambda { parameters: sp!(_, bs), return_type, return_label, use_fun_color, body: e } =
+            self;
         return_label.ast_debug(w);
         w.write(": ");
         bs.ast_debug(w);
@@ -1835,11 +1764,7 @@ impl AstDebug for Lambda {
 
 impl AstDebug for Block {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Block {
-            name,
-            from_macro_argument,
-            seq,
-        } = self;
+        let Block { name, from_macro_argument, seq } = self;
         if let Some(name) = name {
             name.ast_debug(w);
             w.write(": ");
@@ -1888,14 +1813,7 @@ impl AstDebug for ExpDotted_ {
 
 impl AstDebug for MatchArm_ {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let MatchArm_ {
-            pattern,
-            binders: _,
-            guard,
-            guard_binders: _,
-            rhs_binders: _,
-            rhs,
-        } = self;
+        let MatchArm_ { pattern, binders: _, guard, guard_binders: _, rhs_binders: _, rhs } = self;
         pattern.ast_debug(w);
         if let Some(exp) = guard.as_ref() {
             w.write(" if (");
@@ -1981,11 +1899,7 @@ impl AstDebug for LValue_ {
         use LValue_ as L;
         match self {
             L::Ignore => w.write("_"),
-            L::Var {
-                mut_,
-                var,
-                unused_binding,
-            } => {
+            L::Var { mut_, var, unused_binding } => {
                 if let Some(mut_) = mut_ {
                     mut_.ast_debug(w);
                 }

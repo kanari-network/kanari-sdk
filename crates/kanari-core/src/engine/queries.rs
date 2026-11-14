@@ -216,11 +216,7 @@ impl BlockchainEngine {
     /// Returns the hex-encoded hash of the latest checkpoint.
     pub fn latest_checkpoint_hash_hex(&self) -> String {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        chain
-            .latest_checkpoint()
-            .hash()
-            .map(hex::encode)
-            .unwrap_or_default()
+        chain.latest_checkpoint().hash().map(hex::encode).unwrap_or_default()
     }
 
     /// Returns the hex-encoded state root of the latest checkpoint.
@@ -351,9 +347,7 @@ impl BlockchainEngine {
         max_version: Option<u64>,
     ) -> Result<Vec<ObjectInfo>> {
         let state = self.state_read();
-        let owner_addr = owner
-            .map(KanariAddress::parse_to_account_address)
-            .transpose()?;
+        let owner_addr = owner.map(KanariAddress::parse_to_account_address).transpose()?;
         let owner_kind_filter = owner_kind.as_ref().map(|kind| match kind {
             RpcObjectOwnerKindFilter::Address => ObjectOwnerKind::AddressOwner("".to_string()),
             RpcObjectOwnerKindFilter::Shared => ObjectOwnerKind::Shared,
@@ -393,10 +387,7 @@ impl BlockchainEngine {
             // A non-canonicalizable id never names an object.
             return Ok(None);
         };
-        Ok(Some(Self::object_info_from_created_object(
-            canonical_id,
-            obj,
-        )))
+        Ok(Some(Self::object_info_from_created_object(canonical_id, obj)))
     }
 
     /// Returns the bytecode of a module at the given address, or None if not found.
@@ -424,12 +415,7 @@ impl BlockchainEngine {
         runtime
             .list_modules()
             .into_iter()
-            .map(|module_id| {
-                (
-                    format!("0x{}", module_id.address()),
-                    module_id.name().to_string(),
-                )
-            })
+            .map(|module_id| (format!("0x{}", module_id.address()), module_id.name().to_string()))
             .collect()
     }
 
@@ -513,17 +499,13 @@ impl BlockchainEngine {
     /// Returns block data for a given height, or None if the block does not exist.
     pub fn get_block(&self, height: u64) -> Option<BlockData> {
         let chain = self.blockchain_read_for_query("get_block");
-        chain
-            .get_checkpoint(height)
-            .map(Self::block_data_from_checkpoint)
+        chain.get_checkpoint(height).map(Self::block_data_from_checkpoint)
     }
 
     /// Returns full block data including transactions for a given height.
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
         let chain = self.blockchain_read_for_query("get_full_block");
-        chain
-            .get_checkpoint(height)
-            .map(Self::full_block_data_from_checkpoint)
+        chain.get_checkpoint(height).map(Self::full_block_data_from_checkpoint)
     }
 
     /// Returns checkpoint sync data including DAG vertices for a given sequence.
@@ -537,19 +519,13 @@ impl BlockchainEngine {
             &checkpoint.vertices,
             Self::dag_vertices_per_checkpoint_sync(),
         )?;
-        Ok(Some(CheckpointSyncData {
-            checkpoint,
-            dag_vertices,
-        }))
+        Ok(Some(CheckpointSyncData { checkpoint, dag_vertices }))
     }
 
     /// Returns the hash of a checkpoint at the given sequence, or None if not found.
     pub fn checkpoint_hash(&self, sequence: u64) -> Result<Option<Vec<u8>>> {
         let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
-        chain
-            .get_checkpoint(sequence)
-            .map(Checkpoint::hash)
-            .transpose()
+        chain.get_checkpoint(sequence).map(Checkpoint::hash).transpose()
     }
 
     fn decode_block_hash_field(label: &str, value: &str) -> Result<Vec<u8>> {
@@ -599,11 +575,9 @@ impl BlockchainEngine {
         );
 
         if checkpoint.sequence <= stats.height {
-            let local = self
-                .get_checkpoint_sync(checkpoint.sequence)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Missing local checkpoint #{}", checkpoint.sequence)
-                })?;
+            let local = self.get_checkpoint_sync(checkpoint.sequence)?.ok_or_else(|| {
+                anyhow::anyhow!("Missing local checkpoint #{}", checkpoint.sequence)
+            })?;
             anyhow::ensure!(
                 local.checkpoint.hash()? == checkpoint.hash()?,
                 "Conflicting checkpoint #{}",

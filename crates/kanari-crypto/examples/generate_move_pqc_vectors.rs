@@ -16,11 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message = b"kanari move pqc positive vector";
     println!("message={}", hex::encode(message));
 
-    for curve in [
-        CurveType::Falcon512,
-        CurveType::Falcon1024,
-        CurveType::SphincsPlusSha256Robust,
-    ] {
+    for curve in [CurveType::Falcon512, CurveType::Falcon1024, CurveType::SphincsPlusSha256Robust] {
         let keypair = generate_keypair(curve)?;
         let signature = sign_message(&keypair.private_key, message, curve)?;
         println!("curve={curve}");

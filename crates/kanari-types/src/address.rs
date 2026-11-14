@@ -365,11 +365,7 @@ impl FromStr for Address {
     type Err = AddressParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(address) = Address::from_hex_literal(s) {
-            Ok(address)
-        } else {
-            Self::from_hex(s)
-        }
+        if let Ok(address) = Address::from_hex_literal(s) { Ok(address) } else { Self::from_hex(s) }
     }
 }
 
@@ -397,11 +393,7 @@ impl AddressModule {
 
     /// Fully qualified Move module path.
     pub fn module_path() -> String {
-        format!(
-            "{}::{}",
-            Address::KANARI_SYSTEM_ADDRESS,
-            Self::ADDRESS_MODULE
-        )
+        format!("{}::{}", Address::KANARI_SYSTEM_ADDRESS, Self::ADDRESS_MODULE)
     }
 
     /// Get function names used in address module.
@@ -534,12 +526,9 @@ pub enum AddressParseError {
 impl fmt::Display for AddressParseError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::InvalidLength(len) => write!(
-                f,
-                "Invalid address length: {} (expected {})",
-                len,
-                Address::LENGTH
-            ),
+            Self::InvalidLength(len) => {
+                write!(f, "Invalid address length: {} (expected {})", len, Address::LENGTH)
+            }
             Self::InvalidHexPrefix => write!(f, "Invalid hex literal prefix (expected '0x')"),
             Self::InvalidHexString => write!(f, "Invalid hex string"),
             Self::InvalidCharacter(c) => write!(f, "Invalid character in hex string: '{}'", c),

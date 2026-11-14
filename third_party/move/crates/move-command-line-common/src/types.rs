@@ -116,9 +116,8 @@ impl Token for TypeToken {
             }
             c if c.is_ascii_alphabetic() => {
                 // c + remaining
-                let len = 1 + chars
-                    .take_while(|c| identifier::is_valid_identifier_char(*c))
-                    .count();
+                let len =
+                    1 + chars.take_while(|c| identifier::is_valid_identifier_char(*c)).count();
                 (Self::Ident, len)
             }
             _ => bail!("unrecognized token: {}", s),
@@ -131,10 +130,7 @@ impl ParsedModuleId {
         self,
         mapping: &impl Fn(&str) -> Option<AccountAddress>,
     ) -> anyhow::Result<ModuleId> {
-        Ok(ModuleId::new(
-            self.address.into_account_address(mapping)?,
-            Identifier::new(self.name)?,
-        ))
+        Ok(ModuleId::new(self.address.into_account_address(mapping)?, Identifier::new(self.name)?))
     }
 }
 

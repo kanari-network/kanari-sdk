@@ -389,6 +389,16 @@ extension's own <code>K</code> can satisfy it. Mirrors <code>sui::kiosk::Persona
 ## Constants
 
 
+<a name="0x2_kiosk_U64_MAX"></a>
+
+Maximum value of u64 (2^64 - 1).
+
+
+<pre><code><b>const</b> <a href="kiosk.md#0x2_kiosk_U64_MAX">U64_MAX</a>: u64 = 18446744073709551615;
+</code></pre>
+
+
+
 <a name="0x2_kiosk_E_ALREADY_EXCLUSIVE"></a>
 
 The listing already has a <code><a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a></code>.
@@ -565,6 +575,16 @@ kiosk showed it as withdrawn.
 
 
 <pre><code><b>const</b> <a href="kiosk.md#0x2_kiosk_E_PRICE_ZERO">E_PRICE_ZERO</a>: u64 = 11;
+</code></pre>
+
+
+
+<a name="0x2_kiosk_E_PROFIT_OVERFLOW"></a>
+
+Overflow when recording profit (current + amount > u64::MAX).
+
+
+<pre><code><b>const</b> <a href="kiosk.md#0x2_kiosk_E_PROFIT_OVERFLOW">E_PROFIT_OVERFLOW</a>: u64 = 20;
 </code></pre>
 
 
@@ -1030,13 +1050,12 @@ rather than left dangling.
 
 ## Function `reserve_item`
 
-Reserve the listing at <code>item_id</code> for whoever receives the returned cap.
+Reserve the listing at <code>item_id</code> and transfer the <code><a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a></code> to the
+transaction sender.
 
-Entry functions cannot return the <code><a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a></code>, so from a CLI this
-reserves the listing without handing the cap anywhere — which makes it
-unusable until <code>unreserve_to</code> is called. That is a real limitation of the
-entry boundary, not a shortcut: the non-entry <code>reserve</code> returns the cap
-and is what a composing module should call.
+Unlike the non-entry <code>reserve</code> which returns the cap, this entry function
+transfers it to the caller so it can be held, transferred, or used in
+<code>purchase_with_cap</code> or <code>unreserve</code>. The cap is NOT burned.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_reserve_item">reserve_item</a>&lt;K: key, T: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, cap: &<a href="kiosk.md#0x2_kiosk_KioskOwnerCap">kiosk::KioskOwnerCap</a>&lt;K&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1059,10 +1078,9 @@ and is what a composing module should call.
         item: item_id
     };
     <b>let</b> purchase_cap = <a href="kiosk.md#0x2_kiosk_reserve">reserve</a>&lt;K, T&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>, cap, handle, ctx);
-    // Burn the cap so the listing is not left reserved against an <a href="object.md#0x2_object">object</a>
-    // nobody can hold.
-    <b>let</b> <a href="kiosk.md#0x2_kiosk_PurchaseCap">PurchaseCap</a> { id, <a href="kiosk.md#0x2_kiosk">kiosk</a>: _, item: _ } = purchase_cap;
-    <a href="object.md#0x2_object_delete">object::delete</a>(id);
+    // Transfer the cap <b>to</b> the transaction sender so they can hold/<b>use</b> it.
+    // This is the entry-function pattern: <b>return</b> via <a href="transfer.md#0x2_transfer">transfer</a>, not <b>return</b> value.
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(purchase_cap, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
 }
 </code></pre>
 
@@ -1684,11 +1702,15 @@ entry function can neither return one nor leave it unresolved. This
 wrapper exists for the only case where that is honestly possible: a
 policy with zero rules, so <code>confirm_request</code> has nothing to wait for.
 
-**This is not a general sale path.** A type with a royalty rule cannot be
-sold through here — deliberately. Resolving the request means paying
-that type's rules, and those belong to the type owner, not to the
-marketplace. A type with rules must be sold through <code>kanari_pet::trade</code>
-or another module that knows how to discharge the hot potato.
+**IMPORTANT:** This entry function ONLY works for unregulated types.
+If the type has royalty rules or other transfer policies, use
+<code>kanari_pet::trade</code> or another module that knows how to discharge
+the TransferRequest hot potato.
+
+This restriction is deliberate: resolving the request means paying
+the type's rules, and those belong to the type owner, not to the
+marketplace. A type with rules must be sold through a module that
+knows how to discharge the hot potato.
 
 
 <pre><code><b>public</b> entry <b>fun</b> <a href="kiosk.md#0x2_kiosk_buy_unregulated">buy_unregulated</a>&lt;K: key, T: store, key, Asset: store, key&gt;(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, payment: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;Asset&gt;, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1846,6 +1868,7 @@ payouts rather than paying inline.
     amount: u64
 ) {
     <b>let</b> current = <a href="kiosk.md#0x2_kiosk_profit_of">profit_of</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, &currency);
+    <b>assert</b>!(current &lt;= <a href="kiosk.md#0x2_kiosk_U64_MAX">U64_MAX</a> - amount, <a href="kiosk.md#0x2_kiosk_E_PROFIT_OVERFLOW">E_PROFIT_OVERFLOW</a>);
     <a href="kiosk.md#0x2_kiosk_set_profit">set_profit</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>, currency, current + amount);
 }
 </code></pre>
@@ -2200,8 +2223,8 @@ Pull the item back out and drop its listing entry.
 
 ## Function `set_listing`
 
-<code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a></code> aborts on a duplicate key, so a replace is
-remove-then-insert.
+<code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a></code> aborts on a duplicate key, so an update is
+done via <code>get_mut</code> if the key exists.
 
 
 <pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">kiosk::Kiosk</a>, item_id: <a href="object.md#0x2_object_ID">object::ID</a>, listing: <a href="kiosk.md#0x2_kiosk_Listing">kiosk::Listing</a>)
@@ -2215,11 +2238,10 @@ remove-then-insert.
 
 <pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_set_listing">set_listing</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, item_id: ID, listing: <a href="kiosk.md#0x2_kiosk_Listing">Listing</a>) {
     <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.items, &item_id)) {
-        <b>let</b> (removed_key, removed) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.items, &item_id);
-        <b>let</b> _ = removed_key;
-        <b>let</b> _ = removed;
-    };
-    <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.items, item_id, listing);
+        *<a href="vec_map.md#0x2_vec_map_get_mut">vec_map::get_mut</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.items, &item_id) = listing;
+    } <b>else</b> {
+        <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.items, item_id, listing);
+    }
 }
 </code></pre>
 
@@ -2244,11 +2266,10 @@ remove-then-insert.
 
 <pre><code><b>fun</b> <a href="kiosk.md#0x2_kiosk_set_profit">set_profit</a>(<a href="kiosk.md#0x2_kiosk">kiosk</a>: &<b>mut</b> <a href="kiosk.md#0x2_kiosk_Kiosk">Kiosk</a>, currency: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, amount: u64) {
     <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&<a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, &currency)) {
-        <b>let</b> (removed_key, removed) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, &currency);
-        <b>let</b> _ = removed_key;
-        <b>let</b> _ = removed;
-    };
-    <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, currency, amount);
+        *<a href="vec_map.md#0x2_vec_map_get_mut">vec_map::get_mut</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, &currency) = amount;
+    } <b>else</b> {
+        <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> <a href="kiosk.md#0x2_kiosk">kiosk</a>.profits, currency, amount);
+    }
 }
 </code></pre>
 

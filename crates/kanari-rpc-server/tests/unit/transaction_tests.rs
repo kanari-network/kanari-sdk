@@ -63,10 +63,7 @@ fn committed_failed_effect_is_not_reported_as_success() {
     assert!(details.submitted);
     assert!(details.committed);
     assert_eq!(details.gas_used, Some(210));
-    assert_eq!(
-        details.effects.unwrap().error_message.as_deref(),
-        Some("Move execution failed")
-    );
+    assert_eq!(details.effects.unwrap().error_message.as_deref(), Some("Move execution failed"));
 }
 
 #[test]
@@ -114,13 +111,9 @@ fn structured_transaction_error_attaches_native_transfer_policy() {
     let error = transaction_error_with_reason(
         "Transaction error: Native transfer needs one Coin<0x2::kanari::KANARI> with enough balance for transfer plus gas, or two distinct coins with enough balance for each",
     );
-    let details = error
-        .transaction_error_details()
-        .expect("structured transaction details should exist");
-    assert_eq!(
-        details.reason,
-        TransactionErrorReason::NativeTransferPolicyNotSatisfied
-    );
+    let details =
+        error.transaction_error_details().expect("structured transaction details should exist");
+    assert_eq!(details.reason, TransactionErrorReason::NativeTransferPolicyNotSatisfied);
     assert!(details.native_transfer_policy.is_some());
 }
 
@@ -128,9 +121,7 @@ fn structured_transaction_error_attaches_native_transfer_policy() {
 fn object_input_ref_metadata_must_be_complete() {
     let input = kanari_types::transaction::ObjectInput {
         object_ref: kanari_types::transaction::ObjectRef::new("0x1", Some(1), None),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
 
@@ -185,9 +176,7 @@ fn object_input_must_match_current_state_ref() {
             Some(1),
             Some("missing".to_string()),
         ),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
 
@@ -196,11 +185,7 @@ fn object_input_must_match_current_state_ref() {
 
     assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
     assert!(
-        err.error
-            .as_ref()
-            .expect("rpc error")
-            .message
-            .contains("does not match current state ref")
+        err.error.as_ref().expect("rpc error").message.contains("does not match current state ref")
     );
 }
 
@@ -212,9 +197,7 @@ fn duplicate_mutable_object_inputs_are_rejected_at_rpc_boundary() {
             Some(1),
             Some("digest".to_string()),
         ),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
 
@@ -223,19 +206,13 @@ fn duplicate_mutable_object_inputs_are_rejected_at_rpc_boundary() {
 
     assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
     assert!(
-        err.error
-            .as_ref()
-            .expect("rpc error")
-            .message
-            .contains("Duplicate mutable object input")
+        err.error.as_ref().expect("rpc error").message.contains("Duplicate mutable object input")
     );
 }
 
 #[test]
 fn equivalent_hex_mutable_object_inputs_are_rejected_at_rpc_boundary() {
-    let owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-        "0xa".to_string(),
-    ));
+    let owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string()));
     let short = kanari_types::transaction::ObjectInput {
         object_ref: kanari_types::transaction::ObjectRef::new(
             "0x1",
@@ -260,11 +237,7 @@ fn equivalent_hex_mutable_object_inputs_are_rejected_at_rpc_boundary() {
 
     assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
     assert!(
-        err.error
-            .as_ref()
-            .expect("rpc error")
-            .message
-            .contains("Duplicate mutable object input")
+        err.error.as_ref().expect("rpc error").message.contains("Duplicate mutable object input")
     );
 }
 
@@ -276,9 +249,7 @@ fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
             Some(1),
             Some("digest".to_string()),
         ),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
     let gas_payment = kanari_types::transaction::GasPayment {
@@ -315,9 +286,7 @@ fn equivalent_hex_gas_overlap_is_rejected_at_rpc_boundary() {
             Some(1),
             Some("digest".to_string()),
         ),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
     let gas_payment = kanari_types::transaction::GasPayment {
@@ -364,11 +333,7 @@ fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
 
     assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
     assert!(
-        err.error
-            .as_ref()
-            .expect("rpc error")
-            .message
-            .contains("Duplicate gas payment object")
+        err.error.as_ref().expect("rpc error").message.contains("Duplicate gas payment object")
     );
 }
 
@@ -380,9 +345,7 @@ fn invalid_object_input_id_is_rejected_at_rpc_boundary() {
             Some(1),
             Some("digest".to_string()),
         ),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            "0xa".to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xa".to_string())),
         mutable: true,
     };
 
@@ -390,13 +353,7 @@ fn invalid_object_input_id_is_rejected_at_rpc_boundary() {
         .expect_err("invalid object id must fail");
 
     assert_eq!(err.error.as_ref().expect("rpc error").code, -32602);
-    assert!(
-        err.error
-            .as_ref()
-            .expect("rpc error")
-            .message
-            .contains("must be a valid object id")
-    );
+    assert!(err.error.as_ref().expect("rpc error").message.contains("must be a valid object id"));
 }
 
 proptest! {
@@ -628,10 +585,7 @@ fn native_transfer_prefers_one_coin_for_transfer_and_gas() {
         version: 1,
         digest: Some(format!("{id}:digest")),
     };
-    let owned_objects = vec![
-        coin("0xsmall", 1_000_000_000),
-        coin("0xlarge", 11_000_000_000),
-    ];
+    let owned_objects = vec![coin("0xsmall", 1_000_000_000), coin("0xlarge", 11_000_000_000)];
 
     let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
@@ -757,10 +711,7 @@ fn native_transfer_uses_one_coin_when_pair_refs_are_locked() {
     )
     .unwrap();
     assert_eq!(pending_transfer.object_id, "0x3");
-    assert_eq!(
-        pending_gas.payment_objects[0].object_id,
-        pending_transfer.object_id
-    );
+    assert_eq!(pending_gas.payment_objects[0].object_id, pending_transfer.object_id);
 
     let (transfer, gas) = select_native_transfer_and_gas_payment(
         &owned_objects,
@@ -908,9 +859,7 @@ fn coin_change(
         ),
         previous_object_ref: None,
         type_: Some(format!("0x2::coin::Coin<{token_type}>")),
-        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-            owner.to_string(),
-        )),
+        owner: Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(owner.to_string())),
         previous_owner: None,
         previous_version: Some(1),
         amount: None,
@@ -948,14 +897,8 @@ fn transfers_from_effect_collects_every_coin_movement() {
 
     let transfers = transfers_from_effect(None, &effect);
     assert_eq!(transfers.len(), 2);
-    assert_eq!(
-        transfers[0].transfer_token_type.as_deref(),
-        Some("0x1::james::JAMES")
-    );
-    assert_eq!(
-        transfers[1].transfer_token_type.as_deref(),
-        Some("0x2::kanari::KANARI")
-    );
+    assert_eq!(transfers[0].transfer_token_type.as_deref(), Some("0x1::james::JAMES"));
+    assert_eq!(transfers[1].transfer_token_type.as_deref(), Some("0x2::kanari::KANARI"));
 }
 
 #[test]
@@ -968,10 +911,7 @@ fn effect_carried_amount_flows_into_transfer() {
     let transfers = transfers_from_effect(None, &effect);
     assert_eq!(transfers.len(), 1);
     assert_eq!(transfers[0].transfer_amount, Some(100_000_000));
-    assert_eq!(
-        transfers[0].transfer_token_type.as_deref(),
-        Some("0x1::james::JAMES")
-    );
+    assert_eq!(transfers[0].transfer_token_type.as_deref(), Some("0x1::james::JAMES"));
 }
 
 #[test]
@@ -1008,10 +948,7 @@ fn enrich_merges_arg_amount_with_effect_owner_by_coin_id() {
     assert_eq!(transfers.len(), 1);
     assert_eq!(transfers[0].recipient.as_deref(), Some("0xbbb"));
     assert_eq!(transfers[0].transfer_amount, Some(77));
-    assert_eq!(
-        transfers[0].transfer_token_type.as_deref(),
-        Some("0x1::james::JAMES")
-    );
+    assert_eq!(transfers[0].transfer_token_type.as_deref(), Some("0x1::james::JAMES"));
 }
 
 #[test]
@@ -1029,9 +966,8 @@ fn effect_only_sender_change_back_is_filtered_as_noise() {
     );
     let mut effect = empty_success_effect();
     let mut noise = coin_change("0xaaa", "0xsender", "0x1::james::JAMES");
-    noise.previous_owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-        "0xsender".to_string(),
-    ));
+    noise.previous_owner =
+        Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xsender".to_string()));
     effect.mutated = vec![noise];
     enrich_transfer_from_effect(None, &mut details, &effect);
     assert!(
@@ -1066,9 +1002,8 @@ fn arg_backed_self_transfer_survives_noise_filter() {
     );
     let mut effect = empty_success_effect();
     let mut noise = coin_change("0xaaa", "0xsender", "0x1::james::JAMES");
-    noise.previous_owner = Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-        "0xsender".to_string(),
-    ));
+    noise.previous_owner =
+        Some(kanari_types::transaction::ObjectOwnerKind::AddressOwner("0xsender".to_string()));
     effect.mutated = vec![noise];
     enrich_transfer_from_effect(None, &mut details, &effect);
     let transfers = details.transfers.as_ref().unwrap();
@@ -1126,10 +1061,7 @@ fn typeless_arg_entry_backfills_from_matching_effect_entry() {
         .iter()
         .find(|t| t.coin_object_id.as_deref() == Some("0xsource"))
         .expect("arg entry survives");
-    assert_eq!(
-        arg_entry.transfer_token_type.as_deref(),
-        Some("0xabc::thb::THB")
-    );
+    assert_eq!(arg_entry.transfer_token_type.as_deref(), Some("0xabc::thb::THB"));
 }
 
 #[test]
@@ -1219,14 +1151,8 @@ fn recipient_sees_incoming_token_transfer_in_activity() {
     };
     assert!(!tx_matches_owner(&entry_tx, Some(owner_norm)));
     assert!(details_involve_owner(&details, Some(owner_norm)));
-    assert!(details_involve_owner(
-        &details,
-        Some(sender.trim_start_matches("0x"))
-    ));
-    assert!(!details_involve_owner(
-        &details,
-        Some(stranger.trim_start_matches("0x"))
-    ));
+    assert!(details_involve_owner(&details, Some(sender.trim_start_matches("0x"))));
+    assert!(!details_involve_owner(&details, Some(stranger.trim_start_matches("0x"))));
     assert!(details_involve_owner(&details, None));
 }
 
@@ -1284,10 +1210,7 @@ fn concurrent_nonce_generation_stays_unique_above_floor() {
     for h in handles {
         let n = h.join().expect("nonce thread panicked");
         assert!(n >= floor, "floor not honored under concurrency: {n}");
-        assert!(
-            seen.insert(n),
-            "duplicate nonce generated concurrently: {n}"
-        );
+        assert!(seen.insert(n), "duplicate nonce generated concurrently: {n}");
     }
 }
 
@@ -1425,18 +1348,12 @@ fn krc1155_selection_selects_only_the_requested_token_type() {
 
 #[test]
 fn krc1155_selection_errors_when_no_balance_of_that_token_exists() {
-    let owned = vec![krc1155_balance_object_info(
-        "0x1",
-        KRC1155_TEST_TOKEN_A,
-        500,
-    )];
+    let owned = vec![krc1155_balance_object_info("0x1", KRC1155_TEST_TOKEN_A, 500)];
 
     let error = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_B, 1).unwrap_err();
 
     assert!(
-        error
-            .to_string()
-            .contains("No KRC-1155 balance object found"),
+        error.to_string().contains("No KRC-1155 balance object found"),
         "unexpected error: {error}"
     );
 }
@@ -1467,10 +1384,7 @@ fn krc1155_selection_errors_when_more_than_three_objects_would_be_needed() {
 
     let error = select_krc1155_balances(&owned, KRC1155_TEST_TOKEN_A, 35).unwrap_err();
 
-    assert!(
-        error.to_string().contains("at most 3 can be spent"),
-        "unexpected error: {error}"
-    );
+    assert!(error.to_string().contains("at most 3 can be spent"), "unexpected error: {error}");
 }
 
 fn usd_price_table() -> kanari_types::gas_market::GasPriceTable {
@@ -1521,11 +1435,7 @@ fn auto_gas_prefers_usd_when_available() {
 
 #[test]
 fn auto_gas_falls_back_to_kanari_when_usd_is_unavailable() {
-    let owned = vec![coin_object_info(
-        "0x2",
-        kanari_types::gas_coin::GAS_COIN,
-        1_000_000_000,
-    )];
+    let owned = vec![coin_object_info("0x2", kanari_types::gas_coin::GAS_COIN, 1_000_000_000)];
     let (payment, price) = select_gas_payment_with_table(
         &owned,
         "0xa",
@@ -1600,10 +1510,7 @@ fn transfer_hash_agrees_across_id_spellings_once_canonicalized() {
     // The verbatim spelling really does change the hash (why the build side
     // hands out canonical ids), and canonicalization is idempotent.
     assert_ne!(make(short).hash(), make(&canonical).hash());
-    assert_eq!(
-        make(&canonical).hash(),
-        make(&canonical_object_id(&canonical).unwrap()).hash()
-    );
+    assert_eq!(make(&canonical).hash(), make(&canonical_object_id(&canonical).unwrap()).hash());
 }
 
 /// Regression: an NFT moved with the framework entry

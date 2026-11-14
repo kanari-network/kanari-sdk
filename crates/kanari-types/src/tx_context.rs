@@ -27,13 +27,7 @@ impl TxContextRecord {
         epoch_timestamp_ms: u64,
         ids_created: u64,
     ) -> Self {
-        Self {
-            sender,
-            tx_hash,
-            epoch,
-            epoch_timestamp_ms,
-            ids_created,
-        }
+        Self { sender, tx_hash, epoch, epoch_timestamp_ms, ids_created }
     }
 
     /// Create from AccountAddress

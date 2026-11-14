@@ -187,10 +187,9 @@ impl Login {
                     Ok(()) => eprintln!(
                         "Removed stale salt vault (only the kanari-crypto standard is used)."
                     ),
-                    Err(e) => eprintln!(
-                        "Note: cannot remove stale salt vault {}: {e:#}",
-                        vault.display()
-                    ),
+                    Err(e) => {
+                        eprintln!("Note: cannot remove stale salt vault {}: {e:#}", vault.display())
+                    }
                 }
             }
         }
@@ -226,10 +225,7 @@ impl Login {
         );
         // The standard salt re-derives from the account itself (kanari-crypto),
         // so it needs no backup and is identical on the Android app.
-        eprintln!(
-            "Salt (kanari-crypto standard, shared with the app): {}",
-            session.salt_hex
-        );
+        eprintln!("Salt (kanari-crypto standard, shared with the app): {}", session.salt_hex);
         eprintln!(
             "WARNING: the session file holds the ephemeral secret (usable until max_epoch {}). \
              Keep it owner-only; `kanari zklogin logout` deletes it.",
@@ -263,10 +259,7 @@ pub fn build_auth_url(
         ("prompt", "select_account".to_string()),
         ("state", state.to_string()),
     ];
-    let query: Vec<String> = q
-        .iter()
-        .map(|(k, v)| format!("{k}={}", percent_encode(v)))
-        .collect();
+    let query: Vec<String> = q.iter().map(|(k, v)| format!("{k}={}", percent_encode(v))).collect();
     format!("{GOOGLE_AUTH_URL}?{}", query.join("&"))
 }
 
@@ -347,10 +340,7 @@ fn hex_val(b: u8) -> Option<u8> {
 /// single argv with no shell in between.
 #[cfg(target_os = "windows")]
 fn windows_browser_cmd(url: &str) -> (String, Vec<String>) {
-    (
-        "rundll32.exe".to_string(),
-        vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()],
-    )
+    ("rundll32.exe".to_string(), vec!["url.dll,FileProtocolHandler".to_string(), url.to_string()])
 }
 
 fn open_browser(url: &str) {
@@ -394,11 +384,7 @@ fn wait_for_code(port: u16, timeout_secs: u64, expected_state: &str) -> Result<S
         let mut buf = [0u8; 8192];
         let n = stream.read(&mut buf).unwrap_or(0);
         let request = String::from_utf8_lossy(&buf[..n]);
-        let path = request
-            .lines()
-            .next()
-            .and_then(|l| l.split_whitespace().nth(1))
-            .unwrap_or("/");
+        let path = request.lines().next().and_then(|l| l.split_whitespace().nth(1)).unwrap_or("/");
         let outcome = check_state(path, expected_state).and_then(|p| extract_code(&p));
         let body = match &outcome {
             Ok(_) => "<h1>Logged in</h1><p>You can close this tab and return to the CLI.</p>",
@@ -436,10 +422,7 @@ fn read_code_manually(expected_state: Option<&str>) -> Result<String> {
     eprint!("Paste the full redirect URL (or just the code): ");
     let _ = std::io::stderr().flush();
     let mut line = String::new();
-    std::io::stdin()
-        .lock()
-        .read_line(&mut line)
-        .context("cannot read stdin")?;
+    std::io::stdin().lock().read_line(&mut line).context("cannot read stdin")?;
     let line = line.trim();
     if line.is_empty() {
         anyhow::bail!("empty input");
@@ -475,10 +458,8 @@ fn exchange_code(
     }
     // reqwest 0.13 blocking has no `.form()` helper here; the token endpoint
     // only needs `application/x-www-form-urlencoded`, which we build directly.
-    let body: Vec<String> = pairs
-        .iter()
-        .map(|(k, v)| format!("{k}={}", percent_encode(v)))
-        .collect();
+    let body: Vec<String> =
+        pairs.iter().map(|(k, v)| format!("{k}={}", percent_encode(v))).collect();
     let resp: serde_json::Value = serde_json::from_slice(&read_capped(
         http.post(GOOGLE_TOKEN_URL)
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -490,14 +471,8 @@ fn exchange_code(
     if let Some(id_token) = resp.get("id_token").and_then(|v| v.as_str()) {
         return Ok(id_token.to_string());
     }
-    let err = resp
-        .get("error")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-    let desc = resp
-        .get("error_description")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let err = resp.get("error").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let desc = resp.get("error_description").and_then(|v| v.as_str()).unwrap_or("");
     anyhow::bail!("token exchange failed [{err}]: {desc}")
 }
 
@@ -517,20 +492,12 @@ const MAX_HTTP_BYTES: u64 = 256 * 1024;
 
 fn read_capped(resp: reqwest::blocking::Response) -> Result<Vec<u8>> {
     if let Some(len) = resp.content_length() {
-        anyhow::ensure!(
-            len <= MAX_HTTP_BYTES,
-            "HTTP response too large ({len} bytes)"
-        );
+        anyhow::ensure!(len <= MAX_HTTP_BYTES, "HTTP response too large ({len} bytes)");
     }
     let mut buf = Vec::new();
     use std::io::Read;
-    resp.take(MAX_HTTP_BYTES + 1)
-        .read_to_end(&mut buf)
-        .context("cannot read HTTP response")?;
-    anyhow::ensure!(
-        (buf.len() as u64) <= MAX_HTTP_BYTES,
-        "HTTP response too large"
-    );
+    resp.take(MAX_HTTP_BYTES + 1).read_to_end(&mut buf).context("cannot read HTTP response")?;
+    anyhow::ensure!((buf.len() as u64) <= MAX_HTTP_BYTES, "HTTP response too large");
     Ok(buf)
 }
 
@@ -580,10 +547,7 @@ mod tests {
 
     #[test]
     fn extract_code_handles_shapes() {
-        assert_eq!(
-            extract_code("/callback?code=AUTHCODE&scope=openid").unwrap(),
-            "AUTHCODE"
-        );
+        assert_eq!(extract_code("/callback?code=AUTHCODE&scope=openid").unwrap(), "AUTHCODE");
         assert_eq!(extract_code("/callback?scope=x&code=A%2BB").unwrap(), "A+B");
         assert!(extract_code("/callback").is_err());
         assert!(extract_code("/callback?error=access_denied").is_err());

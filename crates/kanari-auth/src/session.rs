@@ -223,23 +223,14 @@ impl SessionManager {
             }
         }
 
-        let session = Session::new(
-            email.clone(),
-            wallet_address,
-            private_key,
-            curve_type,
-            timeout,
-        );
+        let session = Session::new(email.clone(), wallet_address, private_key, curve_type, timeout);
         let session_id = session.session_id.clone();
 
         // Store session
         self.sessions.insert(session_id.clone(), session.clone());
 
         // Index by email
-        self.email_sessions
-            .entry(email)
-            .or_default()
-            .push(session_id);
+        self.email_sessions.entry(email).or_default().push(session_id);
 
         session
     }
@@ -252,10 +243,7 @@ impl SessionManager {
     /// # Returns
     /// Reference to the session if valid, error otherwise
     pub fn validate_session(&mut self, session_id: &str) -> Result<&Session, AuthError> {
-        let session = self
-            .sessions
-            .get(session_id)
-            .ok_or(AuthError::InvalidSession)?;
+        let session = self.sessions.get(session_id).ok_or(AuthError::InvalidSession)?;
 
         if session.is_expired() {
             return Err(AuthError::SessionExpired);
@@ -266,10 +254,7 @@ impl SessionManager {
 
     /// Get mutable reference to a session and update activity
     pub fn get_session_mut(&mut self, session_id: &str) -> Result<&mut Session, AuthError> {
-        let session = self
-            .sessions
-            .get_mut(session_id)
-            .ok_or(AuthError::InvalidSession)?;
+        let session = self.sessions.get_mut(session_id).ok_or(AuthError::InvalidSession)?;
 
         if session.is_expired() {
             return Err(AuthError::SessionExpired);
@@ -314,12 +299,7 @@ impl SessionManager {
         if let Some(session_ids) = self.email_sessions.get_mut(email) {
             let expired_ids: Vec<String> = session_ids
                 .iter()
-                .filter(|id| {
-                    self.sessions
-                        .get(*id)
-                        .map(|s| s.is_expired())
-                        .unwrap_or(true)
-                })
+                .filter(|id| self.sessions.get(*id).map(|s| s.is_expired()).unwrap_or(true))
                 .cloned()
                 .collect();
 
@@ -335,10 +315,7 @@ impl SessionManager {
 
     /// Get count of active sessions for a user
     pub fn get_user_session_count(&self, email: &str) -> usize {
-        self.email_sessions
-            .get(email)
-            .map(|ids| ids.len())
-            .unwrap_or(0)
+        self.email_sessions.get(email).map(|ids| ids.len()).unwrap_or(0)
     }
 
     /// List all active session IDs for a user

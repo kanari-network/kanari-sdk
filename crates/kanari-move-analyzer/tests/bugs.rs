@@ -15,23 +15,14 @@ mod common;
 
 #[test]
 fn parse_edition_weird_spacing() {
-    assert_eq!(
-        parse_edition("  edition   =   \"2024\"  "),
-        MoveEdition::Edition2024
-    );
+    assert_eq!(parse_edition("  edition   =   \"2024\"  "), MoveEdition::Edition2024);
     assert_eq!(parse_edition("edition=\"2024\""), MoveEdition::Edition2024);
     assert_eq!(parse_edition("edition\t=\t\"legacy\""), MoveEdition::Legacy);
     // single quotes are not valid TOML basic strings → Legacy per our impl
     assert_eq!(parse_edition("edition = '2024'"), MoveEdition::Legacy);
     // comment lines should be ignored
-    assert_eq!(
-        parse_edition("# edition = \"2024\"\n[package]\n"),
-        MoveEdition::Legacy
-    );
-    assert_eq!(
-        parse_edition("// edition = \"2024\"\n"),
-        MoveEdition::Legacy
-    );
+    assert_eq!(parse_edition("# edition = \"2024\"\n[package]\n"), MoveEdition::Legacy);
+    assert_eq!(parse_edition("// edition = \"2024\"\n"), MoveEdition::Legacy);
     // unknown value → Legacy
     assert_eq!(parse_edition("edition = \"2099\""), MoveEdition::Legacy);
     // empty / whitespace
@@ -83,15 +74,9 @@ fn module_used_ignores_comments() {
         "// tx_context::sender should not count\nlet x = 1;",
         "tx_context"
     ));
-    assert!(!module_used_as_alias(
-        "/// tx_context::\nlet x = 1;",
-        "tx_context"
-    ));
+    assert!(!module_used_as_alias("/// tx_context::\nlet x = 1;", "tx_context"));
     // real usage after comment counts
-    assert!(module_used_as_alias(
-        "// comment\nlet y = tx_context::sender(ctx);",
-        "tx_context"
-    ));
+    assert!(module_used_as_alias("// comment\nlet y = tx_context::sender(ctx);", "tx_context"));
 }
 
 #[test]
@@ -100,10 +85,7 @@ fn module_used_prefix_collision() {
     assert!(!module_used_as_alias("fun f() { coin2::value(); }", "coin"));
     assert!(module_used_as_alias("fun f() { coin::value(); }", "coin"));
     // module line itself must not count
-    assert!(!module_used_as_alias(
-        "module deepbook::registry { use x; }",
-        "deepbook"
-    ));
+    assert!(!module_used_as_alias("module deepbook::registry { use x; }", "deepbook"));
 }
 
 #[test]
@@ -135,11 +117,7 @@ fn insert_import_indent_preserved() {
     ];
     let edit = insert_import_edit(&lines, "kanari_system::transfer").unwrap();
     assert_eq!(edit.range.start.line, 3, "after last use line");
-    assert!(
-        edit.new_text.starts_with("    use"),
-        "indent lost: {:?}",
-        edit.new_text
-    );
+    assert!(edit.new_text.starts_with("    use"), "indent lost: {:?}", edit.new_text);
 }
 
 #[test]
@@ -225,11 +203,7 @@ fn local_dep_dirs_parses_spaces_and_comments() {
     )
     .unwrap();
     let dirs = local_dep_dirs(&pkg);
-    assert_eq!(
-        dirs.len(),
-        2,
-        "git dep must not be treated as local: {dirs:?}"
-    );
+    assert_eq!(dirs.len(), 2, "git dep must not be treated as local: {dirs:?}");
     assert!(dirs[0].ends_with("a"));
     assert!(dirs[1].ends_with("b"));
 }

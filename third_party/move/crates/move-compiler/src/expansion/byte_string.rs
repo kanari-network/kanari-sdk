@@ -14,11 +14,7 @@ struct Context {
 
 impl Context {
     fn new(file_hash: FileHash, start_offset: usize) -> Self {
-        Self {
-            file_hash,
-            start_offset,
-            diags: Diagnostics::new(),
-        }
+        Self { file_hash, start_offset, diags: Diagnostics::new() }
     }
 
     fn error(&mut self, start: usize, end: usize, err_text: String) {
@@ -27,8 +23,7 @@ impl Context {
             self.start_offset + 2 + start, // add 2 for the beginning of the string
             self.start_offset + 2 + end,
         );
-        self.diags
-            .add(diag!(Syntax::InvalidByteString, (loc, err_text)))
+        self.diags.add(diag!(Syntax::InvalidByteString, (loc, err_text)))
     }
 
     fn has_diags(&self) -> bool {
@@ -47,11 +42,7 @@ pub fn decode(loc: Loc, text: &str) -> Result<Vec<u8>, Diagnostics> {
     let mut buffer = vec![];
     let chars: Vec<_> = text.chars().collect();
     decode_(&mut context, &mut buffer, chars);
-    if !context.has_diags() {
-        Ok(buffer)
-    } else {
-        Err(context.get_diags())
-    }
+    if !context.has_diags() { Ok(buffer) } else { Err(context.get_diags()) }
 }
 
 fn decode_(context: &mut Context, buffer: &mut Vec<u8>, chars: Vec<char>) {

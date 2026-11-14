@@ -17,11 +17,8 @@ impl StateManager {
         &self,
         changeset: &ChangeSet,
     ) -> Result<BTreeMap<AccountAddress, (u64, u64)>> {
-        let mut native_snapshot_owners = changeset
-            .owner_deltas
-            .keys()
-            .copied()
-            .collect::<BTreeSet<_>>();
+        let mut native_snapshot_owners =
+            changeset.owner_deltas.keys().copied().collect::<BTreeSet<_>>();
         for (_, created) in &changeset.created_objects {
             if Self::object_balance_token_for_type_and_data(&created.type_, &created.data)
                 .is_some_and(|token_type| token_type == GAS_COIN)
@@ -39,10 +36,8 @@ impl StateManager {
         }
         let mut native_balances_before = BTreeMap::new();
         for owner in native_snapshot_owners {
-            let ledger_balance = self
-                .load_owner_state(&owner)?
-                .map(|state| state.native_balance())
-                .unwrap_or(0);
+            let ledger_balance =
+                self.load_owner_state(&owner)?.map(|state| state.native_balance()).unwrap_or(0);
             let native_debit = changeset
                 .owner_deltas
                 .get(&owner)
@@ -57,10 +52,7 @@ impl StateManager {
             let object_balance = if native_debit > 0 && ledger_balance >= native_debit {
                 0
             } else {
-                self.compute_owned_token_balances(owner, None)?
-                    .get(GAS_COIN)
-                    .copied()
-                    .unwrap_or(0)
+                self.compute_owned_token_balances(owner, None)?.get(GAS_COIN).copied().unwrap_or(0)
             };
             native_balances_before.insert(owner, (ledger_balance, object_balance));
         }
@@ -79,10 +71,8 @@ impl StateManager {
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
                 .require("Native debit overflowed u64 owner balance")?;
-            let (ledger_balance, object_balance) = native_balances_before
-                .get(address)
-                .copied()
-                .unwrap_or((0, 0));
+            let (ledger_balance, object_balance) =
+                native_balances_before.get(address).copied().unwrap_or((0, 0));
             let balance = ledger_balance.max(object_balance);
             ensure!(
                 balance >= debit,
@@ -182,15 +172,12 @@ impl StateManager {
                     if let Some((_, amount)) =
                         Self::balance_token_amount(&existing.type_name, &existing.data)
                     {
-                        let owner_balance = native_object_before_from_changes
-                            .entry(existing.owner)
-                            .or_insert(0);
+                        let owner_balance =
+                            native_object_before_from_changes.entry(existing.owner).or_insert(0);
                         *owner_balance = owner_balance
                             .checked_add(amount)
                             .require("Native object balance snapshot overflow")?;
-                        native_object_after_from_changes
-                            .entry(existing.owner)
-                            .or_insert(0);
+                        native_object_after_from_changes.entry(existing.owner).or_insert(0);
                     }
                     native_object_owner_changed_owners.insert(existing.owner);
                 }

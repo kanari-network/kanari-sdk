@@ -109,24 +109,14 @@ impl<'env, 'map> Context<'env, 'map> {
 
     pub fn new_alias_map_builder(&mut self) -> AliasMapBuilder {
         let current_package = self.current_package();
-        let new_paths = self
-            .defn_context
-            .env
-            .supports_feature(current_package, FeatureGate::Move2024Paths);
-        if new_paths {
-            AliasMapBuilder::namespaced()
-        } else {
-            AliasMapBuilder::legacy()
-        }
+        let new_paths =
+            self.defn_context.env.supports_feature(current_package, FeatureGate::Move2024Paths);
+        if new_paths { AliasMapBuilder::namespaced() } else { AliasMapBuilder::legacy() }
     }
 
     /// Pushes a new alias map onto the alias information in the pash expander.
     pub fn push_alias_scope(&mut self, loc: Loc, new_scope: AliasMapBuilder) {
-        let res = self
-            .path_expander
-            .as_mut()
-            .unwrap()
-            .push_alias_scope(loc, new_scope);
+        let res = self.path_expander.as_mut().unwrap().push_alias_scope(loc, new_scope);
         match res {
             Err(diag) => self.env().add_diag(*diag),
             Ok(unnecessaries) => unnecessary_alias_errors(self, unnecessaries),
@@ -173,11 +163,7 @@ impl<'env, 'map> Context<'env, 'map> {
         &mut self,
         attribute_value: P::AttributeValue,
     ) -> Option<E::AttributeValue> {
-        let Context {
-            path_expander,
-            defn_context: inner_context,
-            ..
-        } = self;
+        let Context { path_expander, defn_context: inner_context, .. } = self;
         path_expander
             .as_mut()
             .unwrap()
@@ -189,30 +175,20 @@ impl<'env, 'map> Context<'env, 'map> {
         access: Access,
         chain: P::NameAccessChain,
     ) -> Option<ModuleAccessResult> {
-        let Context {
-            path_expander,
-            defn_context: inner_context,
-            ..
-        } = self;
-        path_expander
-            .as_mut()
-            .unwrap()
-            .name_access_chain_to_module_access(inner_context, access, chain)
+        let Context { path_expander, defn_context: inner_context, .. } = self;
+        path_expander.as_mut().unwrap().name_access_chain_to_module_access(
+            inner_context,
+            access,
+            chain,
+        )
     }
 
     pub fn name_access_chain_to_module_ident(
         &mut self,
         chain: P::NameAccessChain,
     ) -> Option<E::ModuleIdent> {
-        let Context {
-            path_expander,
-            defn_context: inner_context,
-            ..
-        } = self;
-        path_expander
-            .as_mut()
-            .unwrap()
-            .name_access_chain_to_module_ident(inner_context, chain)
+        let Context { path_expander, defn_context: inner_context, .. } = self;
+        path_expander.as_mut().unwrap().name_access_chain_to_module_ident(inner_context, chain)
     }
 
     pub fn spec_deprecated(&mut self, loc: Loc, is_error: bool) {
@@ -227,10 +203,7 @@ impl<'env, 'map> Context<'env, 'map> {
             } else {
                 Uncategorized::DeprecatedWillBeRemoved
             },
-            (
-                loc,
-                "Specification blocks are deprecated and are no longer used"
-            )
+            (loc, "Specification blocks are deprecated and are no longer used")
         )
     }
 }
@@ -261,11 +234,8 @@ fn unnecessary_alias_error(context: &mut Context, unnecessary: UnnecessaryAlias)
         AliasEntry::Module(n, m) => (n, format!(" for module '{m}'")),
         AliasEntry::Member(n, m, mem) => (n, format!(" for module member '{m}::{mem}'")),
     };
-    let decl_case = if is_default {
-        "This alias is provided by default"
-    } else {
-        "It was already in scope"
-    };
+    let decl_case =
+        if is_default { "This alias is provided by default" } else { "It was already in scope" };
     let msg = format!("Unnecessary alias '{alias}'{entry_case}. {decl_case}");
     let mut diag = diag!(Declarations::DuplicateAlias, (loc, msg));
     if prev != Loc::invalid() {
@@ -283,11 +253,11 @@ fn compute_address_conflicts(
 ) -> BTreeSet<Symbol> {
     let mut name_to_addr: BTreeMap<Symbol, BTreeSet<AccountAddress>> = BTreeMap::new();
     let mut addr_to_name: BTreeMap<AccountAddress, BTreeSet<Symbol>> = BTreeMap::new();
-    let all_addrs = prog.named_address_maps.all().iter().chain(
-        pre_compiled_lib
-            .iter()
-            .flat_map(|pre| pre.parser.named_address_maps.all()),
-    );
+    let all_addrs = prog
+        .named_address_maps
+        .all()
+        .iter()
+        .chain(pre_compiled_lib.iter().flat_map(|pre| pre.parser.named_address_maps.all()));
     for map in all_addrs {
         for (n, addr) in map {
             let n = *n;
@@ -296,55 +266,38 @@ fn compute_address_conflicts(
             addr_to_name.entry(addr).or_default().insert(n);
         }
     }
-    let name_to_addr_conflicts = name_to_addr
-        .into_iter()
-        .filter(|(_, addrs)| addrs.len() > 1)
-        .map(|(n, _)| n);
+    let name_to_addr_conflicts =
+        name_to_addr.into_iter().filter(|(_, addrs)| addrs.len() > 1).map(|(n, _)| n);
     let addr_to_name_conflicts = addr_to_name
         .into_iter()
         .filter(|(_, addrs)| addrs.len() > 1)
         .flat_map(|(_, ns)| ns.into_iter());
-    name_to_addr_conflicts
-        .chain(addr_to_name_conflicts)
-        .collect()
+    name_to_addr_conflicts.chain(addr_to_name_conflicts).collect()
 }
 
 // Implicit aliases for the Move Stdlib:
 // use std::vector;
 // use std::option::{Self, Option};
 const IMPLICIT_STD_MODULES: &[Symbol] = &[symbol!("option"), symbol!("vector")];
-const IMPLICIT_STD_MEMBERS: &[(Symbol, Symbol, ModuleMemberKind)] = &[(
-    symbol!("option"),
-    symbol!("Option"),
-    ModuleMemberKind::Struct,
-)];
+const IMPLICIT_STD_MEMBERS: &[(Symbol, Symbol, ModuleMemberKind)] =
+    &[(symbol!("option"), symbol!("Option"), ModuleMemberKind::Struct)];
 
 // Implicit aliases for Sui mode:
 // use sui::object::{Self, ID, UID};
 // use sui::transfer;
 // use sui::tx_context::{Self, TxContext};
-const IMPLICIT_SUI_MODULES: &[Symbol] = &[
-    symbol!("object"),
-    symbol!("transfer"),
-    symbol!("tx_context"),
-];
+const IMPLICIT_SUI_MODULES: &[Symbol] =
+    &[symbol!("object"), symbol!("transfer"), symbol!("tx_context")];
 const IMPLICIT_SUI_MEMBERS: &[(Symbol, Symbol, ModuleMemberKind)] = &[
     (symbol!("object"), symbol!("ID"), ModuleMemberKind::Struct),
     (symbol!("object"), symbol!("UID"), ModuleMemberKind::Struct),
-    (
-        symbol!("tx_context"),
-        symbol!("TxContext"),
-        ModuleMemberKind::Struct,
-    ),
+    (symbol!("tx_context"), symbol!("TxContext"), ModuleMemberKind::Struct),
 ];
 
 fn default_aliases(context: &mut Context) -> AliasMapBuilder {
     let current_package = context.current_package();
     let mut builder = context.new_alias_map_builder();
-    if !context
-        .env()
-        .supports_feature(current_package, FeatureGate::Move2024Paths)
-    {
+    if !context.env().supports_feature(current_package, FeatureGate::Move2024Paths) {
         return builder;
     }
     // Unused loc since these will not conflict and are implicit so no warnings are given
@@ -355,34 +308,18 @@ fn default_aliases(context: &mut Context) -> AliasMapBuilder {
     let mut members: Vec<(Address, Symbol, Symbol, ModuleMemberKind)> = vec![];
     // if std is defined, add implicit std aliases
     if let Some(std_address) = std_address {
-        modules.extend(
-            IMPLICIT_STD_MODULES
-                .iter()
-                .copied()
-                .map(|m| (std_address, m)),
-        );
+        modules.extend(IMPLICIT_STD_MODULES.iter().copied().map(|m| (std_address, m)));
         members.extend(
-            IMPLICIT_STD_MEMBERS
-                .iter()
-                .copied()
-                .map(|(m, mem, k)| (std_address, m, mem, k)),
+            IMPLICIT_STD_MEMBERS.iter().copied().map(|(m, mem, k)| (std_address, m, mem, k)),
         );
     }
     // if sui is defined and the current package is in Sui mode, add implicit sui aliases
     if let Some(sui_address) = sui_address
         && context.env().package_config(current_package).flavor == Flavor::Sui
     {
-        modules.extend(
-            IMPLICIT_SUI_MODULES
-                .iter()
-                .copied()
-                .map(|m| (sui_address, m)),
-        );
+        modules.extend(IMPLICIT_SUI_MODULES.iter().copied().map(|m| (sui_address, m)));
         members.extend(
-            IMPLICIT_SUI_MEMBERS
-                .iter()
-                .copied()
-                .map(|(m, mem, k)| (sui_address, m, mem, k)),
+            IMPLICIT_SUI_MEMBERS.iter().copied().map(|(m, mem, k)| (sui_address, m, mem, k)),
         );
     }
     for (addr, module) in modules {
@@ -394,9 +331,7 @@ fn default_aliases(context: &mut Context) -> AliasMapBuilder {
         let alias = sp(loc, member);
         let mident = sp(loc, ModuleIdent_::new(addr, ModuleName(sp(loc, module))));
         let name = sp(loc, member);
-        builder
-            .add_implicit_member_alias(alias, mident, name, kind)
-            .unwrap();
+        builder.add_implicit_member_alias(alias, mident, name, kind).unwrap();
     }
     builder
 }
@@ -453,27 +388,15 @@ pub fn program(
 
     let mut source_module_map = UniqueMap::new();
     let mut lib_module_map = UniqueMap::new();
-    let P::Program {
-        named_address_maps,
-        source_definitions,
-        lib_definitions,
-    } = prog;
+    let P::Program { named_address_maps, source_definitions, lib_definitions } = prog;
 
     let mut context = Context::new(compilation_env, module_members, address_conflicts);
 
     context.is_source_definition = true;
-    for P::PackageDefinition {
-        package,
-        named_address_map,
-        def,
-    } in source_definitions
-    {
+    for P::PackageDefinition { package, named_address_map, def } in source_definitions {
         context.defn_context.current_package = package;
         let named_address_map = named_address_maps.get(named_address_map);
-        if context
-            .env()
-            .supports_feature(package, FeatureGate::Move2024Paths)
-        {
+        if context.env().supports_feature(package, FeatureGate::Move2024Paths) {
             let mut path_expander = Move2024PathExpander::new();
 
             let aliases = named_addr_map_to_alias_map_builder(&mut context, named_address_map);
@@ -497,18 +420,10 @@ pub fn program(
     }
 
     context.is_source_definition = false;
-    for P::PackageDefinition {
-        package,
-        named_address_map,
-        def,
-    } in lib_definitions
-    {
+    for P::PackageDefinition { package, named_address_map, def } in lib_definitions {
         context.defn_context.current_package = package;
         let named_address_map = named_address_maps.get(named_address_map);
-        if context
-            .env()
-            .supports_feature(package, FeatureGate::Move2024Paths)
-        {
+        if context.env().supports_feature(package, FeatureGate::Move2024Paths) {
             let mut path_expander = Move2024PathExpander::new();
 
             let aliases = named_addr_map_to_alias_map_builder(&mut context, named_address_map);
@@ -543,9 +458,7 @@ pub fn program(
     let module_map = source_module_map;
 
     super::primitive_definers::modules(context.env(), pre_compiled_lib, &module_map);
-    E::Program {
-        modules: module_map,
-    }
+    E::Program { modules: module_map }
 }
 
 fn definition(
@@ -669,21 +582,13 @@ pub(super) fn top_level_address_opt(
 fn maybe_make_well_known_address(context: &mut Context, loc: Loc, name: Symbol) -> Option<Address> {
     let named_address_mapping = context.defn_context.named_address_mapping.as_ref().unwrap();
     let addr = named_address_mapping.get(&name).copied()?;
-    Some(make_address(
-        &mut context.defn_context,
-        sp(loc, name),
-        loc,
-        addr,
-    ))
+    Some(make_address(&mut context.defn_context, sp(loc, name), loc, addr))
 }
 
 fn address_without_value_error(suggest_declaration: bool, loc: Loc, n: &Name) -> Diagnostic {
     let mut msg = format!("address '{}' is not assigned a value", n);
     if suggest_declaration {
-        msg = format!(
-            "{}. Try assigning it a value when calling the compiler",
-            msg,
-        )
+        msg = format!("{}. Try assigning it a value when calling the compiler", msg,)
     }
     diag!(NameResolution::AddressWithoutValue, (loc, msg))
 }
@@ -705,10 +610,7 @@ pub(super) fn module_ident(
     context: &mut DefnContext,
     sp!(loc, mident_): P::ModuleIdent,
 ) -> ModuleIdent {
-    let P::ModuleIdent_ {
-        address: ln,
-        module,
-    } = mident_;
+    let P::ModuleIdent_ { address: ln, module } = mident_;
     let addr = top_level_address(context, /* suggest_declaration */ false, ln);
     sp(loc, ModuleIdent_::new(addr, module))
 }
@@ -794,9 +696,7 @@ fn set_module_address(
                  address 'module <address>::{}''",
                 module_name
             );
-            context
-                .env()
-                .add_diag(diag!(Declarations::InvalidModule, (loc, msg)));
+            context.env().add_diag(diag!(Declarations::InvalidModule, (loc, msg)));
             Address::anonymous(loc, NumericalAddress::DEFAULT_ERROR_ADDRESS)
         }
     })
@@ -808,34 +708,20 @@ fn module_(
     module_address: Option<Spanned<Address>>,
     mdef: P::ModuleDefinition,
 ) -> (ModuleIdent, E::ModuleDefinition) {
-    let P::ModuleDefinition {
-        attributes,
-        loc,
-        address,
-        is_spec_module: _,
-        name,
-        members,
-    } = mdef;
+    let P::ModuleDefinition { attributes, loc, address, is_spec_module: _, name, members } = mdef;
     let attributes = flatten_attributes(context, AttributePosition::Module, attributes);
     let mut warning_filter = module_warning_filter(context, &attributes);
     let config = context.env().package_config(package_name);
     warning_filter.union(&config.warning_filter);
 
-    context
-        .env()
-        .add_warning_filter_scope(warning_filter.clone());
+    context.env().add_warning_filter_scope(warning_filter.clone());
     assert!(context.address.is_none());
     assert!(address.is_none());
     set_module_address(context, &name, module_address);
     let _ = check_restricted_name_all_cases(&mut context.defn_context, NameCase::Module, &name.0);
     if name.value().starts_with('_') {
-        let msg = format!(
-            "Invalid module name '{}'. Module names cannot start with '_'",
-            name,
-        );
-        context
-            .env()
-            .add_diag(diag!(Declarations::InvalidName, (name.loc(), msg)));
+        let msg = format!("Invalid module name '{}'. Module names cannot start with '_'", name,);
+        context.env().add_diag(diag!(Declarations::InvalidName, (name.loc(), msg)));
     }
 
     let name_loc = name.0.loc;
@@ -871,12 +757,7 @@ fn module_(
                 if !context.is_source_definition && f.macro_.is_none() {
                     f.body.value = P::FunctionBody_::Native
                 }
-                function(
-                    context,
-                    Some((current_module, &mut use_funs_builder)),
-                    &mut functions,
-                    f,
-                )
+                function(context, Some((current_module, &mut use_funs_builder)), &mut functions, f)
             }
             P::ModuleMember::Constant(c) => constant(context, &mut constants, c),
             P::ModuleMember::Struct(s) => struct_def(context, &mut structs, s),
@@ -912,9 +793,8 @@ fn check_visibility_modifiers(
     friends: &UniqueMap<ModuleIdent, E::Friend>,
     package_name: Option<Symbol>,
 ) {
-    let pub_package_enabled = context
-        .env()
-        .supports_feature(package_name, FeatureGate::PublicPackage);
+    let pub_package_enabled =
+        context.env().supports_feature(package_name, FeatureGate::PublicPackage);
     let edition = context.env().edition(package_name);
     // mark friend as deprecated
     if pub_package_enabled {
@@ -932,9 +812,7 @@ fn check_visibility_modifiers(
             let loc = friend_decl.loc;
             let diag = if edition == Edition::E2024_MIGRATION {
                 for aloc in &friend_decl.attr_locs {
-                    context
-                        .env()
-                        .add_diag(diag!(Migration::RemoveFriend, (*aloc, friend_msg)));
+                    context.env().add_diag(diag!(Migration::RemoveFriend, (*aloc, friend_msg)));
                 }
                 diag!(Migration::RemoveFriend, (loc, friend_msg))
             } else {
@@ -964,9 +842,7 @@ fn check_visibility_modifiers(
                 friend_usage = Some(loc);
             }
             E::Visibility::Package(loc) => {
-                context
-                    .env()
-                    .check_feature(package_name, FeatureGate::PublicPackage, loc);
+                context.env().check_feature(package_name, FeatureGate::PublicPackage, loc);
                 public_package_usage = Some(loc);
             }
             _ => (),
@@ -1048,9 +924,7 @@ fn known_attributes(
                 e.g. #[{ext}({n})]",
                 ext = known_attributes::ExternalAttribute::EXTERNAL
             );
-            context
-                .env()
-                .add_diag(diag!(Declarations::UnknownAttribute, (loc, msg)));
+            context.env().add_diag(diag!(Declarations::UnknownAttribute, (loc, msg)));
             None
         }
         sp!(loc, E::AttributeName_::Known(n)) => {
@@ -1072,9 +946,7 @@ fn gate_known_attribute(context: &mut Context, loc: Loc, known: &KnownAttribute)
         | KnownAttribute::Syntax(_) => (),
         KnownAttribute::Error(_) => {
             let pkg = context.current_package();
-            context
-                .env()
-                .check_feature(pkg, FeatureGate::CleverAssertions, loc);
+            context.env().check_feature(pkg, FeatureGate::CleverAssertions, loc);
         }
     }
 }
@@ -1098,9 +970,7 @@ fn unique_attributes(
                 debug_assert!(known.name() == sym.as_str());
                 if is_nested {
                     let msg = "Known attribute '{}' is not expected in a nested attribute position";
-                    context
-                        .env()
-                        .add_diag(diag!(Declarations::InvalidAttribute, (nloc, msg)));
+                    context.env().add_diag(diag!(Declarations::InvalidAttribute, (nloc, msg)));
                     continue;
                 }
 
@@ -1116,10 +986,8 @@ fn unique_attributes(
                         .map(|p| format!("{}", p))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let expected_msg = format!(
-                        "Expected to be used with one of the following: {}",
-                        all_expected
-                    );
+                    let expected_msg =
+                        format!("Expected to be used with one of the following: {}", all_expected);
                     context.env().add_diag(diag!(
                         Declarations::InvalidAttribute,
                         (nloc, msg),
@@ -1130,10 +998,7 @@ fn unique_attributes(
                 E::AttributeName_::Known(known)
             }
         };
-        if matches!(
-            name_,
-            E::AttributeName_::Known(KnownAttribute::Verification(_))
-        ) {
+        if matches!(name_, E::AttributeName_::Known(KnownAttribute::Verification(_))) {
             context.spec_deprecated(loc, /* is_error */ false)
         }
         if let Err((_, old_loc)) = attr_map.add(sp(nloc, name_), sp(loc, attr_)) {
@@ -1212,10 +1077,9 @@ fn warning_filter(context: &mut Context, attributes: &E::Attributes) -> WarningF
                 // a filter, e.g. allow(unused_variables)
                 E::Attribute_::Name(n) => (None, vec![*n]),
                 // a nested filter, e.g. allow(lint(_))
-                E::Attribute_::Parameterized(prefix, inners) => (
-                    Some(prefix.value),
-                    prefixed_warning_filters(context, prefix, inners),
-                ),
+                E::Attribute_::Parameterized(prefix, inners) => {
+                    (Some(prefix.value), prefixed_warning_filters(context, prefix, inners))
+                }
                 E::Attribute_::Assigned(n, _) => {
                     let msg = format!(
                         "Expected a stand alone warning filter identifier, e.g. '{}({})'",
@@ -1249,9 +1113,7 @@ fn warning_filter(context: &mut Context, attributes: &E::Attributes) -> WarningF
                         )
                     }
                 };
-                context
-                    .env()
-                    .add_diag(diag!(Attributes::ValueWarning, (nloc, msg)));
+                context.env().add_diag(diag!(Attributes::ValueWarning, (nloc, msg)));
                 continue;
             };
             for f in filters {
@@ -1282,9 +1144,7 @@ fn get_allow_attribute_inners<'a>(
                 .to_str()
                 .unwrap(),
             );
-            context
-                .env()
-                .add_diag(diag!(Attributes::ValueWarning, (allow_attr.loc, msg)));
+            context.env().add_diag(diag!(Attributes::ValueWarning, (allow_attr.loc, msg)));
             None
         }
     }
@@ -1299,19 +1159,14 @@ fn prefixed_warning_filters(
         .key_cloned_iter()
         .map(|(_, inner_attr)| match inner_attr {
             sp!(_, E::Attribute_::Name(n)) => *n,
-            sp!(
-                loc,
-                E::Attribute_::Assigned(n, _) | E::Attribute_::Parameterized(n, _)
-            ) => {
+            sp!(loc, E::Attribute_::Assigned(n, _) | E::Attribute_::Parameterized(n, _)) => {
                 let msg = format!(
                     "Expected a warning filter identifier, e.g. '{}({}({}))'",
                     DiagnosticAttribute::ALLOW,
                     prefix,
                     n
                 );
-                context
-                    .env()
-                    .add_diag(diag!(Attributes::ValueWarning, (*loc, msg)));
+                context.env().add_diag(diag!(Attributes::ValueWarning, (*loc, msg)));
                 *n
             }
         })
@@ -1329,12 +1184,7 @@ fn all_module_members<'a>(
     always_add: bool,
     defs: impl IntoIterator<Item = &'a P::PackageDefinition>,
 ) {
-    for P::PackageDefinition {
-        named_address_map: named_address_map_index,
-        def,
-        ..
-    } in defs
-    {
+    for P::PackageDefinition { named_address_map: named_address_map_index, def, .. } in defs {
         let named_addr_map: &NamedAddressMap = named_addr_maps.get(*named_address_map_index);
         match def {
             P::Definition::Module(m) => {
@@ -1404,17 +1254,14 @@ fn named_addr_map_to_alias_map_builder(
     for (name, addr) in named_addr_map {
         // Address symbols get dummy locations so that we can lift them to names. These should
         // always be rewritten with more-accurate information as they are used.
-        new_aliases
-            .add_address_alias(sp(Loc::invalid(), *name), *addr)
-            .expect("ICE dupe address");
+        new_aliases.add_address_alias(sp(Loc::invalid(), *name), *addr).expect("ICE dupe address");
     }
     new_aliases
 }
 
 fn module_self_aliases(acc: &mut AliasMapBuilder, current_module: &ModuleIdent) {
     let self_name = sp(current_module.loc, ModuleName::SELF_NAME.into());
-    acc.add_implicit_module_alias(self_name, *current_module)
-        .unwrap()
+    acc.add_implicit_module_alias(self_name, *current_module).unwrap()
 }
 
 fn aliases_from_member(
@@ -1487,11 +1334,7 @@ fn use_(
     use_funs: &mut UseFunsBuilder,
     u: P::UseDecl,
 ) {
-    let P::UseDecl {
-        use_: u,
-        loc,
-        attributes,
-    } = u;
+    let P::UseDecl { use_: u, loc, attributes } = u;
     let attributes = flatten_attributes(context, AttributePosition::Use, attributes);
     match u {
         P::Use::NestedModuleUses(address, use_decls) => {
@@ -1503,12 +1346,7 @@ fn use_(
         P::Use::ModuleUse(mident, use_) => {
             module_use(context, acc, use_funs, mident, &attributes, use_);
         }
-        P::Use::Fun {
-            visibility,
-            function,
-            ty,
-            method,
-        } => {
+        P::Use::Fun { visibility, function, ty, method } => {
             let pkg = context.current_package();
             context.env().check_feature(pkg, FeatureGate::DotCall, loc);
             let is_public = match visibility {
@@ -1529,14 +1367,8 @@ fn use_(
                     None
                 }
             };
-            let explicit = ParserExplicitUseFun {
-                loc,
-                attributes,
-                is_public,
-                function,
-                ty,
-                method,
-            };
+            let explicit =
+                ParserExplicitUseFun { loc, attributes, is_public, function, ty, method };
             use_funs.explicit.push(explicit);
         }
     }
@@ -1553,10 +1385,7 @@ fn module_use(
     let unbound_module = |mident: &ModuleIdent| -> Diagnostic {
         diag!(
             NameResolution::UnboundModule,
-            (
-                mident.loc,
-                format!("Invalid 'use'. Unbound module: '{}'", mident),
-            )
+            (mident.loc, format!("Invalid 'use'. Unbound module: '{}'", mident),)
         )
     };
     macro_rules! add_module_alias {
@@ -1581,9 +1410,7 @@ fn module_use(
                 context.env().add_diag(unbound_module(&mident));
                 return;
             };
-            let alias = alias_opt
-                .map(|m| m.0)
-                .unwrap_or_else(|| mident.value.module.0);
+            let alias = alias_opt.map(|m| m.0).unwrap_or_else(|| mident.value.module.0);
             add_module_alias!(mident, alias)
         }
         P::ModuleUse::Members(sub_uses) => {
@@ -1595,11 +1422,7 @@ fn module_use(
                     return;
                 }
             };
-            let mloc = *context
-                .defn_context
-                .module_members
-                .get_loc(&mident)
-                .unwrap();
+            let mloc = *context.defn_context.module_members.get_loc(&mident).unwrap();
             let sub_uses_kinds = sub_uses
                 .into_iter()
                 .map(|(member, alia_opt)| {
@@ -1672,15 +1495,9 @@ fn module_use(
 }
 
 fn use_funs(context: &mut Context, builder: UseFunsBuilder) -> E::UseFuns {
-    let UseFunsBuilder {
-        explicit: pexplicit,
-        implicit,
-    } = builder;
+    let UseFunsBuilder { explicit: pexplicit, implicit } = builder;
     // If None, there was an error and we can skip it
-    let explicit = pexplicit
-        .into_iter()
-        .filter_map(|e| explicit_use_fun(context, e))
-        .collect();
+    let explicit = pexplicit.into_iter().filter_map(|e| explicit_use_fun(context, e)).collect();
     E::UseFuns { explicit, implicit }
 }
 
@@ -1688,50 +1505,16 @@ fn explicit_use_fun(
     context: &mut Context,
     pexplicit: ParserExplicitUseFun,
 ) -> Option<E::ExplicitUseFun> {
-    let ParserExplicitUseFun {
-        loc,
-        attributes,
-        is_public,
-        function,
-        ty,
-        method,
-    } = pexplicit;
+    let ParserExplicitUseFun { loc, attributes, is_public, function, ty, method } = pexplicit;
     let access_result!(function, tyargs, is_macro) =
         context.name_access_chain_to_module_access(Access::ApplyPositional, *function)?;
-    ice_assert!(
-        context.env(),
-        tyargs.is_none(),
-        loc,
-        "'use fun' with tyargs"
-    );
-    ice_assert!(
-        context.env(),
-        is_macro.is_none(),
-        loc,
-        "Found a 'use fun' as a macro"
-    );
+    ice_assert!(context.env(), tyargs.is_none(), loc, "'use fun' with tyargs");
+    ice_assert!(context.env(), is_macro.is_none(), loc, "Found a 'use fun' as a macro");
     let access_result!(ty, tyargs, is_macro) =
         context.name_access_chain_to_module_access(Access::Type, *ty)?;
-    ice_assert!(
-        context.env(),
-        tyargs.is_none(),
-        loc,
-        "'use fun' with tyargs"
-    );
-    ice_assert!(
-        context.env(),
-        is_macro.is_none(),
-        loc,
-        "Found a 'use fun' as a macro"
-    );
-    Some(E::ExplicitUseFun {
-        loc,
-        attributes,
-        is_public,
-        function,
-        ty,
-        method,
-    })
+    ice_assert!(context.env(), tyargs.is_none(), loc, "'use fun' with tyargs");
+    ice_assert!(context.env(), is_macro.is_none(), loc, "Found a 'use fun' as a macro");
+    Some(E::ExplicitUseFun { loc, attributes, is_public, function, ty, method })
 }
 
 fn duplicate_module_alias(context: &mut Context, old_loc: Loc, alias: Name) {
@@ -1764,10 +1547,7 @@ fn unused_alias(context: &mut Context, _kind: &str, alias: Name) {
     }
     let mut diag = diag!(
         UnusedItem::Alias,
-        (
-            alias.loc,
-            format!("Unused 'use' of alias '{}'. Consider removing it", alias)
-        ),
+        (alias.loc, format!("Unused 'use' of alias '{}'. Consider removing it", alias)),
     );
     if crate::naming::ast::BuiltinTypeName_::all_names().contains(&alias.value) {
         diag.add_note(format!(
@@ -1813,9 +1593,7 @@ fn struct_def_(
     } = pstruct;
     let attributes = flatten_attributes(context, AttributePosition::Struct, attributes);
     let warning_filter = warning_filter(context, &attributes);
-    context
-        .env()
-        .add_warning_filter_scope(warning_filter.clone());
+    context.env().add_warning_filter_scope(warning_filter.clone());
     let type_parameters = datatype_type_parameters(context, pty_params);
     context.push_type_parameters(type_parameters.iter().map(|tp| &tp.name));
     let abilities = ability_set(context, "modifier", abilities_vec);
@@ -1855,10 +1633,7 @@ fn struct_fields(
                 Declarations::DuplicateItem,
                 (
                     field.loc(),
-                    format!(
-                        "Duplicate definition for field '{}' in struct '{}'",
-                        field, sname
-                    ),
+                    format!("Duplicate definition for field '{}' in struct '{}'", field, sname),
                 ),
                 (old_loc, "Field previously defined here"),
             ));
@@ -1897,9 +1672,7 @@ fn enum_def_(
     } = penum;
     let attributes = flatten_attributes(context, AttributePosition::Enum, attributes);
     let warning_filter = warning_filter(context, &attributes);
-    context
-        .env()
-        .add_warning_filter_scope(warning_filter.clone());
+    context.env().add_warning_filter_scope(warning_filter.clone());
     let type_parameters = datatype_type_parameters(context, pty_params);
     context.push_type_parameters(type_parameters.iter().map(|tp| &tp.name));
     let abilities = ability_set(context, "modifier", abilities_vec);
@@ -1935,10 +1708,8 @@ fn enum_variants(
         let loc = variant.loc;
         let (vname, vdef) = enum_variant_def(context, variants.len(), variant);
         if let Err(old_loc) = variants.add(vname, vdef) {
-            let msg: String = format!(
-                "Duplicate definition for variant '{}' in enum '{}'",
-                vname, ename
-            );
+            let msg: String =
+                format!("Duplicate definition for variant '{}' in enum '{}'", vname, ename);
             context.env().add_diag(diag!(
                 Declarations::DuplicateItem,
                 (loc, msg),
@@ -1981,10 +1752,7 @@ fn variant_fields(
                 Declarations::DuplicateItem,
                 (
                     field.loc(),
-                    format!(
-                        "Duplicate definition for field '{}' in variant '{}'",
-                        field, vname
-                    ),
+                    format!("Duplicate definition for field '{}' in variant '{}'", field, vname),
                 ),
                 (old_loc, "Field previously defined here"),
             ));
@@ -2023,25 +1791,11 @@ fn friend(
 }
 
 fn friend_(context: &mut Context, pfriend_decl: P::FriendDecl) -> Option<(ModuleIdent, E::Friend)> {
-    let P::FriendDecl {
-        attributes: pattributes,
-        loc,
-        friend: pfriend,
-    } = pfriend_decl;
+    let P::FriendDecl { attributes: pattributes, loc, friend: pfriend } = pfriend_decl;
     let mident = context.name_access_chain_to_module_ident(pfriend)?;
-    let attr_locs = pattributes
-        .iter()
-        .map(|sp!(loc, _)| *loc)
-        .collect::<Vec<_>>();
+    let attr_locs = pattributes.iter().map(|sp!(loc, _)| *loc).collect::<Vec<_>>();
     let attributes = flatten_attributes(context, AttributePosition::Friend, pattributes);
-    Some((
-        mident,
-        E::Friend {
-            attributes,
-            attr_locs,
-            loc,
-        },
-    ))
+    Some((mident, E::Friend { attributes, attr_locs, loc }))
 }
 
 //**************************************************************************************************
@@ -2064,28 +1818,14 @@ fn constant_(
     index: usize,
     pconstant: P::Constant,
 ) -> (ConstantName, E::Constant) {
-    let P::Constant {
-        attributes: pattributes,
-        loc,
-        name,
-        signature: psignature,
-        value: pvalue,
-    } = pconstant;
+    let P::Constant { attributes: pattributes, loc, name, signature: psignature, value: pvalue } =
+        pconstant;
     let attributes = flatten_attributes(context, AttributePosition::Constant, pattributes);
     let warning_filter = warning_filter(context, &attributes);
-    context
-        .env()
-        .add_warning_filter_scope(warning_filter.clone());
+    context.env().add_warning_filter_scope(warning_filter.clone());
     let signature = type_(context, psignature);
     let value = *exp(context, Box::new(pvalue));
-    let constant = E::Constant {
-        warning_filter,
-        index,
-        attributes,
-        loc,
-        signature,
-        value,
-    };
+    let constant = E::Constant { warning_filter, index, attributes, loc, signature, value };
     context.env().pop_warning_filter_scope();
     (name, constant)
 }
@@ -2124,9 +1864,7 @@ fn function_(
     } = pfunction;
     let attributes = flatten_attributes(context, AttributePosition::Function, pattributes);
     let warning_filter = warning_filter(context, &attributes);
-    context
-        .env()
-        .add_warning_filter_scope(warning_filter.clone());
+    context.env().add_warning_filter_scope(warning_filter.clone());
     if let (Some(entry_loc), Some(macro_loc)) = (entry, macro_) {
         let e_msg = format!(
             "Invalid function declaration. \
@@ -2154,9 +1892,7 @@ fn function_(
     }
     if let Some(macro_loc) = macro_ {
         let current_package = context.current_package();
-        context
-            .env()
-            .check_feature(current_package, FeatureGate::MacroFuns, macro_loc);
+        context.env().check_feature(current_package, FeatureGate::MacroFuns, macro_loc);
     }
     let visibility = visibility(pvisibility);
     let signature = function_signature(context, macro_, psignature);
@@ -2218,11 +1954,7 @@ fn function_signature(
         check_valid_function_parameter_name(context, is_macro, v)
     }
     let return_type = type_(context, pret_ty);
-    E::FunctionSignature {
-        type_parameters,
-        parameters,
-        return_type,
-    }
+    E::FunctionSignature { type_parameters, parameters, return_type }
 }
 
 fn function_body(context: &mut Context, sp!(loc, pbody_): P::FunctionBody) -> E::FunctionBody {
@@ -2356,10 +2088,8 @@ fn sequence(context: &mut Context, loc: Loc, seq: P::Sequence) -> E::Sequence {
     let (new_scope, use_funs_builder) = uses(context, puses);
     context.push_alias_scope(loc, new_scope);
     let mut use_funs = use_funs(context, use_funs_builder);
-    let mut items: VecDeque<E::SequenceItem> = pitems
-        .into_iter()
-        .map(|item| sequence_item(context, item))
-        .collect();
+    let mut items: VecDeque<E::SequenceItem> =
+        pitems.into_iter().map(|item| sequence_item(context, item)).collect();
     let final_e_opt = pfinal_item.map(|item| exp(context, Box::new(item)));
     let final_e = match final_e_opt {
         None => {
@@ -2421,9 +2151,7 @@ fn sequence_item(context: &mut Context, sp!(loc, pitem_): P::SequenceItem) -> E:
 }
 
 fn exps(context: &mut Context, pes: Vec<P::Exp>) -> Vec<E::Exp> {
-    pes.into_iter()
-        .map(|pe| *exp(context, Box::new(pe)))
-        .collect()
+    pes.into_iter().map(|pe| *exp(context, Box::new(pe))).collect()
 }
 
 #[growing_stack]
@@ -2474,9 +2202,7 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
         PE::Name(pn) if pn.value.has_tyargs() => {
             let msg = "Expected name to be followed by a brace-enclosed list of field expressions \
                 or a parenthesized list of arguments for a function call";
-            context
-                .env()
-                .add_diag(diag!(NameResolution::NamePositionMismatch, (loc, msg)));
+            context.env().add_diag(diag!(NameResolution::NamePositionMismatch, (loc, msg)));
             EE::UnresolvedError
         }
         PE::Name(pn) => {
@@ -2500,10 +2226,8 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
         }
         PE::Pack(pn, pfields) => {
             let en_opt = context.name_access_chain_to_module_access(Access::ApplyNamed, pn);
-            let efields_vec = pfields
-                .into_iter()
-                .map(|(f, pe)| (f, *exp(context, Box::new(pe))))
-                .collect();
+            let efields_vec =
+                pfields.into_iter().map(|(f, pe)| (f, *exp(context, Box::new(pe)))).collect();
             let efields = named_fields(context, loc, "construction", "argument", efields_vec);
             bind_access_result!(
                 en_opt =>
@@ -2529,12 +2253,7 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
         }
         PE::Match(subject, sp!(aloc, arms)) => EE::Match(
             exp(context, subject),
-            sp(
-                aloc,
-                arms.into_iter()
-                    .map(|arm| match_arm(context, arm))
-                    .collect(),
-            ),
+            sp(aloc, arms.into_iter().map(|arm| match_arm(context, arm)).collect()),
         ),
         PE::Labeled(name, pe) => {
             let e = exp(context, pe);
@@ -2543,10 +2262,7 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
         PE::While(pb, ploop) => EE::While(None, exp(context, pb), exp(context, ploop)),
         PE::Loop(ploop) => EE::Loop(None, exp(context, ploop)),
         PE::For(pbinds, piter, pbody) => {
-            return exp(
-                context,
-                Box::new(desugar_for_loop(loc, pbinds, piter, pbody)),
-            );
+            return exp(context, Box::new(desugar_for_loop(loc, pbinds, piter, pbody)));
         }
         PE::Block(seq) => EE::Block(None, sequence(context, loc, seq)),
         PE::Lambda(plambda, pty_opt, pe) => {
@@ -2641,12 +2357,10 @@ fn exp(context: &mut Context, pe: Box<P::Exp>) -> Box<E::Exp> {
 
         pdotted_ @ PE::Index(_, _) => {
             let cur_pkg = context.current_package();
-            let supports_paths = context
-                .env()
-                .supports_feature(cur_pkg, FeatureGate::Move2024Paths);
-            let supports_syntax_methods = context
-                .env()
-                .supports_feature(cur_pkg, FeatureGate::SyntaxMethods);
+            let supports_paths =
+                context.env().supports_feature(cur_pkg, FeatureGate::Move2024Paths);
+            let supports_syntax_methods =
+                context.env().supports_feature(cur_pkg, FeatureGate::SyntaxMethods);
             if !supports_paths || !supports_syntax_methods {
                 let mut diag = context.spec_deprecated_diag(loc, /* is_error */ true);
                 let valid_editions =
@@ -2798,13 +2512,7 @@ fn desugar_for_loop(
 
     // A reference to one of the generated locals.
     fn local(loc: Loc, name: &'static str) -> P::Exp {
-        sp(
-            loc,
-            PE::Name(sp(
-                loc,
-                P::NameAccessChain_::single(sp(loc, Symbol::from(name))),
-            )),
-        )
+        sp(loc, PE::Name(sp(loc, P::NameAccessChain_::single(sp(loc, Symbol::from(name))))))
     }
 
     // A borrow of the generated iterable local. Only the by-value form needs one, and only
@@ -2845,10 +2553,7 @@ fn desugar_for_loop(
 
     // `let <name> = <e>;`, with `mut` when the loop assigns to it.
     fn bind_one(loc: Loc, name: &'static str, mutable: bool, e: P::Exp) -> P::SequenceItem {
-        let var = sp(
-            loc,
-            PB::Var(mutable.then_some(loc), P::Var(sp(loc, Symbol::from(name)))),
-        );
+        let var = sp(loc, PB::Var(mutable.then_some(loc), P::Var(sp(loc, Symbol::from(name)))));
         sp(loc, PS::Bind(sp(loc, vec![var]), None, Box::new(e)))
     }
 
@@ -2861,16 +2566,12 @@ fn desugar_for_loop(
     // braces still needs the braces, both to hold the binding and to get a scope of its own.
     let element = match mode {
         ForMode::Value => vector_call(loc, "pop_back", vec![borrow_iterable(loc)]),
-        ForMode::Ref => vector_call(
-            loc,
-            "borrow",
-            vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)],
-        ),
-        ForMode::MutRef => vector_call(
-            loc,
-            "borrow_mut",
-            vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)],
-        ),
+        ForMode::Ref => {
+            vector_call(loc, "borrow", vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)])
+        }
+        ForMode::MutRef => {
+            vector_call(loc, "borrow_mut", vec![local(loc, FOR_ITERABLE), local(loc, FOR_INDEX)])
+        }
     };
     let (uses, mut items, last_semicolon, tail) = match *pbody {
         sp!(_, PE::Block(seq)) => seq,
@@ -2880,20 +2581,13 @@ fn desugar_for_loop(
     let body = sp(loc, PE::Block((uses, items, last_semicolon, tail)));
 
     // The iterable is bound to a local before the loop so that it is evaluated exactly once.
-    let bind_iterable = bind_one(
-        loc,
-        FOR_ITERABLE,
-        /* mutable */ mode == ForMode::Value,
-        *piterable,
-    );
+    let bind_iterable =
+        bind_one(loc, FOR_ITERABLE, /* mutable */ mode == ForMode::Value, *piterable);
 
     let (prologue, condition, body_statements) = match mode {
         // Reverse, then pop from the back, to visit the elements in order at O(n) total.
         ForMode::Value => (
-            vec![stmt(
-                loc,
-                vector_call(loc, "reverse", vec![borrow_iterable(loc)]),
-            )],
+            vec![stmt(loc, vector_call(loc, "reverse", vec![borrow_iterable(loc)]))],
             sp(
                 loc,
                 PE::UnaryExp(
@@ -2901,10 +2595,7 @@ fn desugar_for_loop(
                     Box::new(vector_call(
                         loc,
                         "is_empty",
-                        vec![sp(
-                            loc,
-                            PE::Borrow(false, Box::new(local(loc, FOR_ITERABLE))),
-                        )],
+                        vec![sp(loc, PE::Borrow(false, Box::new(local(loc, FOR_ITERABLE))))],
                     )),
                 ),
             ),
@@ -2931,12 +2622,7 @@ fn desugar_for_loop(
             (
                 vec![
                     bind_one(loc, FOR_LENGTH, /* mutable */ false, length),
-                    bind_one(
-                        loc,
-                        FOR_INDEX,
-                        /* mutable */ true,
-                        u64_value(loc, "0u64"),
-                    ),
+                    bind_one(loc, FOR_INDEX, /* mutable */ true, u64_value(loc, "0u64")),
                 ],
                 sp(
                     loc,
@@ -2955,10 +2641,7 @@ fn desugar_for_loop(
         loc,
         PE::While(
             Box::new(condition),
-            Box::new(sp(
-                loc,
-                PE::Block((vec![], body_statements, None, Box::new(None))),
-            )),
+            Box::new(sp(loc, PE::Block((vec![], body_statements, None, Box::new(None))))),
         ),
     );
 
@@ -3015,14 +2698,10 @@ fn exp_cast(context: &mut Context, in_parens: bool, plhs: Box<P::Exp>, pty: P::T
         let current_package = context.current_package();
         let loc = plhs.loc;
         let supports_feature =
-            context
-                .env()
-                .check_feature(current_package, FeatureGate::NoParensCast, loc);
+            context.env().check_feature(current_package, FeatureGate::NoParensCast, loc);
         if supports_feature && ambiguous_cast(&plhs) {
             let msg = "Potentially ambiguous 'as'. Add parentheses to disambiguate";
-            context
-                .env()
-                .add_diag(diag!(Syntax::AmbiguousCast, (loc, msg)));
+            context.env().add_diag(diag!(Syntax::AmbiguousCast, (loc, msg)));
         }
     }
     EE::Cast(exp(context, plhs), type_(context, pty))
@@ -3052,9 +2731,7 @@ fn maybe_labeled_exp(
         _ => {
             let msg = "Invalid label. Labels can only be used on 'while', 'loop', or block '{{}}' \
                  expressions";
-            context
-                .env()
-                .add_diag(diag!(Syntax::InvalidLabel, (loc, msg)));
+            context.env().add_diag(diag!(Syntax::InvalidLabel, (loc, msg)));
             E::Exp_::UnresolvedError
         }
     };
@@ -3124,9 +2801,7 @@ fn move_or_copy_path_(context: &mut Context, case: PathCase, pe: Box<P::Exp>) ->
         }
         E::ExpDotted_::Dot(_, _) | E::ExpDotted_::Index(_, _) => {
             let current_package = context.current_package();
-            context
-                .env()
-                .check_feature(current_package, FeatureGate::Move2024Paths, cloc);
+            context.env().check_feature(current_package, FeatureGate::Move2024Paths, cloc);
         }
     }
     Some(match case {
@@ -3147,17 +2822,10 @@ fn exp_dotted(context: &mut Context, pdotted: Box<P::Exp>) -> Option<Box<E::ExpD
         }
         PE::Index(plhs, sp!(argloc, args)) => {
             let cur_pkg = context.current_package();
-            context
-                .env()
-                .check_feature(cur_pkg, FeatureGate::Move2024Paths, loc);
-            context
-                .env()
-                .check_feature(cur_pkg, FeatureGate::SyntaxMethods, loc);
+            context.env().check_feature(cur_pkg, FeatureGate::Move2024Paths, loc);
+            context.env().check_feature(cur_pkg, FeatureGate::SyntaxMethods, loc);
             let lhs = exp_dotted(context, plhs)?;
-            let args = args
-                .into_iter()
-                .map(|arg| *exp(context, Box::new(arg)))
-                .collect::<Vec<_>>();
+            let args = args.into_iter().map(|arg| *exp(context, Box::new(arg))).collect::<Vec<_>>();
             EE::Index(lhs, sp(argloc, args))
         }
         pe_ => EE::Exp(exp(context, Box::new(sp(loc, pe_)))),
@@ -3184,19 +2852,11 @@ fn check_ellipsis_usage(context: &mut Context, ellipsis_locs: &[Loc]) {
 }
 
 fn match_arm(context: &mut Context, sp!(loc, arm_): P::MatchArm) -> E::MatchArm {
-    let P::MatchArm_ {
-        pattern,
-        guard,
-        rhs,
-    } = arm_;
+    let P::MatchArm_ { pattern, guard, rhs } = arm_;
     let pattern = match_pattern(context, pattern);
     let guard = guard.map(|guard| exp(context, guard));
     let rhs = exp(context, rhs);
-    let arm = E::MatchArm_ {
-        pattern,
-        guard,
-        rhs,
-    };
+    let arm = E::MatchArm_ { pattern, guard, rhs };
     sp(loc, arm)
 }
 
@@ -3231,11 +2891,8 @@ fn match_pattern(context: &mut Context, sp!(loc, pat_): P::MatchPattern) -> E::M
         name_chain: P::NameAccessChain,
         identifier_okay: bool,
     ) -> Option<(E::ModuleAccess, Option<Spanned<Vec<P::Type>>>)> {
-        let ModuleAccessResult {
-            access,
-            ptys_opt,
-            is_macro,
-        } = context.name_access_chain_to_module_access(Access::Pattern, name_chain)?;
+        let ModuleAccessResult { access, ptys_opt, is_macro } =
+            context.name_access_chain_to_module_access(Access::Pattern, name_chain)?;
         let name = head_ctor_okay(context, access, identifier_okay)?;
         if let Some(loc) = is_macro {
             context.env().add_diag(diag!(
@@ -3281,10 +2938,7 @@ fn match_pattern(context: &mut Context, sp!(loc, pat_): P::MatchPattern) -> E::M
                         }
                     }
                     check_ellipsis_usage(context, &ellipsis_locs);
-                    sp(
-                        loc,
-                        EP::PositionalConstructor(head_ctor_name, tys, sp(ploc, out_pats)),
-                    )
+                    sp(loc, EP::PositionalConstructor(head_ctor_name, tys, sp(ploc, out_pats)))
                 }
                 _ => error_pattern!(),
             }
@@ -3314,10 +2968,7 @@ fn match_pattern(context: &mut Context, sp!(loc, pat_): P::MatchPattern) -> E::M
                         named_fields(context, loc, "pattern", "sub-pattern", stripped_fields);
                     check_ellipsis_usage(context, &ellipsis_locs);
                     let ellipsis = ellipsis_locs.first().copied();
-                    sp(
-                        loc,
-                        EP::NamedConstructor(head_ctor_name, tys, fields, ellipsis),
-                    )
+                    sp(loc, EP::NamedConstructor(head_ctor_name, tys, fields, ellipsis))
                 }
                 _ => error_pattern!(),
             }
@@ -3337,9 +2988,7 @@ fn match_pattern(context: &mut Context, sp!(loc, pat_): P::MatchPattern) -> E::M
                             with 'a'..'z' or '_'",
                             name_value,
                         );
-                        context
-                            .env()
-                            .add_diag(diag!(Declarations::InvalidName, (name.loc, msg)));
+                        context.env().add_diag(diag!(Declarations::InvalidName, (name.loc, msg)));
                         error_pattern!()
                     } else {
                         if let Some(_tys) = pts_opt {
@@ -3382,10 +3031,7 @@ fn match_pattern(context: &mut Context, sp!(loc, pat_): P::MatchPattern) -> E::M
         }
         PP::Or(lhs, rhs) => sp(
             loc,
-            EP::Or(
-                Box::new(match_pattern(context, *lhs)),
-                Box::new(match_pattern(context, *rhs)),
-            ),
+            EP::Or(Box::new(match_pattern(context, *lhs)), Box::new(match_pattern(context, *rhs))),
         ),
         PP::At(x, inner) => {
             if x.is_underscore() {
@@ -3459,10 +3105,9 @@ pub(super) fn value(context: &mut DefnContext, sp!(loc, pvalue_): P::Value) -> O
         PV::Num(s) => match parse_u256(&s) {
             Ok((u, _format)) => EV::InferredNum(u),
             Err(_) => {
-                context.env.add_diag(num_too_big_error(
-                    loc,
-                    "the largest possible integer type, 'u256'",
-                ));
+                context
+                    .env
+                    .add_diag(num_too_big_error(loc, "the largest possible integer type, 'u256'"));
                 return None;
             }
         },
@@ -3517,10 +3162,7 @@ fn named_fields<T>(
             context.env().add_diag(diag!(
                 Declarations::DuplicateItem,
                 (loc, format!("Invalid {}", case)),
-                (
-                    field.loc(),
-                    format!("Duplicate {} given for field '{}'", verb, field),
-                ),
+                (field.loc(), format!("Duplicate {} given for field '{}'", verb, field),),
                 (old_loc, "Field previously defined here".into()),
             ))
         }
@@ -3633,10 +3275,7 @@ fn lvalues(context: &mut Context, e: Box<P::Exp>) -> Option<LValue> {
         PE::Index(_, _) => {
             context.env().add_diag(diag!(
                 Syntax::InvalidLValue,
-                (
-                    loc,
-                    "Index syntax it not yet supported in left-hand positions"
-                )
+                (loc, "Index syntax it not yet supported in left-hand positions")
             ));
             return None;
         }
@@ -3683,10 +3322,7 @@ fn assign(context: &mut Context, sp!(loc, e_): P::Exp) -> Option<E::LValue> {
                 }
                 Some(access_result!(sp!(loc, M::Variant(_, _)), _tys_opt, _is_macro)) => {
                     let cur_pkg = context.current_package();
-                    if context
-                        .env()
-                        .check_feature(cur_pkg, FeatureGate::Enums, loc)
-                    {
+                    if context.env().check_feature(cur_pkg, FeatureGate::Enums, loc) {
                         let msg = "Unexpected assignment of variant";
                         let mut diag = diag!(Syntax::InvalidLValue, (loc, msg));
                         diag.add_note("If you are trying to unpack an enum variant, use 'match'");
@@ -3703,41 +3339,21 @@ fn assign(context: &mut Context, sp!(loc, e_): P::Exp) -> Option<E::LValue> {
         PE::Pack(pn, pfields) => {
             let access_result!(name, ptys_opt, is_macro) =
                 context.name_access_chain_to_module_access(Access::ApplyNamed, pn)?;
-            ice_assert!(
-                context.env(),
-                is_macro.is_none(),
-                loc,
-                "Marked a bind as a macro"
-            );
+            ice_assert!(context.env(), is_macro.is_none(), loc, "Marked a bind as a macro");
             let tys_opt = optional_sp_types(context, ptys_opt);
             let efields = assign_unpack_fields(context, loc, pfields)?;
-            Some(sp(
-                loc,
-                EL::Unpack(name, tys_opt, E::FieldBindings::Named(efields, None)),
-            ))
+            Some(sp(loc, EL::Unpack(name, tys_opt, E::FieldBindings::Named(efields, None))))
         }
         PE::Call(pn, sp!(_, exprs)) => {
             let pkg = context.current_package();
-            context
-                .env()
-                .check_feature(pkg, FeatureGate::PositionalFields, loc);
+            context.env().check_feature(pkg, FeatureGate::PositionalFields, loc);
             let access_result!(name, ptys_opt, is_macro) =
                 context.name_access_chain_to_module_access(Access::ApplyNamed, pn)?;
-            ice_assert!(
-                context.env(),
-                is_macro.is_none(),
-                loc,
-                "Marked a bind as a macro"
-            );
+            ice_assert!(context.env(), is_macro.is_none(), loc, "Marked a bind as a macro");
             let tys_opt = optional_sp_types(context, ptys_opt);
-            let pfields: Option<_> = exprs
-                .into_iter()
-                .map(|e| assign(context, e).map(E::Ellipsis::Binder))
-                .collect();
-            Some(sp(
-                loc,
-                EL::Unpack(name, tys_opt, E::FieldBindings::Positional(pfields?)),
-            ))
+            let pfields: Option<_> =
+                exprs.into_iter().map(|e| assign(context, e).map(E::Ellipsis::Binder)).collect();
+            Some(sp(loc, EL::Unpack(name, tys_opt, E::FieldBindings::Positional(pfields?))))
         }
         _ => {
             context.env().add_diag(diag!(
@@ -3758,17 +3374,9 @@ fn assign_unpack_fields(
     loc: Loc,
     pfields: Vec<(Field, P::Exp)>,
 ) -> Option<Fields<E::LValue>> {
-    let afields = pfields
-        .into_iter()
-        .map(|(f, e)| Some((f, assign(context, e)?)))
-        .collect::<Option<_>>()?;
-    Some(named_fields(
-        context,
-        loc,
-        "deconstructing assignment",
-        "assignment binding",
-        afields,
-    ))
+    let afields =
+        pfields.into_iter().map(|(f, e)| Some((f, assign(context, e)?))).collect::<Option<_>>()?;
+    Some(named_fields(context, loc, "deconstructing assignment", "assignment binding", afields))
 }
 
 fn mutability(context: &mut Context, _loc: Loc, pmut: P::Mutability) -> E::Mutability {
@@ -3821,11 +3429,8 @@ fn check_valid_function_parameter_name(context: &mut Context, is_macro: Option<L
                 v, MACRO_MODIFIER,
             );
             let macro_msg = format!("Declared '{}' here", MACRO_MODIFIER);
-            let mut diag = diag!(
-                Declarations::InvalidName,
-                (v.loc(), msg),
-                (macro_loc, macro_msg),
-            );
+            let mut diag =
+                diag!(Declarations::InvalidName, (v.loc(), msg), (macro_loc, macro_msg),);
             diag.add_note(SYNTAX_IDENTIFIER_NOTE);
             context.env().add_diag(diag);
         }
@@ -3843,9 +3448,7 @@ fn check_valid_function_parameter_name(context: &mut Context, is_macro: Option<L
             or be a valid name quoted with backticks (`name`)",
             v,
         );
-        context
-            .env()
-            .add_diag(diag!(Declarations::InvalidName, (v.loc(), msg)));
+        context.env().add_diag(diag!(Declarations::InvalidName, (v.loc(), msg)));
     }
     let _ = check_restricted_name_all_cases(&mut context.defn_context, NameCase::Variable, &v.0);
 }
@@ -3857,9 +3460,7 @@ fn check_valid_local_name(context: &mut Context, v: &Var) {
             or be a valid name quoted with backticks (`name`)",
             v,
         );
-        context
-            .env()
-            .add_diag(diag!(Declarations::InvalidName, (v.loc(), msg)));
+        context.env().add_diag(diag!(Declarations::InvalidName, (v.loc(), msg)));
     }
     let _ = check_restricted_name_all_cases(&mut context.defn_context, NameCase::Variable, &v.0);
 }
@@ -3971,9 +3572,7 @@ fn check_valid_module_member_name_impl(
                     n,
                     upper_first_letter(case.name()),
                 );
-                context
-                    .env()
-                    .add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
+                context.env().add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
                 return Err(());
             }
         }
@@ -3985,27 +3584,15 @@ fn check_valid_module_member_name_impl(
                     n,
                     upper_first_letter(case.name()),
                 );
-                context
-                    .env()
-                    .add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
+                context.env().add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
                 return Err(());
             }
         }
     }
 
     // TODO move these names to a more central place?
-    check_restricted_names(
-        context,
-        case,
-        n,
-        crate::naming::ast::BuiltinFunction_::all_names(),
-    )?;
-    check_restricted_names(
-        context,
-        case,
-        n,
-        crate::naming::ast::BuiltinTypeName_::all_names(),
-    )?;
+    check_restricted_names(context, case, n, crate::naming::ast::BuiltinFunction_::all_names())?;
+    check_restricted_names(context, case, n, crate::naming::ast::BuiltinTypeName_::all_names())?;
 
     // Restricting Self for now in the case where we ever have impls
     // Otherwise, we could allow it
@@ -4039,11 +3626,7 @@ fn check_valid_type_parameter_name(
                 MACRO_MODIFIER
             );
             let macro_msg = format!("Declared '{}' here", MACRO_MODIFIER);
-            let mut diag = diag!(
-                Declarations::InvalidName,
-                (n.loc, msg),
-                (macro_loc, macro_msg),
-            );
+            let mut diag = diag!(Declarations::InvalidName, (n.loc, msg), (macro_loc, macro_msg),);
             diag.add_note(SYNTAX_IDENTIFIER_NOTE);
             context.env().add_diag(diag);
         } else {
@@ -4115,9 +3698,7 @@ fn check_restricted_name_all_cases(
                     case.name(),
                     n,
                 );
-                context
-                    .env
-                    .add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
+                context.env.add_diag(diag!(Declarations::InvalidName, (n.loc, msg)));
                 return Err(());
             }
         }
@@ -4129,9 +3710,7 @@ fn check_restricted_name_all_cases(
     if n_str == ModuleName::SELF_NAME
         || (!can_be_vector && n_str == crate::naming::ast::BuiltinTypeName_::VECTOR)
     {
-        context
-            .env
-            .add_diag(restricted_name_error(case, n.loc, n_str));
+        context.env.add_diag(restricted_name_error(case, n.loc, n_str));
         Err(())
     } else {
         Ok(())
@@ -4145,9 +3724,7 @@ fn check_restricted_names(
     all_names: &BTreeSet<Symbol>,
 ) -> Result<(), ()> {
     if all_names.contains(n_) {
-        context
-            .env()
-            .add_diag(restricted_name_error(case, *loc, n_));
+        context.env().add_diag(restricted_name_error(case, *loc, n_));
         Err(())
     } else {
         Ok(())

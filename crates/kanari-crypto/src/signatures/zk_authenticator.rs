@@ -43,8 +43,7 @@ mod hex_fixed {
     ) -> Result<[u8; N], D::Error> {
         let s = String::deserialize(d)?;
         let v = hex::decode(s.trim_start_matches("0x")).map_err(serde::de::Error::custom)?;
-        v.try_into()
-            .map_err(|_| serde::de::Error::custom(format!("expected {N} bytes")))
+        v.try_into().map_err(|_| serde::de::Error::custom(format!("expected {N} bytes")))
     }
 }
 
@@ -185,10 +184,7 @@ fn admission_replay() -> &'static std::sync::Mutex<ReplayCache> {
 }
 
 fn read_policy() -> Option<ZkLoginAdmissionPolicy> {
-    ADMISSION_POLICY
-        .read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone()
+    ADMISSION_POLICY.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
 }
 
 /// Install (or replace) the process-global zkLogin admission policy.
@@ -295,7 +291,7 @@ pub fn zklogin_admission_policy_from_map(
 
     if jwks_json.is_some() && jwks_path.is_some() {
         return Err(
-            "set only one of KANARI_ZKLOGIN_JWKS_JSON / KANARI_ZKLOGIN_JWKS_PATH".to_string(),
+            "set only one of KANARI_ZKLOGIN_JWKS_JSON / KANARI_ZKLOGIN_JWKS_PATH".to_string()
         );
     }
     let pinned_jwks = jwks_json
@@ -316,15 +312,13 @@ pub fn zklogin_admission_policy_from_map(
 
     let replay_ttl_secs = ttl_raw
         .map(|s| {
-            s.parse::<u64>()
-                .map_err(|_| "KANARI_ZKLOGIN_REPLAY_TTL_SECS must be a u64".to_string())
+            s.parse::<u64>().map_err(|_| "KANARI_ZKLOGIN_REPLAY_TTL_SECS must be a u64".to_string())
         })
         .transpose()?
         .unwrap_or(3600);
     let current_epoch = epoch_raw
         .map(|s| {
-            s.parse::<u64>()
-                .map_err(|_| "KANARI_ZKLOGIN_CHAIN_EPOCH must be a u64".to_string())
+            s.parse::<u64>().map_err(|_| "KANARI_ZKLOGIN_CHAIN_EPOCH must be a u64".to_string())
         })
         .transpose()?
         .unwrap_or(0);
@@ -374,10 +368,7 @@ pub fn verify_zklogin_authenticator(
                 now_secs,
             )?;
             let address = derive_zklogin_address_v2(&claims.iss, &jwt.aud, &claims.sub, &jwt.salt)?;
-            Ok(VerifiedZkLogin {
-                address,
-                max_epoch: auth.max_epoch,
-            })
+            Ok(VerifiedZkLogin { address, max_epoch: auth.max_epoch })
         }
         ZkAuthKind::Proof(proof) => verify_proof_kind(
             &auth.ephemeral_pubkey,
@@ -421,10 +412,7 @@ pub fn verify_zklogin_authenticator_admitted(
             if !opts.allowed_audiences.iter().any(|aud| aud == &jwt.aud) {
                 return Err(SignatureError::VerificationFailed);
             }
-            let pinned = opts
-                .pinned_jwks
-                .as_ref()
-                .ok_or(SignatureError::VerificationFailed)?;
+            let pinned = opts.pinned_jwks.as_ref().ok_or(SignatureError::VerificationFailed)?;
             // Nonce must bind THIS session key (not just any valid login).
             let expected = compute_nonce(&auth.ephemeral_pubkey, auth.max_epoch, &jwt.randomness);
             let claims = verify_jwt_with_jwks(
@@ -436,16 +424,10 @@ pub fn verify_zklogin_authenticator_admitted(
                 now_secs,
             )?;
             let address = derive_zklogin_address_v2(&claims.iss, &jwt.aud, &claims.sub, &jwt.salt)?;
-            Ok(VerifiedZkLogin {
-                address,
-                max_epoch: auth.max_epoch,
-            })
+            Ok(VerifiedZkLogin { address, max_epoch: auth.max_epoch })
         }
         ZkAuthKind::Proof(proof) => {
-            let pin = opts
-                .vk_pin
-                .as_ref()
-                .ok_or(SignatureError::VerificationFailed)?;
+            let pin = opts.vk_pin.as_ref().ok_or(SignatureError::VerificationFailed)?;
             verify_proof_kind(
                 &auth.ephemeral_pubkey,
                 &auth.ephemeral_sig,
@@ -506,9 +488,7 @@ fn address_from_inputs(inputs: &[u8]) -> Result<String, SignatureError> {
     let mut addr = [0u8; 32];
     for (i, chunk) in inputs[..32 * 32].as_chunks::<32>().0.iter().enumerate() {
         if chunk[..31].iter().any(|&b| b != 0) {
-            return Err(SignatureError::InvalidFormat(
-                "address input is not a byte".to_string(),
-            ));
+            return Err(SignatureError::InvalidFormat("address input is not a byte".to_string()));
         }
         addr[i] = chunk[31];
     }
@@ -516,8 +496,7 @@ fn address_from_inputs(inputs: &[u8]) -> Result<String, SignatureError> {
 }
 
 fn addresses_equal(a: &str, b: &str) -> bool {
-    a.trim_start_matches("0x")
-        .eq_ignore_ascii_case(b.trim_start_matches("0x"))
+    a.trim_start_matches("0x").eq_ignore_ascii_case(b.trim_start_matches("0x"))
 }
 
 /// Wire encoding of a transaction signature for `ZkLogin:` senders.
@@ -536,11 +515,8 @@ pub struct ZkLoginTxSignature {
 }
 
 pub fn encode_zklogin_tx_signature(auth: &ZkLoginAuthenticator) -> Result<Vec<u8>, SignatureError> {
-    serde_json::to_vec(&ZkLoginTxSignature {
-        v: 1,
-        auth: auth.clone(),
-    })
-    .map_err(|e| SignatureError::InvalidFormat(format!("cannot encode zkLogin bundle: {e}")))
+    serde_json::to_vec(&ZkLoginTxSignature { v: 1, auth: auth.clone() })
+        .map_err(|e| SignatureError::InvalidFormat(format!("cannot encode zkLogin bundle: {e}")))
 }
 
 /// Verify a `ZkLogin:` sender's transaction signature.
@@ -628,9 +604,8 @@ pub fn record_zklogin_admission(tx_hash: &[u8]) -> bool {
     if policy.replay_ttl_secs == 0 {
         return true;
     }
-    let Ok(now_secs) = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+    let Ok(now_secs) =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs())
     else {
         // Clock before the epoch: fail closed, same as verification.
         return false;
@@ -674,10 +649,7 @@ impl ReplayCache {
     /// epoch length x allowed `max_epoch` span). Zero disables caching
     /// (every admission is "fresh") — tests only.
     pub fn new(ttl_secs: u64) -> Self {
-        Self {
-            seen: std::collections::HashMap::new(),
-            ttl_secs,
-        }
+        Self { seen: std::collections::HashMap::new(), ttl_secs }
     }
 
     /// True when fresh (records it); false when the same transaction was
@@ -690,8 +662,7 @@ impl ReplayCache {
         if self.seen.contains_key(&digest) {
             return false;
         }
-        self.seen
-            .insert(digest, now_secs.saturating_add(self.ttl_secs));
+        self.seen.insert(digest, now_secs.saturating_add(self.ttl_secs));
         true
     }
 
@@ -860,9 +831,7 @@ mod tests {
     /// and return the serial-test guard. Callers MUST
     /// [`clear_zklogin_admission_policy`] before dropping the guard.
     fn install_fixture_jwt_policy() -> std::sync::MutexGuard<'static, ()> {
-        let guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         install_zklogin_admission_policy(ZkLoginAdmissionPolicy {
             vk_pin: None,
             allowed_issuers: vec![ISS_GOOGLE.to_string()],
@@ -933,10 +902,7 @@ mod tests {
         let (eph_pub, _) = fixture_ephemeral();
         let kp = EphemeralKeypair::from_secret([42u8; 32]).unwrap();
         // Signature over a DIFFERENT hash than the one being verified.
-        let sig: [u8; 64] = kp
-            .sign(b"something else entirely........")
-            .try_into()
-            .unwrap();
+        let sig: [u8; 64] = kp.sign(b"something else entirely........").try_into().unwrap();
         let auth = ZkLoginAuthenticator {
             ephemeral_pubkey: eph_pub,
             ephemeral_sig: sig,
@@ -1078,9 +1044,7 @@ mod tests {
     fn dispatch_rejects_everything_without_policy() {
         use crate::signatures::verify_signature;
 
-        let _guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_zklogin_admission_policy();
         let (jwt_bundle, jwt_sender) = admit_jwt_case(b"kanari-nopolicy-jwt-000000000001");
         assert!(
@@ -1093,12 +1057,8 @@ mod tests {
         );
         let proof_bundle = admit_proof_nosetup_bundle(b"kanari-nopolicy-proof-000000000001");
         assert!(
-            verify_signature(
-                "ZkLogin:0xabc",
-                b"kanari-nopolicy-proof-000000000001",
-                &proof_bundle
-            )
-            .is_err()
+            verify_signature("ZkLogin:0xabc", b"kanari-nopolicy-proof-000000000001", &proof_bundle)
+                .is_err()
         );
     }
 
@@ -1215,9 +1175,7 @@ mod tests {
     fn dispatch_rejects_disallowed_issuer_and_audience() {
         use crate::signatures::verify_signature;
 
-        let _guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         // Policy allows a DIFFERENT issuer/audience than the bundle's.
         install_zklogin_admission_policy(ZkLoginAdmissionPolicy {
             vk_pin: None,
@@ -1249,9 +1207,7 @@ mod tests {
     fn dispatch_enforces_expiry_and_admission_records_replay() {
         use crate::signatures::verify_signature;
 
-        let _guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         install_zklogin_admission_policy(ZkLoginAdmissionPolicy {
             vk_pin: None,
             allowed_issuers: vec![ISS_GOOGLE.to_string()],
@@ -1301,37 +1257,26 @@ mod tests {
         };
         use ark_std::rand::SeedableRng;
 
-        let _guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         clear_zklogin_admission_policy();
 
         let salt = [9u8; 32];
         let victim_address =
             derive_zklogin_address_v2(ISS_GOOGLE, TEST_AUD, "1234", &salt).unwrap();
-        let address: [u8; 32] = hex::decode(&victim_address[2..])
-            .unwrap()
-            .try_into()
-            .unwrap();
+        let address: [u8; 32] = hex::decode(&victim_address[2..]).unwrap().try_into().unwrap();
         // Ceremony setup (the deployment's trusted one) vs attacker setup.
         let mut ceremony_rng = ark_std::rand::rngs::StdRng::seed_from_u64(0xC0FFEE);
-        let (_ceremony_pk, ceremony_vk) = setup_binding_circuit(
-            ISS_GOOGLE.as_bytes(),
-            TEST_AUD.as_bytes(),
-            &mut ceremony_rng,
-        )
-        .unwrap();
+        let (_ceremony_pk, ceremony_vk) =
+            setup_binding_circuit(ISS_GOOGLE.as_bytes(), TEST_AUD.as_bytes(), &mut ceremony_rng)
+                .unwrap();
         let ceremony_pin = vk_fingerprint(&ceremony_vk).unwrap();
         // Attacker setup (same circuit, independent toxic-waste randomness).
         // Its proving key proves, its VK verifies the math — but its
         // fingerprint differs from the ceremony pin, which is what saves us.
         let mut attacker_rng = ark_std::rand::rngs::StdRng::seed_from_u64(0xBAD5EED);
-        let (attacker_pk, attacker_vk) = setup_binding_circuit(
-            ISS_GOOGLE.as_bytes(),
-            TEST_AUD.as_bytes(),
-            &mut attacker_rng,
-        )
-        .unwrap();
+        let (attacker_pk, attacker_vk) =
+            setup_binding_circuit(ISS_GOOGLE.as_bytes(), TEST_AUD.as_bytes(), &mut attacker_rng)
+                .unwrap();
         assert_ne!(
             vk_fingerprint(&attacker_vk).unwrap(),
             ceremony_pin,
@@ -1514,47 +1459,28 @@ mod tests {
 
         // Nothing configured: no policy (dispatch stays fully rejecting).
         let empty: HashMap<String, String> = HashMap::new();
-        assert!(
-            zklogin_admission_policy_from_map(|k| empty.get(k).cloned())
-                .unwrap()
-                .is_none()
-        );
+        assert!(zklogin_admission_policy_from_map(|k| empty.get(k).cloned()).unwrap().is_none());
         // Malformed pin fails closed instead of installing half a policy.
         let mut bad: HashMap<String, String> = HashMap::new();
         bad.insert("KANARI_ZKLOGIN_VK_PIN".to_string(), "0x1234".to_string());
         assert!(zklogin_admission_policy_from_map(|k| bad.get(k).cloned()).is_err());
         // Conflicting JWKS sources fail closed.
         let mut both: HashMap<String, String> = HashMap::new();
-        both.insert(
-            "KANARI_ZKLOGIN_JWKS_JSON".to_string(),
-            "{\"keys\":[]}".to_string(),
-        );
-        both.insert(
-            "KANARI_ZKLOGIN_JWKS_PATH".to_string(),
-            "/tmp/whatever.json".to_string(),
-        );
+        both.insert("KANARI_ZKLOGIN_JWKS_JSON".to_string(), "{\"keys\":[]}".to_string());
+        both.insert("KANARI_ZKLOGIN_JWKS_PATH".to_string(), "/tmp/whatever.json".to_string());
         assert!(zklogin_admission_policy_from_map(|k| both.get(k).cloned()).is_err());
 
         // Full config parses: pin + allow-lists + inline JWKS + ttl/epoch.
         let jwks_json = serde_json::to_string(&fixture_jwks()).unwrap();
         let mut full: HashMap<String, String> = HashMap::new();
-        full.insert(
-            "KANARI_ZKLOGIN_VK_PIN".to_string(),
-            format!("0x{}", "ab".repeat(32)),
-        );
+        full.insert("KANARI_ZKLOGIN_VK_PIN".to_string(), format!("0x{}", "ab".repeat(32)));
         full.insert(
             "KANARI_ZKLOGIN_ALLOWED_ISSUERS".to_string(),
             "https://accounts.google.com, https://appleid.apple.com".to_string(),
         );
-        full.insert(
-            "KANARI_ZKLOGIN_ALLOWED_AUDIENCES".to_string(),
-            "client-a".to_string(),
-        );
+        full.insert("KANARI_ZKLOGIN_ALLOWED_AUDIENCES".to_string(), "client-a".to_string());
         full.insert("KANARI_ZKLOGIN_JWKS_JSON".to_string(), jwks_json);
-        full.insert(
-            "KANARI_ZKLOGIN_REPLAY_TTL_SECS".to_string(),
-            "60".to_string(),
-        );
+        full.insert("KANARI_ZKLOGIN_REPLAY_TTL_SECS".to_string(), "60".to_string());
         full.insert("KANARI_ZKLOGIN_CHAIN_EPOCH".to_string(), "7".to_string());
         let policy = zklogin_admission_policy_from_map(|k| full.get(k).cloned())
             .unwrap()
@@ -1573,9 +1499,7 @@ mod tests {
         assert_eq!(policy.current_epoch, 7);
 
         // Install + epoch advance round-trip through the global.
-        let _guard = POLICY_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = POLICY_TEST_MUTEX.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         install_zklogin_admission_policy(policy);
         assert!(zklogin_admission_policy().is_some());
         set_zklogin_chain_epoch(9);
@@ -1648,42 +1572,18 @@ mod tests {
         let mut cache = ReplayCache::new(3600);
         let opts = admit_jwt_opts();
         assert!(
-            admit_zklogin_tx(
-                &sender1,
-                tx1,
-                &bundle1,
-                &opts,
-                &mut cache,
-                1_700_000_000,
-                1000
-            )
-            .is_ok()
+            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_000, 1000)
+                .is_ok()
         );
         // Same tx again inside the TTL: replay, even though it is valid.
         assert!(
-            admit_zklogin_tx(
-                &sender1,
-                tx1,
-                &bundle1,
-                &opts,
-                &mut cache,
-                1_700_000_001,
-                1000
-            )
-            .is_err()
+            admit_zklogin_tx(&sender1, tx1, &bundle1, &opts, &mut cache, 1_700_000_001, 1000)
+                .is_err()
         );
         // A different tx still admits.
         assert!(
-            admit_zklogin_tx(
-                &sender2,
-                tx2,
-                &bundle2,
-                &opts,
-                &mut cache,
-                1_700_000_001,
-                1000
-            )
-            .is_ok()
+            admit_zklogin_tx(&sender2, tx2, &bundle2, &opts, &mut cache, 1_700_000_001, 1000)
+                .is_ok()
         );
     }
 

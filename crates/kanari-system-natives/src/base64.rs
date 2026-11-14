@@ -86,10 +86,7 @@ pub fn make_decode_native(gas_params: DecodeGasParameters) -> NativeFunction {
             Err(_) => return Ok(NativeResult::err(context.gas_used(), 1)),
         };
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::vector_u8(result)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(result)]))
     })
 }
 
@@ -108,10 +105,7 @@ pub fn make_encode_native(gas_params: EncodeGasParameters) -> NativeFunction {
         // Encode to base64
         let encoded = encode_base64(&input_bytes);
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::vector_u8(encoded)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::vector_u8(encoded)]))
     })
 }
 
@@ -153,14 +147,8 @@ pub fn make_base64_natives(
     gas_params: GasParameters,
 ) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = vec![
-        (
-            "native_decode".to_string(),
-            make_decode_native(gas_params.decode),
-        ),
-        (
-            "native_encode".to_string(),
-            make_encode_native(gas_params.encode),
-        ),
+        ("native_decode".to_string(), make_decode_native(gas_params.decode)),
+        ("native_encode".to_string(), make_encode_native(gas_params.encode)),
     ];
 
     crate::helpers::make_module_natives(natives)
@@ -187,10 +175,7 @@ mod benches {
             for _ in 0..iters {
                 black_box(f());
             }
-            println!(
-                "{name:28} {:12.1} ns/op",
-                t.elapsed().as_nanos() as f64 / iters as f64
-            );
+            println!("{name:28} {:12.1} ns/op", t.elapsed().as_nanos() as f64 / iters as f64);
         }
 
         println!("--- base64 calibration ---");
@@ -203,15 +188,9 @@ mod benches {
         let enc_small = encode_base64(&small);
         let enc_medium = encode_base64(&medium);
         let enc_large = encode_base64(&large);
-        bench("decode_16B", 50_000, || {
-            decode_base64(black_box(&enc_small)).unwrap()
-        });
-        bench("decode_1KB", 5_000, || {
-            decode_base64(black_box(&enc_medium)).unwrap()
-        });
-        bench("decode_64KB", 100, || {
-            decode_base64(black_box(&enc_large)).unwrap()
-        });
+        bench("decode_16B", 50_000, || decode_base64(black_box(&enc_small)).unwrap());
+        bench("decode_1KB", 5_000, || decode_base64(black_box(&enc_medium)).unwrap());
+        bench("decode_64KB", 100, || decode_base64(black_box(&enc_large)).unwrap());
         // Worst case: garbage input pays for all four engine attempts.
         let garbage = vec![b'!'; 1024];
         bench("decode_invalid_1KB", 5_000, || {

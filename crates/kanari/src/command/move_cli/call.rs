@@ -83,10 +83,7 @@ impl Call {
         eprintln!("   Gas Price: {}", gas_price);
 
         let wallet = load_wallet_for(&sender_normalized, None)?;
-        eprintln!(
-            "   Wallet loaded: {} (curve: {})",
-            sender_normalized, wallet.curve_type
-        );
+        eprintln!("   Wallet loaded: {} (curve: {})", sender_normalized, wallet.curve_type);
         let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
         if !self.type_args.is_empty() {
@@ -97,11 +94,8 @@ impl Call {
             eprintln!("   Type Args: {}", self.type_args.join(", "));
         }
 
-        let parsed_args: Vec<Vec<u8>> = self
-            .args
-            .iter()
-            .map(|arg| self.parse_arg_flexible(arg))
-            .collect::<Result<_>>()?;
+        let parsed_args: Vec<Vec<u8>> =
+            self.args.iter().map(|arg| self.parse_arg_flexible(arg)).collect::<Result<_>>()?;
 
         if !parsed_args.is_empty() {
             eprintln!("   Arguments: {} args provided", parsed_args.len());
@@ -147,10 +141,7 @@ impl Call {
         if let Some(object_inputs) = &prepared.object_inputs
             && !object_inputs.is_empty()
         {
-            eprintln!(
-                "   Object Inputs: {} API-resolved object ref(s)",
-                object_inputs.len()
-            );
+            eprintln!("   Object Inputs: {} API-resolved object ref(s)", object_inputs.len());
         }
         if let Some(gas_payment) = &prepared.gas_payment
             && let Some(gas_object) = gas_payment.payment_objects.first()
@@ -224,9 +215,9 @@ impl ParsedArg {
     fn into_bytes(self) -> Result<Vec<u8>> {
         match self {
             ParsedArg::Raw(bytes) => Ok(bytes),
-            ParsedArg::Value(value) => value
-                .simple_serialize()
-                .context("Failed to BCS-serialize argument"),
+            ParsedArg::Value(value) => {
+                value.simple_serialize().context("Failed to BCS-serialize argument")
+            }
         }
     }
 
@@ -301,9 +292,7 @@ fn parse_arg(arg: &str, warn_fallback: bool) -> Result<ParsedArg> {
 
     // 4. Quoted string → vector<u8>
     if let Some(inner) = strip_quotes(s) {
-        return Ok(ParsedArg::Value(MoveValue::vector_u8(
-            inner.as_bytes().to_vec(),
-        )));
+        return Ok(ParsedArg::Value(MoveValue::vector_u8(inner.as_bytes().to_vec())));
     }
 
     // 5. Vector literal: [a, b, c] — recursive, CSV-aware, typed elements.
@@ -341,9 +330,7 @@ fn parse_arg(arg: &str, warn_fallback: bool) -> Result<ParsedArg> {
             s
         );
     }
-    Ok(ParsedArg::Value(MoveValue::vector_u8(
-        s.as_bytes().to_vec(),
-    )))
+    Ok(ParsedArg::Value(MoveValue::vector_u8(s.as_bytes().to_vec())))
 }
 
 // =============================================================================
@@ -447,9 +434,10 @@ fn parse_byte_string(s: &str) -> Result<Option<MoveValue>> {
     if inner.is_empty() {
         return Ok(Some(MoveValue::vector_u8(vec![])));
     }
-    Ok(Some(MoveValue::vector_u8(hex_decode(inner).with_context(
-        || format!("`{}` is not a valid hex byte-string literal", s),
-    )?)))
+    Ok(Some(MoveValue::vector_u8(
+        hex_decode(inner)
+            .with_context(|| format!("`{}` is not a valid hex byte-string literal", s))?,
+    )))
 }
 
 /// Strip one layer of matching surrounding quotes. `None` unless the whole
@@ -500,9 +488,7 @@ fn parse_typed_arg(ty: &str, value: &str) -> Result<ParsedArg> {
         "string" => {
             // Quoted or bare; BCS of a Move `String` is the BCS of its bytes.
             let text = strip_quotes(v).unwrap_or(v);
-            Ok(ParsedArg::Value(MoveValue::vector_u8(
-                text.as_bytes().to_vec(),
-            )))
+            Ok(ParsedArg::Value(MoveValue::vector_u8(text.as_bytes().to_vec())))
         }
         "hex" => Ok(ParsedArg::Raw(
             hex_decode(v).with_context(|| format!("hex: invalid value `{}`", v))?,
@@ -710,10 +696,7 @@ fn parse_vector_literal(inner: &str) -> Result<Vec<MoveValue>> {
     if inner.is_empty() {
         return Ok(Vec::new());
     }
-    split_csv(inner)
-        .into_iter()
-        .map(|part| parse_arg(&part, false)?.require_value())
-        .collect()
+    split_csv(inner).into_iter().map(|part| parse_arg(&part, false)?.require_value()).collect()
 }
 
 /// Bracket balance for a vector literal, ignoring brackets that live inside a
@@ -793,11 +776,7 @@ fn split_csv(s: &str) -> Vec<String> {
 /// Decode a hex string into bytes. The `0x` prefix and `_` separators are
 /// optional (`dead_beef`, `0xdeadbeef`), which is how Move spells byte strings.
 fn hex_decode(s: &str) -> Result<Vec<u8>> {
-    let hex: String = strip_hex_prefix(s)
-        .unwrap_or(s)
-        .chars()
-        .filter(|c| *c != '_')
-        .collect();
+    let hex: String = strip_hex_prefix(s).unwrap_or(s).chars().filter(|c| *c != '_').collect();
     if hex.is_empty() {
         bail!("expected hex digits, got `{}`", s);
     }
@@ -880,13 +859,10 @@ mod tests {
     #[test]
     fn vector_of_integers() {
         let bytes = parse("[1,2,3]").unwrap();
-        let expected = MoveValue::Vector(vec![
-            MoveValue::U64(1),
-            MoveValue::U64(2),
-            MoveValue::U64(3),
-        ])
-        .simple_serialize()
-        .unwrap();
+        let expected =
+            MoveValue::Vector(vec![MoveValue::U64(1), MoveValue::U64(2), MoveValue::U64(3)])
+                .simple_serialize()
+                .unwrap();
         assert_eq!(bytes, expected);
     }
 
@@ -943,10 +919,7 @@ mod tests {
             bcs::to_bytes(&vec![1u8, 2u8, 3u8]).unwrap()
         );
         // Bare CSV and the bracketed form are the same value.
-        assert_eq!(
-            parse("vector<u8>:1,2,3").unwrap(),
-            parse("[1u8,2u8,3u8]").unwrap()
-        );
+        assert_eq!(parse("vector<u8>:1,2,3").unwrap(), parse("[1u8,2u8,3u8]").unwrap());
     }
 
     #[test]
@@ -958,27 +931,15 @@ mod tests {
 
     #[test]
     fn quoted_string_strips_quotes() {
-        assert_eq!(
-            parse("\"hello\"").unwrap(),
-            bcs::to_bytes(&b"hello".to_vec()).unwrap()
-        );
-        assert_eq!(
-            parse("'hi'").unwrap(),
-            bcs::to_bytes(&b"hi".to_vec()).unwrap()
-        );
+        assert_eq!(parse("\"hello\"").unwrap(), bcs::to_bytes(&b"hello".to_vec()).unwrap());
+        assert_eq!(parse("'hi'").unwrap(), bcs::to_bytes(&b"hi".to_vec()).unwrap());
         // A quote inside a value does not strip anything.
-        assert_eq!(
-            parse("say \"hi\"").unwrap(),
-            bcs::to_bytes(&b"say \"hi\"".to_vec()).unwrap()
-        );
+        assert_eq!(parse("say \"hi\"").unwrap(), bcs::to_bytes(&b"say \"hi\"".to_vec()).unwrap());
     }
 
     #[test]
     fn move_byte_string_literals() {
-        assert_eq!(
-            parse("b\"hi\"").unwrap(),
-            bcs::to_bytes(&b"hi".to_vec()).unwrap()
-        );
+        assert_eq!(parse("b\"hi\"").unwrap(), bcs::to_bytes(&b"hi".to_vec()).unwrap());
         assert_eq!(
             parse("x\"0badc0de\"").unwrap(),
             bcs::to_bytes(&vec![0x0bu8, 0xadu8, 0xc0u8, 0xdeu8]).unwrap()
@@ -989,10 +950,7 @@ mod tests {
             bcs::to_bytes(&vec![0x0bu8, 0xadu8, 0xc0u8, 0xdeu8]).unwrap()
         );
         // Not a literal at all → ordinary string.
-        assert_eq!(
-            parse("brr").unwrap(),
-            bcs::to_bytes(&b"brr".to_vec()).unwrap()
-        );
+        assert_eq!(parse("brr").unwrap(), bcs::to_bytes(&b"brr".to_vec()).unwrap());
     }
 
     #[test]
@@ -1001,10 +959,7 @@ mod tests {
         assert_eq!(bytes.len(), AccountAddress::LENGTH);
         assert_eq!(&bytes[AccountAddress::LENGTH - 2..], &[0x04u8, 0x03u8]);
         // `@` followed by a non-address is just a string, not an error.
-        assert_eq!(
-            parse("@alice").unwrap(),
-            bcs::to_bytes(&b"@alice".to_vec()).unwrap()
-        );
+        assert_eq!(parse("@alice").unwrap(), bcs::to_bytes(&b"@alice".to_vec()).unwrap());
     }
 
     #[test]
@@ -1029,14 +984,9 @@ mod tests {
     #[test]
     fn typed_vector_of_strings() {
         let bytes = parse("vector<string>:[\"a\",\"bb\"]").unwrap();
-        let expected = vec![
-            MoveValue::vector_u8(b"a".to_vec()),
-            MoveValue::vector_u8(b"bb".to_vec()),
-        ];
-        assert_eq!(
-            bytes,
-            MoveValue::Vector(expected).simple_serialize().unwrap()
-        );
+        let expected =
+            vec![MoveValue::vector_u8(b"a".to_vec()), MoveValue::vector_u8(b"bb".to_vec())];
+        assert_eq!(bytes, MoveValue::Vector(expected).simple_serialize().unwrap());
     }
 
     #[test]
@@ -1064,14 +1014,8 @@ mod tests {
 
     #[test]
     fn hex_and_raw_typed_are_unframed() {
-        assert_eq!(
-            parse("hex:0xdeadbeef").unwrap(),
-            vec![0xde, 0xad, 0xbe, 0xef]
-        );
-        assert_eq!(
-            parse("hex:dead_beef").unwrap(),
-            vec![0xde, 0xad, 0xbe, 0xef]
-        );
+        assert_eq!(parse("hex:0xdeadbeef").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
+        assert_eq!(parse("hex:dead_beef").unwrap(), vec![0xde, 0xad, 0xbe, 0xef]);
         assert_eq!(parse("raw:hi").unwrap(), b"hi".to_vec());
         assert!(parse("hex:0xdeadbee").is_err()); // odd length
         assert!(parse("hex:nope").is_err());
@@ -1087,15 +1031,9 @@ mod tests {
         assert_eq!(parse("u8:0x10").unwrap(), bcs::to_bytes(&16u8).unwrap());
         assert_eq!(parse("16u8").unwrap(), bcs::to_bytes(&16u8).unwrap());
         // Leading zeros are not silently accepted as numbers.
-        assert_eq!(
-            parse("007").unwrap(),
-            bcs::to_bytes(&b"007".to_vec()).unwrap()
-        );
+        assert_eq!(parse("007").unwrap(), bcs::to_bytes(&b"007".to_vec()).unwrap());
         // A word ending in a type suffix is a string, not a number.
-        assert_eq!(
-            parse("zou8").unwrap(),
-            bcs::to_bytes(&b"zou8".to_vec()).unwrap()
-        );
+        assert_eq!(parse("zou8").unwrap(), bcs::to_bytes(&b"zou8".to_vec()).unwrap());
         // Out of range for the declared width.
         assert!(parse("256u8").is_err());
     }
@@ -1125,14 +1063,8 @@ mod tests {
     fn type_tags_are_case_insensitive() {
         assert_eq!(parse("U8:42").unwrap(), bcs::to_bytes(&42u8).unwrap());
         assert_eq!(parse("Bool:TRUE").unwrap(), bcs::to_bytes(&true).unwrap());
-        assert_eq!(
-            parse("Vector<u8>:1,2").unwrap(),
-            bcs::to_bytes(&vec![1u8, 2u8]).unwrap()
-        );
-        assert_eq!(
-            parse("Address:0x403").unwrap(),
-            parse("address:0x403").unwrap()
-        );
+        assert_eq!(parse("Vector<u8>:1,2").unwrap(), bcs::to_bytes(&vec![1u8, 2u8]).unwrap());
+        assert_eq!(parse("Address:0x403").unwrap(), parse("address:0x403").unwrap());
     }
 
     #[test]
@@ -1152,9 +1084,6 @@ mod tests {
             parse("https://example.com").unwrap(),
             bcs::to_bytes(&b"https://example.com".to_vec()).unwrap()
         );
-        assert_eq!(
-            parse("k:v").unwrap(),
-            bcs::to_bytes(&b"k:v".to_vec()).unwrap()
-        );
+        assert_eq!(parse("k:v").unwrap(), bcs::to_bytes(&b"k:v".to_vec()).unwrap());
     }
 }

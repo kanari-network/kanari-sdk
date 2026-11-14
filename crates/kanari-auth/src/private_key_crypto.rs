@@ -113,13 +113,7 @@ pub fn encrypt_private_key(private_key: &str, password: &str) -> AuthResult<Stri
     let aad = argon2_aad(policy);
 
     let ciphertext = cipher
-        .encrypt(
-            &nonce,
-            Payload {
-                msg: private_key.as_bytes(),
-                aad: &aad,
-            },
-        )
+        .encrypt(&nonce, Payload { msg: private_key.as_bytes(), aad: &aad })
         .map_err(|e| AuthError::CryptoError(format!("Private key encryption failed: {e}")))?;
 
     let payload = EncryptedPrivateKeyPayload {
@@ -171,27 +165,17 @@ pub fn decrypt_private_key_with_migration(
     let (key, aad, legacy) = match payload.version {
         PAYLOAD_VERSION_ARGON2ID => {
             if payload.kdf != "argon2id" {
-                return Err(AuthError::CryptoError(
-                    "Unsupported encrypted-key KDF".to_string(),
-                ));
+                return Err(AuthError::CryptoError("Unsupported encrypted-key KDF".to_string()));
             }
             let policy = Argon2Policy::from_payload(&payload)?;
-            (
-                derive_argon2id_key(password.as_bytes(), &salt, policy)?,
-                argon2_aad(policy),
-                false,
-            )
+            (derive_argon2id_key(password.as_bytes(), &salt, policy)?, argon2_aad(policy), false)
         }
         1 => {
             let iterations = payload.iterations.ok_or_else(|| {
                 AuthError::CryptoError("Missing legacy KDF iteration count".to_string())
             })?;
             validate_legacy_iterations(iterations)?;
-            (
-                derive_legacy_key(password.as_bytes(), &salt, iterations)?,
-                Vec::new(),
-                true,
-            )
+            (derive_legacy_key(password.as_bytes(), &salt, iterations)?, Vec::new(), true)
         }
         version => {
             return Err(AuthError::CryptoError(format!(
@@ -205,20 +189,13 @@ pub fn decrypt_private_key_with_migration(
     let decrypted = cipher
         .decrypt(
             &aes_gcm::Nonce::try_from(nonce.as_slice()).expect("nonce length already validated"),
-            Payload {
-                msg: ciphertext.as_ref(),
-                aad: &aad,
-            },
+            Payload { msg: ciphertext.as_ref(), aad: &aad },
         )
         .map_err(|_| AuthError::AuthenticationFailed)?;
     let plaintext = String::from_utf8(decrypted)
         .map_err(|e| AuthError::SerializationError(format!("Invalid UTF-8 private key: {e}")))?;
 
-    let migrated = if legacy {
-        Some(encrypt_private_key(&plaintext, password)?)
-    } else {
-        None
-    };
+    let migrated = if legacy { Some(encrypt_private_key(&plaintext, password)?) } else { None };
     Ok((plaintext, migrated))
 }
 
@@ -250,13 +227,8 @@ fn derive_argon2id_key(
     policy: Argon2Policy,
 ) -> AuthResult<Zeroizing<[u8; 32]>> {
     policy.validate()?;
-    let params = Params::new(
-        policy.memory_kib,
-        policy.time_cost,
-        policy.parallelism,
-        Some(32),
-    )
-    .map_err(|e| AuthError::CryptoError(format!("Invalid Argon2 parameters: {e}")))?;
+    let params = Params::new(policy.memory_kib, policy.time_cost, policy.parallelism, Some(32))
+        .map_err(|e| AuthError::CryptoError(format!("Invalid Argon2 parameters: {e}")))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut output = Zeroizing::new([0u8; 32]);
     argon2
@@ -321,9 +293,7 @@ fn random_bytes(len: usize) -> AuthResult<Vec<u8>> {
 
 fn validate_password(password: &str) -> AuthResult<()> {
     if password.is_empty() {
-        return Err(AuthError::InvalidPassword(
-            "Password cannot be empty".to_string(),
-        ));
+        return Err(AuthError::InvalidPassword("Password cannot be empty".to_string()));
     }
     Ok(())
 }
@@ -374,9 +344,6 @@ mod tests {
         let payload: EncryptedPrivateKeyPayload = serde_json::from_str(&encrypted).unwrap();
         assert_eq!(payload.version, PAYLOAD_VERSION_ARGON2ID);
         assert_eq!(payload.kdf, "argon2id");
-        assert_eq!(
-            decrypt_private_key(&encrypted, "password").unwrap(),
-            "secret"
-        );
+        assert_eq!(decrypt_private_key(&encrypted, "password").unwrap(), "secret");
     }
 }

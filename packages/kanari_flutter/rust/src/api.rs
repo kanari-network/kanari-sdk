@@ -158,10 +158,7 @@ pub fn derive_multiple_addresses_api(
         hd_wallet::derive_multiple_addresses(&mnemonic, "", &path_template, curve, count)
             .map_err(|e| format!("HD derivation failed: {}", e))?;
 
-    Ok(keypairs
-        .into_iter()
-        .map(|kp| to_keypair_data(&kp, curve))
-        .collect())
+    Ok(keypairs.into_iter().map(|kp| to_keypair_data(&kp, curve)).collect())
 }
 
 /// zkLogin nonce material: ephemeral pubkey + randomness + nonce.
@@ -285,18 +282,13 @@ pub fn zklogin_build_bundle(
     use kanari_crypto::signatures::zklogin::JwksDocument;
     let jwks: JwksDocument =
         serde_json::from_str(&jwks_json).map_err(|e| format!("bad JWKS JSON: {e}"))?;
-    let salt_arr: [u8; 32] = salt
-        .try_into()
-        .map_err(|_| "salt must be 32 bytes".to_string())?;
-    let rand_arr: [u8; 32] = randomness
-        .try_into()
-        .map_err(|_| "randomness must be 32 bytes".to_string())?;
-    let pub_arr: [u8; 32] = ephemeral_pubkey
-        .try_into()
-        .map_err(|_| "ephemeral pubkey must be 32 bytes".to_string())?;
-    let sig_arr: [u8; 64] = ephemeral_sig
-        .try_into()
-        .map_err(|_| "ephemeral sig must be 64 bytes".to_string())?;
+    let salt_arr: [u8; 32] = salt.try_into().map_err(|_| "salt must be 32 bytes".to_string())?;
+    let rand_arr: [u8; 32] =
+        randomness.try_into().map_err(|_| "randomness must be 32 bytes".to_string())?;
+    let pub_arr: [u8; 32] =
+        ephemeral_pubkey.try_into().map_err(|_| "ephemeral pubkey must be 32 bytes".to_string())?;
+    let sig_arr: [u8; 64] =
+        ephemeral_sig.try_into().map_err(|_| "ephemeral sig must be 64 bytes".to_string())?;
     let auth = ZkLoginAuthenticator {
         ephemeral_pubkey: pub_arr,
         ephemeral_sig: sig_arr,
@@ -316,9 +308,8 @@ pub fn zklogin_build_bundle(
 /// Sign bytes with an ephemeral secret (32 raw bytes from prepare).
 pub fn zklogin_sign_ephemeral(secret: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, String> {
     use kanari_crypto::signatures::zklogin::EphemeralKeypair;
-    let raw: [u8; 32] = secret
-        .try_into()
-        .map_err(|_| "ephemeral secret must be 32 bytes".to_string())?;
+    let raw: [u8; 32] =
+        secret.try_into().map_err(|_| "ephemeral secret must be 32 bytes".to_string())?;
     let kp = EphemeralKeypair::from_secret(raw).map_err(|e| format!("bad secret: {e:?}"))?;
     Ok(kp.sign(&message))
 }
@@ -368,12 +359,9 @@ pub fn list_supported_curves() -> Vec<CurveInfo> {
 // --- Helper Internals ---
 fn to_keypair_data(kp: &KeyPair, curve: CurveType) -> KeyPairData {
     let public_key = kp.public_key.clone();
-    let raw_public_key = hex::decode(
-        kp.pqc_public_key
-            .clone()
-            .unwrap_or_else(|| public_key.clone()),
-    )
-    .unwrap_or_default();
+    let raw_public_key =
+        hex::decode(kp.pqc_public_key.clone().unwrap_or_else(|| public_key.clone()))
+            .unwrap_or_default();
 
     KeyPairData {
         private_key: kp.private_key.to_string(),

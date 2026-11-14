@@ -91,11 +91,7 @@ pub struct SourceMap {
 
 impl StructSourceMap {
     pub fn new(definition_location: Loc) -> Self {
-        Self {
-            definition_location,
-            type_parameters: Vec::new(),
-            fields: Vec::new(),
-        }
+        Self { definition_location, type_parameters: Vec::new(), fields: Vec::new() }
     }
 
     pub fn add_type_parameter(&mut self, type_name: SourceName) {
@@ -196,11 +192,7 @@ impl FunctionSourceMap {
         // return the location of the declaration of the function. Otherwise, we will return
         // `None`.
         if self.is_native {
-            if code_offset == 0 {
-                Some(self.definition_location)
-            } else {
-                None
-            }
+            if code_offset == 0 { Some(self.definition_location) } else { None }
         } else {
             self.code_map
                 .range((Bound::Unbounded, Bound::Included(&code_offset)))
@@ -412,13 +404,11 @@ impl SourceMap {
         const_idx: ConstantPoolIndex,
         name: ConstantName,
     ) -> Result<()> {
-        self.constant_map
-            .insert(name, const_idx.0)
-            .map_or(Ok(()), |_| {
-                Err(format_err!(
-                    "Multiple constans with same name encountered when constructing source map"
-                ))
-            })
+        self.constant_map.insert(name, const_idx.0).map_or(Ok(()), |_| {
+            Err(format_err!(
+                "Multiple constans with same name encountered when constructing source map"
+            ))
+        })
     }
 
     pub fn add_struct_field_mapping(
@@ -492,9 +482,8 @@ impl SourceMap {
     pub fn dummy_from_view(module: &CompiledModule, default_loc: Loc) -> Result<Self> {
         let module_ident = {
             let module_handle = module.module_handle_at(ModuleHandleIndex::new(0));
-            let module_name = ModuleName(Symbol::from(
-                module.identifier_at(module_handle.name).as_str(),
-            ));
+            let module_name =
+                ModuleName(Symbol::from(module.identifier_at(module_handle.name).as_str()));
             let address = *module.address_identifier_at(module_handle.address);
             ModuleIdent::new(module_name, address)
         };

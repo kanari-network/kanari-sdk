@@ -30,11 +30,7 @@ async fn unfunded_wallet_cannot_drain_network() {
         })
         .await
         .expect("get_objects ต้องตอบกลับ");
-    assert!(
-        objects.objects.is_empty(),
-        "กระเป๋าใหม่ต้องว่าง แต่เจอ {} objects",
-        objects.objects.len()
-    );
+    assert!(objects.objects.is_empty(), "กระเป๋าใหม่ต้องว่าง แต่เจอ {} objects", objects.objects.len());
 
     // build transfer จากกระเป๋าว่างต้อง fail (ไม่มี coin ให้เลือก) — ยืนยันว่า
     // backend ไม่สร้าง tx ลมๆ แล้งๆ ให้
@@ -50,10 +46,7 @@ async fn unfunded_wallet_cannot_drain_network() {
             execute_immediate: Some(false),
         })
         .await;
-    assert!(
-        build.is_err(),
-        "build transfer จากกระเป๋าว่างต้อง fail แต่กลับสำเร็จ"
-    );
+    assert!(build.is_err(), "build transfer จากกระเป๋าว่างต้อง fail แต่กลับสำเร็จ");
     eprintln!("expected build failure: {:#}", build.unwrap_err());
 }
 
@@ -65,9 +58,6 @@ async fn dev_wallet_visible_on_live_network() {
     let owner = client.get_owner(dev).await.expect("dev wallet ต้องมีตัวตน");
     eprintln!("dev owner: {owner:?}");
 
-    let balances = client
-        .get_owner_balances(dev)
-        .await
-        .expect("dev balances ต้อง query ได้");
+    let balances = client.get_owner_balances(dev).await.expect("dev balances ต้อง query ได้");
     eprintln!("dev balances: {balances}");
 }

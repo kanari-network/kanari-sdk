@@ -25,10 +25,7 @@ fn invalid_address_is_rejected() {
 #[test]
 fn kanari_to_mist_exact_math() {
     assert_eq!(GasModule::parse_kanari_to_mist("1").unwrap(), 1_000_000_000);
-    assert_eq!(
-        GasModule::parse_kanari_to_mist("12.5").unwrap(),
-        12_500_000_000
-    );
+    assert_eq!(GasModule::parse_kanari_to_mist("12.5").unwrap(), 12_500_000_000);
     assert_eq!(GasModule::parse_kanari_to_mist("0.000000001").unwrap(), 1);
     // เกิน 9 ทศนิยมต้อง reject (ห้าม float math แอบปัด)
     assert!(GasModule::parse_kanari_to_mist("1.0000000001").is_err());

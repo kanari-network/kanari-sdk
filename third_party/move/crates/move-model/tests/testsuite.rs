@@ -52,11 +52,8 @@ fn test_runner(path: &Path) -> datatest_stable::Result<()> {
             for (i, _) in raw_module.function_defs().iter().enumerate() {
                 let idx = FunctionDefinitionIndex(i as u16);
                 let fun = m.get_function(m.try_get_function_id(idx).expect("Function not found"));
-                let other_fun = other_m.get_function(
-                    other_m
-                        .try_get_function_id(idx)
-                        .expect("Function not found"),
-                );
+                let other_fun = other_m
+                    .get_function(other_m.try_get_function_id(idx).expect("Function not found"));
                 assert_eq!(fun.get_identifier(), other_fun.get_identifier())
             }
         }

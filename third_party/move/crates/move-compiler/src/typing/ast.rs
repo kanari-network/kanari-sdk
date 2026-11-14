@@ -128,20 +128,8 @@ pub enum LValue_ {
         unused_binding: bool,
     },
     Unpack(ModuleIdent, DatatypeName, Vec<Type>, Fields<(Type, LValue)>),
-    BorrowUnpack(
-        bool,
-        ModuleIdent,
-        DatatypeName,
-        Vec<Type>,
-        Fields<(Type, LValue)>,
-    ),
-    UnpackVariant(
-        ModuleIdent,
-        DatatypeName,
-        VariantName,
-        Vec<Type>,
-        Fields<(Type, LValue)>,
-    ),
+    BorrowUnpack(bool, ModuleIdent, DatatypeName, Vec<Type>, Fields<(Type, LValue)>),
+    UnpackVariant(ModuleIdent, DatatypeName, VariantName, Vec<Type>, Fields<(Type, LValue)>),
     BorrowUnpackVariant(
         bool,
         ModuleIdent,
@@ -175,18 +163,10 @@ pub type BuiltinFunction = Spanned<BuiltinFunction_>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum UnannotatedExp_ {
-    Unit {
-        trailing: bool,
-    },
+    Unit { trailing: bool },
     Value(Value),
-    Move {
-        from_user: bool,
-        var: Var,
-    },
-    Copy {
-        from_user: bool,
-        var: Var,
-    },
+    Move { from_user: bool, var: Var },
+    Copy { from_user: bool, var: Var },
     Use(Var),
     Constant(ModuleIdent, ConstantName),
 
@@ -198,11 +178,7 @@ pub enum UnannotatedExp_ {
     Match(Box<Exp>, Spanned<Vec<MatchArm>>),
     VariantMatch(Box<Exp>, DatatypeName, Vec<(VariantName, Exp)>),
     While(BlockLabel, Box<Exp>, Box<Exp>),
-    Loop {
-        name: BlockLabel,
-        has_break: bool,
-        body: Box<Exp>,
-    },
+    Loop { name: BlockLabel, has_break: bool, body: Box<Exp> },
     NamedBlock(BlockLabel, Sequence),
     Block(Sequence),
     Assign(LValueList, Vec<Option<Type>>, Box<Exp>),
@@ -217,13 +193,7 @@ pub enum UnannotatedExp_ {
     BinopExp(Box<Exp>, BinOp, Box<Type>, Box<Exp>),
 
     Pack(ModuleIdent, DatatypeName, Vec<Type>, Fields<(Type, Exp)>),
-    PackVariant(
-        ModuleIdent,
-        DatatypeName,
-        VariantName,
-        Vec<Type>,
-        Fields<(Type, Exp)>,
-    ),
+    PackVariant(ModuleIdent, DatatypeName, VariantName, Vec<Type>, Fields<(Type, Exp)>),
     ExpList(Vec<ExpListItem>),
 
     Borrow(bool, Box<Exp>, Field),
@@ -269,13 +239,7 @@ pub type MatchArm = Spanned<MatchArm_>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnannotatedPat_ {
-    Variant(
-        ModuleIdent,
-        DatatypeName,
-        VariantName,
-        Vec<Type>,
-        Fields<(Type, MatchPattern)>,
-    ),
+    Variant(ModuleIdent, DatatypeName, VariantName, Vec<Type>, Fields<(Type, MatchPattern)>),
     BorrowVariant(
         bool,
         ModuleIdent,
@@ -284,19 +248,8 @@ pub enum UnannotatedPat_ {
         Vec<Type>,
         Fields<(Type, MatchPattern)>,
     ),
-    Struct(
-        ModuleIdent,
-        DatatypeName,
-        Vec<Type>,
-        Fields<(Type, MatchPattern)>,
-    ),
-    BorrowStruct(
-        bool,
-        ModuleIdent,
-        DatatypeName,
-        Vec<Type>,
-        Fields<(Type, MatchPattern)>,
-    ),
+    Struct(ModuleIdent, DatatypeName, Vec<Type>, Fields<(Type, MatchPattern)>),
+    BorrowStruct(bool, ModuleIdent, DatatypeName, Vec<Type>, Fields<(Type, MatchPattern)>),
     Binder(Mutability, Var),
     Literal(Value),
     Wildcard,
@@ -524,17 +477,8 @@ impl AstDebug for FunctionBody_ {
 
 impl AstDebug for (ConstantName, &Constant) {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let (
-            name,
-            Constant {
-                warning_filter,
-                index,
-                attributes,
-                loc: _loc,
-                signature,
-                value,
-            },
-        ) = self;
+        let (name, Constant { warning_filter, index, attributes, loc: _loc, signature, value }) =
+            self;
         warning_filter.ast_debug(w);
         attributes.ast_debug(w);
         w.write(format!("const#{index} {name}:"));
@@ -582,35 +526,21 @@ impl AstDebug for UnannotatedExp_ {
         use UnannotatedExp_ as E;
         match self {
             E::Unit { trailing } if !trailing => w.write("()"),
-            E::Unit {
-                trailing: _trailing,
-            } => w.write("/*()*/"),
+            E::Unit { trailing: _trailing } => w.write("/*()*/"),
             E::Value(v) => v.ast_debug(w),
-            E::Move {
-                from_user: false,
-                var: v,
-            } => {
+            E::Move { from_user: false, var: v } => {
                 w.write("move ");
                 v.ast_debug(w)
             }
-            E::Move {
-                from_user: true,
-                var: v,
-            } => {
+            E::Move { from_user: true, var: v } => {
                 w.write("move@");
                 v.ast_debug(w)
             }
-            E::Copy {
-                from_user: false,
-                var: v,
-            } => {
+            E::Copy { from_user: false, var: v } => {
                 w.write("copy ");
                 v.ast_debug(w)
             }
-            E::Copy {
-                from_user: true,
-                var: v,
-            } => {
+            E::Copy { from_user: true, var: v } => {
                 w.write("copy@");
                 v.ast_debug(w)
             }
@@ -710,11 +640,7 @@ impl AstDebug for UnannotatedExp_ {
                 w.write(")");
                 e.ast_debug(w);
             }
-            E::Loop {
-                name,
-                has_break,
-                body,
-            } => {
+            E::Loop { name, has_break, body } => {
                 name.ast_debug(w);
                 w.write(": loop");
                 if *has_break {
@@ -850,14 +776,8 @@ impl AstDebug for Exp {
 
 impl AstDebug for ModuleCall {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let ModuleCall {
-            module,
-            name,
-            type_arguments,
-            parameter_types,
-            arguments,
-            method_name: _,
-        } = self;
+        let ModuleCall { module, name, type_arguments, parameter_types, arguments, method_name: _ } =
+            self;
         w.write(format!("{}::{}", module, name));
         if !parameter_types.is_empty() {
             w.write("[");
@@ -1041,12 +961,7 @@ impl AstDebug for LValue_ {
         use LValue_ as L;
         match self {
             L::Ignore => w.write("_"),
-            L::Var {
-                mut_,
-                var: v,
-                ty: st,
-                unused_binding,
-            } => w.annotate(
+            L::Var { mut_, var: v, ty: st, unused_binding } => w.annotate(
                 |w| {
                     if let Some(mut_) = mut_ {
                         mut_.ast_debug(w);

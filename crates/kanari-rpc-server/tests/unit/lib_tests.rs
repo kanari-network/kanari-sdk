@@ -36,10 +36,7 @@ fn coin_data(amount: u64) -> Vec<u8> {
 fn hex_ends_with(value: &serde_json::Value, suffix: &str) -> bool {
     value
         .as_str()
-        .map(|s| {
-            s.trim_start_matches("0x")
-                .ends_with(suffix.trim_start_matches("0x"))
-        })
+        .map(|s| s.trim_start_matches("0x").ends_with(suffix.trim_start_matches("0x")))
         .unwrap_or(false)
 }
 
@@ -77,21 +74,12 @@ fn seed_runtime_state(state: &mut StateManager) {
             version: 2,
         },
     ));
-    state
-        .apply_changeset(&cs)
-        .invariant("seed runtime state changeset");
-    let mut owner_state = state
-        .get_owner_state(&owner)
-        .unwrap_or_else(|| OwnerState::new(owner));
+    state.apply_changeset(&cs).invariant("seed runtime state changeset");
+    let mut owner_state = state.get_owner_state(&owner).unwrap_or_else(|| OwnerState::new(owner));
     owner_state.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(500));
-    state
-        .save_owner_state(&owner_state)
-        .invariant("seed runtime state owner state");
+    state.save_owner_state(&owner_state).invariant("seed runtime state owner state");
     assert_eq!(
-        state
-            .get_owner_state(&owner)
-            .invariant("seeded owner state")
-            .get_token_balance(GAS_COIN),
+        state.get_owner_state(&owner).invariant("seeded owner state").get_token_balance(GAS_COIN),
         500
     );
 }
@@ -178,9 +166,7 @@ async fn build_krc1155_transfer_selects_balances_by_token_type() {
                 },
             ));
         }
-        state
-            .apply_changeset(&cs)
-            .invariant("seed krc-1155 balances");
+        state.apply_changeset(&cs).invariant("seed krc-1155 balances");
     }
     let app = create_router(RpcServerState::new(engine));
 
@@ -209,11 +195,7 @@ async fn build_krc1155_transfer_selects_balances_by_token_type() {
     assert_eq!(args.len(), 4);
     // Object ids come first in signature order (main, extra), then the
     // amount and the recipient as BCS bytes.
-    assert_eq!(
-        args[0],
-        address_bytes("0xbbb2"),
-        "main must be the largest balance"
-    );
+    assert_eq!(args[0], address_bytes("0xbbb2"), "main must be the largest balance");
     assert_eq!(args[1], address_bytes("0xbbb1"));
     assert_eq!(args[2], serde_json::json!([100u8, 0, 0, 0, 0, 0, 0, 0]));
     assert_eq!(args[3], address_bytes("0x2222"));
@@ -221,11 +203,7 @@ async fn build_krc1155_transfer_selects_balances_by_token_type() {
     let inputs = built["object_inputs"].as_array().expect("object inputs");
     let input_ids: Vec<&str> = inputs
         .iter()
-        .map(|input| {
-            input["object_ref"]["object_id"]
-                .as_str()
-                .expect("object id")
-        })
+        .map(|input| input["object_ref"]["object_id"].as_str().expect("object id"))
         .collect();
     // Object ids come back canonicalized to the full 64-hex spelling.
     assert!(hex_ends_with(&serde_json::json!(input_ids[0]), "bbb2"));
@@ -280,9 +258,7 @@ async fn rpc_call(
 
     let response: Response = app.oneshot(request).await.invariant("rpc response");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .invariant("rpc body bytes");
+    let body = to_bytes(response.into_body(), usize::MAX).await.invariant("rpc body bytes");
     let json: serde_json::Value = serde_json::from_slice(&body).invariant("rpc json body");
     assert!(
         json.get("error").is_none() || json.get("error").invariant("rpc error field").is_null(),
@@ -314,9 +290,7 @@ async fn rpc_call_response(
 
     let response: Response = app.oneshot(request).await.invariant("rpc response");
     assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .invariant("rpc body bytes");
+    let body = to_bytes(response.into_body(), usize::MAX).await.invariant("rpc body bytes");
     serde_json::from_slice(&body).invariant("rpc json body")
 }
 
@@ -346,13 +320,8 @@ async fn rpc_runtime_backed_endpoints_smoke() {
     assert!(gas_info["requested_gas_price"].is_u64());
     assert!(gas_info["effective_gas_price"].is_u64());
 
-    let network_status = rpc_call(
-        app.clone(),
-        methods::GET_NETWORK_STATUS,
-        serde_json::json!([]),
-        10,
-    )
-    .await;
+    let network_status =
+        rpc_call(app.clone(), methods::GET_NETWORK_STATUS, serde_json::json!([]), 10).await;
     assert_eq!(network_status["local_authority_id"], "0x1");
     assert_eq!(network_status["authority_count"], 3);
     assert_eq!(network_status["authorities"][0]["authority_id"], "0x1");
@@ -362,13 +331,8 @@ async fn rpc_runtime_backed_endpoints_smoke() {
     assert!(stats["total_supply"].as_u64().invariant("total supply") >= 500);
     assert!(stats["total_owners"].as_u64().is_some());
 
-    let smt_status = rpc_call(
-        app.clone(),
-        methods::GET_SMT_STATUS,
-        serde_json::json!([]),
-        20,
-    )
-    .await;
+    let smt_status =
+        rpc_call(app.clone(), methods::GET_SMT_STATUS, serde_json::json!([]), 20).await;
     assert_eq!(smt_status["enabled"], false);
     assert_eq!(smt_status["audit_requested"], false);
     assert_eq!(smt_status["audit_performed"], false);
@@ -386,30 +350,13 @@ async fn rpc_runtime_backed_endpoints_smoke() {
     assert_eq!(smt_audit["result"]["audit_requested"], true);
     assert!(smt_audit["result"]["audit_performed"].is_boolean());
 
-    let height = rpc_call(
-        app.clone(),
-        methods::GET_BLOCK_HEIGHT,
-        serde_json::json!([]),
-        3,
-    )
-    .await;
+    let height = rpc_call(app.clone(), methods::GET_BLOCK_HEIGHT, serde_json::json!([]), 3).await;
     assert!(height.as_u64().is_some());
 
-    let owner = rpc_call(
-        app.clone(),
-        methods::GET_OWNER,
-        serde_json::json!("0x1111"),
-        4,
-    )
-    .await;
+    let owner = rpc_call(app.clone(), methods::GET_OWNER, serde_json::json!("0x1111"), 4).await;
     assert!(hex_ends_with(&owner["owner"], "1111"));
     assert_eq!(owner["balances"][GAS_COIN], 500);
-    assert!(
-        !owner["owned_objects"]
-            .as_array()
-            .invariant("json array")
-            .is_empty()
-    );
+    assert!(!owner["owned_objects"].as_array().invariant("json array").is_empty());
 
     let all_balances = rpc_call(
         app.clone(),
@@ -427,19 +374,12 @@ async fn rpc_runtime_backed_endpoints_smoke() {
     let token_list = tokens.as_array().invariant("json array");
     assert!(!token_list.is_empty());
     assert!(token_list.iter().any(|token| {
-        token["token_type"]
-            .as_str()
-            .map(|ty| ty.contains("KANARI"))
-            .unwrap_or(false)
+        token["token_type"].as_str().map(|ty| ty.contains("KANARI")).unwrap_or(false)
     }));
 
-    let object = rpc_call(
-        app.clone(),
-        methods::GET_OBJECT,
-        serde_json::json!({ "object_id": "0xaaa1" }),
-        7,
-    )
-    .await;
+    let object =
+        rpc_call(app.clone(), methods::GET_OBJECT, serde_json::json!({ "object_id": "0xaaa1" }), 7)
+            .await;
     assert!(hex_ends_with(&object["id"], "aaa1"));
     assert_eq!(object["version"], 1);
 
@@ -477,11 +417,7 @@ async fn rpc_runtime_backed_endpoints_smoke() {
     .await;
     let objects = owned["objects"].as_array().invariant("json array");
     assert!(!objects.is_empty());
-    assert!(
-        objects
-            .iter()
-            .all(|object| object["version"].as_u64().is_some())
-    );
+    assert!(objects.iter().all(|object| object["version"].as_u64().is_some()));
     drop(guard);
 }
 
@@ -568,9 +504,7 @@ async fn metrics_endpoint_exports_prometheus_text() {
         .to_string();
     assert!(content_type.starts_with("text/plain"));
 
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .invariant("rpc body bytes");
+    let body = to_bytes(response.into_body(), usize::MAX).await.invariant("rpc body bytes");
     let text = String::from_utf8(body.to_vec()).invariant("metrics text utf8");
     assert!(text.contains("# HELP dropped_invalid_pending_tx_total"));
     assert!(text.contains("dropped_invalid_pending_tx_total"));
@@ -600,9 +534,7 @@ async fn submitted_transaction_hash_is_queryable() {
         1,
     );
     let mut signed_tx = SignedTransaction::new(transaction);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .invariant("sign transaction");
+    signed_tx.sign(&sender.private_key, sender.curve_type).invariant("sign transaction");
 
     let submitted = rpc_call(
         app.clone(),
@@ -625,33 +557,18 @@ async fn submitted_transaction_hash_is_queryable() {
         10,
     )
     .await;
-    let hash = submitted["hash"]
-        .as_str()
-        .invariant("submitted tx hash")
-        .to_string();
+    let hash = submitted["hash"].as_str().invariant("submitted tx hash").to_string();
 
-    let fetched = rpc_call(
-        app.clone(),
-        methods::GET_TRANSACTION,
-        serde_json::json!({ "hash": hash }),
-        11,
-    )
-    .await;
+    let fetched =
+        rpc_call(app.clone(), methods::GET_TRANSACTION, serde_json::json!({ "hash": hash }), 11)
+            .await;
     assert_eq!(fetched["hash"], format!("0x{}", hash));
     assert_eq!(fetched["status"], "pending");
 
-    let all = rpc_call(
-        app,
-        methods::GET_ALL_TRANSACTIONS,
-        serde_json::json!({ "limit": 10 }),
-        12,
-    )
-    .await;
+    let all =
+        rpc_call(app, methods::GET_ALL_TRANSACTIONS, serde_json::json!({ "limit": 10 }), 12).await;
     assert!(all.as_array().invariant("json array").iter().any(|tx| {
-        tx["hash"]
-            .as_str()
-            .map(|candidate| candidate == format!("0x{}", hash))
-            .unwrap_or(false)
+        tx["hash"].as_str().map(|candidate| candidate == format!("0x{}", hash)).unwrap_or(false)
     }));
 
     drop(guard);
@@ -688,31 +605,20 @@ async fn transaction_cursor_walks_pages_without_repeats_or_gaps() {
             1,
         );
         let mut signed_tx = SignedTransaction::new(transaction);
-        signed_tx
-            .sign(&sender.private_key, sender.curve_type)
-            .invariant("sign transaction");
+        signed_tx.sign(&sender.private_key, sender.curve_type).invariant("sign transaction");
         submitted_hashes.push(format!("0x{}", hex::encode(signed_tx.transaction_hash())));
         signed_batch.push(signed_tx);
     }
-    engine
-        .submit_transactions_batch(signed_batch)
-        .invariant("submit pending batch");
+    engine.submit_transactions_batch(signed_batch).invariant("submit pending batch");
 
     let app = create_router(RpcServerState::new(engine));
 
-    let page_one = rpc_call(
-        app.clone(),
-        methods::GET_ALL_TRANSACTIONS,
-        serde_json::json!({ "limit": 2 }),
-        30,
-    )
-    .await;
+    let page_one =
+        rpc_call(app.clone(), methods::GET_ALL_TRANSACTIONS, serde_json::json!({ "limit": 2 }), 30)
+            .await;
     let page_one = page_one.as_array().invariant("page one array");
     assert_eq!(page_one.len(), 2, "full page while older rows remain");
-    let cursor = page_one[1]["hash"]
-        .as_str()
-        .invariant("cursor hash")
-        .to_string();
+    let cursor = page_one[1]["hash"].as_str().invariant("cursor hash").to_string();
 
     let page_two = rpc_call(
         app.clone(),
@@ -743,10 +649,7 @@ async fn transaction_cursor_walks_pages_without_repeats_or_gaps() {
     )
     .await;
     assert!(
-        page_three
-            .as_array()
-            .invariant("page three array")
-            .is_empty(),
+        page_three.as_array().invariant("page three array").is_empty(),
         "walk stops once the cursor reaches the oldest row"
     );
 
@@ -797,25 +700,15 @@ async fn transaction_count_matches_full_cursor_walk() {
             1,
         );
         let mut signed_tx = SignedTransaction::new(transaction);
-        signed_tx
-            .sign(&sender.private_key, sender.curve_type)
-            .invariant("sign transaction");
+        signed_tx.sign(&sender.private_key, sender.curve_type).invariant("sign transaction");
         signed_batch.push(signed_tx);
     }
-    engine
-        .submit_transactions_batch(signed_batch)
-        .invariant("submit pending batch");
+    engine.submit_transactions_batch(signed_batch).invariant("submit pending batch");
 
     let app = create_router(RpcServerState::new(engine));
 
     // Unfiltered: the count equals a full cursor walk over the same rows.
-    let count = rpc_call(
-        app.clone(),
-        methods::COUNT_TRANSACTIONS,
-        serde_json::json!({}),
-        40,
-    )
-    .await;
+    let count = rpc_call(app.clone(), methods::COUNT_TRANSACTIONS, serde_json::json!({}), 40).await;
     let count = count.as_u64().invariant("unfiltered count");
     assert_eq!(count, 3, "every pending transaction is counted once");
 
@@ -826,13 +719,7 @@ async fn transaction_count_matches_full_cursor_walk() {
         if let Some(cursor) = &cursor {
             params["cursor"] = serde_json::json!(cursor);
         }
-        let page = rpc_call(
-            app.clone(),
-            methods::GET_ALL_TRANSACTIONS,
-            params,
-            41 + walked,
-        )
-        .await;
+        let page = rpc_call(app.clone(), methods::GET_ALL_TRANSACTIONS, params, 41 + walked).await;
         let page = page.as_array().invariant("walk page");
         walked += page.len() as u64;
         if page.len() < 2 {
@@ -906,9 +793,7 @@ async fn submit_transaction_can_execute_immediately() {
         0,
     );
     let mut signed_tx = SignedTransaction::new(transaction);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .invariant("sign transaction");
+    signed_tx.sign(&sender.private_key, sender.curve_type).invariant("sign transaction");
 
     let tx_hash = hex::encode(signed_tx.transaction_hash());
     engine
@@ -955,18 +840,10 @@ async fn submit_transaction_can_execute_immediately() {
     assert!(fetched["effects"].is_object());
     assert_eq!(fetched["effects"]["gas_used"], 42);
 
-    let all = rpc_call(
-        app,
-        methods::GET_ALL_TRANSACTIONS,
-        serde_json::json!({ "limit": 10 }),
-        21,
-    )
-    .await;
+    let all =
+        rpc_call(app, methods::GET_ALL_TRANSACTIONS, serde_json::json!({ "limit": 10 }), 21).await;
     assert!(all.as_array().invariant("json array").iter().any(|tx| {
-        tx["hash"]
-            .as_str()
-            .map(|candidate| candidate == format!("0x{}", tx_hash))
-            .unwrap_or(false)
+        tx["hash"].as_str().map(|candidate| candidate == format!("0x{}", tx_hash)).unwrap_or(false)
             && tx["previewed"] == true
             && tx["status"] == "simulated_pending"
             && tx["gas_used"] == 42
@@ -1024,10 +901,7 @@ async fn rate_limiter_resets_after_window_elapses() {
     }
     assert!(!limiter.allow(ip));
     tokio::time::sleep(RPC_RATE_LIMIT_WINDOW + Duration::from_millis(50)).await;
-    assert!(
-        limiter.allow(ip),
-        "budget must reset once the window elapses"
-    );
+    assert!(limiter.allow(ip), "budget must reset once the window elapses");
 }
 
 #[tokio::test]
@@ -1042,11 +916,7 @@ async fn rate_limiter_hard_bounds_ip_map_under_distributed_flood() {
             "a fresh source must still be admitted exactly once at capacity"
         );
     }
-    let tracked = limiter
-        .windows
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .len();
+    let tracked = limiter.windows.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).len();
     assert!(
         tracked <= RPC_RATE_LIMITER_MAX_TRACKED_IPS,
         "tracked IP map grew past its hard bound: {tracked}"
@@ -1076,22 +946,14 @@ async fn anti_spam_router_rejects_over_budget_requests_with_429() {
     };
 
     for _ in 0..RPC_RATE_LIMIT_PER_WINDOW {
-        let response: Response = app
-            .clone()
-            .oneshot(build_request())
-            .await
-            .invariant("rpc response");
+        let response: Response =
+            app.clone().oneshot(build_request()).await.invariant("rpc response");
         assert_eq!(response.status(), StatusCode::OK);
     }
 
-    let response: Response = app
-        .oneshot(build_request())
-        .await
-        .invariant("rate limited response");
+    let response: Response = app.oneshot(build_request()).await.invariant("rate limited response");
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .invariant("rate limit body bytes");
+    let body = to_bytes(response.into_body(), usize::MAX).await.invariant("rate limit body bytes");
     let json: serde_json::Value = serde_json::from_slice(&body).invariant("rate limit json body");
     assert_eq!(json["error"]["code"], -32005);
     assert_eq!(

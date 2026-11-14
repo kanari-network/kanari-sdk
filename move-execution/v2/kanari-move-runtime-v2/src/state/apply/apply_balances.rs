@@ -107,9 +107,7 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<bool> {
-        Ok(self
-            .compute_owned_token_balances(owner, None)?
-            .contains_key(token_type))
+        Ok(self.compute_owned_token_balances(owner, None)?.contains_key(token_type))
     }
 
     pub(crate) fn changeset_touches_object_backed_token_for_owner(
@@ -118,10 +116,8 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<bool> {
-        Ok(
-            self.owner_has_object_backed_token_balance(owner, token_type)?
-                || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
-                || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?,
-        )
+        Ok(self.owner_has_object_backed_token_balance(owner, token_type)?
+            || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
+            || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?)
     }
 }

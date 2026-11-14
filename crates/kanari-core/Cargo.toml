@@ -20,9 +20,9 @@ kanari-move-runtime-v2 = { workspace = true }
 kanari-types = { workspace = true }
 kanari-rpc-api = { workspace = true }
 kanari-crypto = { workspace = true }
+kanari-common = { workspace = true }
 anyhow = { workspace = true }
 bcs = { workspace = true }
-blake3 = { workspace = true }
 num_cpus = { workspace = true }
 log = { workspace = true }
 tracing = { workspace = true }

@@ -110,10 +110,7 @@ fn extract_decls(
         .map(|(key, (seen_datatypes, sig))| {
             (
                 key,
-                FunctionDeclaration {
-                    seen_datatypes,
-                    signature: function_signature(context, sig),
-                },
+                FunctionDeclaration { seen_datatypes, signature: function_signature(context, sig) },
             )
         })
         .collect();
@@ -134,10 +131,8 @@ pub fn program(
     let (orderings, ddecls, fdecls) = extract_decls(compilation_env, pre_compiled_lib, &prog);
     let G::Program { modules: gmodules } = prog;
 
-    let mut source_modules = gmodules
-        .into_iter()
-        .filter(|(_, mdef)| mdef.is_source_module)
-        .collect::<Vec<_>>();
+    let mut source_modules =
+        gmodules.into_iter().filter(|(_, mdef)| mdef.is_source_module).collect::<Vec<_>>();
     source_modules.sort_by_key(|(_, mdef)| mdef.dependency_order);
     for (m, mdef) in source_modules {
         if let Some(unit) = module(compilation_env, m, mdef, &orderings, &ddecls, &fdecls) {
@@ -197,25 +192,13 @@ fn module(
 
     let addr_name = match &ident.value.address {
         Address::Numerical { name: None, .. } => None,
-        Address::Numerical {
-            name: Some(name), ..
-        }
-        | Address::NamedUnassigned(name) => Some(*name),
+        Address::Numerical { name: Some(name), .. } | Address::NamedUnassigned(name) => Some(*name),
     };
     let addr_bytes = context.resolve_address(ident.value.address);
-    let (imports, explicit_dependency_declarations) = context.materialize(
-        dependency_orderings,
-        datatype_declarations,
-        function_declarations,
-    );
+    let (imports, explicit_dependency_declarations) =
+        context.materialize(dependency_orderings, datatype_declarations, function_declarations);
 
-    let sp!(
-        ident_loc,
-        ModuleIdent_ {
-            address: _,
-            module: module_name
-        }
-    ) = ident;
+    let sp!(ident_loc, ModuleIdent_ { address: _, module: module_name }) = ident;
     let ir_module = IR::ModuleDefinition {
         loc: ident_loc,
         identifier: IR::ModuleIdent {
@@ -270,9 +253,7 @@ fn address_names<'a>(
             let ModuleIdent_ { address, module } = mident;
             let ModuleName(sp!(_, module)) = module;
             if let Address::Numerical {
-                name: Some(sp!(_, named)),
-                value: sp!(_, numeric),
-                ..
+                name: Some(sp!(_, named)), value: sp!(_, numeric), ..
             } = address
             {
                 Some(((numeric.into_inner(), module.as_str()), *named))
@@ -313,14 +294,9 @@ fn function_info_map(
         .map(|(n, v)| (Symbol::from(n.as_str()), v))
         .collect();
     let (params, attributes) = collected_function_infos.get_(&name).unwrap();
-    let parameters = params
-        .iter()
-        .map(|(_mut, v, ty)| var_info(&local_map, *v, ty.clone()))
-        .collect();
-    let function_info = FunctionInfo {
-        parameters,
-        attributes: attributes.clone(),
-    };
+    let parameters =
+        params.iter().map(|(_mut, v, ty)| var_info(&local_map, *v, ty.clone())).collect();
+    let function_info = FunctionInfo { parameters, attributes: attributes.clone() };
 
     let name_loc = *collected_function_infos.get_loc_(&name).unwrap();
     let function_name = FunctionName(sp(name_loc, name));
@@ -347,10 +323,7 @@ fn struct_defs(
 ) -> Vec<IR::StructDefinition> {
     let mut structs = structs.into_iter().collect::<Vec<_>>();
     structs.sort_by_key(|(_, s)| s.index);
-    structs
-        .into_iter()
-        .map(|(s, sdef)| struct_def(context, m, s, sdef))
-        .collect()
+    structs.into_iter().map(|(s, sdef)| struct_def(context, m, s, sdef)).collect()
 }
 
 fn struct_def(
@@ -372,15 +345,7 @@ fn struct_def(
     let abilities = abilities(&abs);
     let type_formals = datatype_type_parameters(tys);
     let fields = struct_fields(context, loc, fields);
-    sp(
-        loc,
-        IR::StructDefinition_ {
-            name,
-            abilities,
-            type_formals,
-            fields,
-        },
-    )
+    sp(loc, IR::StructDefinition_ { name, abilities, type_formals, fields })
 }
 
 fn struct_fields(
@@ -394,17 +359,13 @@ fn struct_fields(
         HF::Native(_) => IRF::Native,
         HF::Defined(field_vec) if field_vec.is_empty() => {
             // empty fields are not allowed in the bytecode, add a dummy field
-            let fake_field = vec![(
-                Field(sp(loc, symbol!("dummy_field"))),
-                H::BaseType_::bool(loc),
-            )];
+            let fake_field =
+                vec![(Field(sp(loc, symbol!("dummy_field"))), H::BaseType_::bool(loc))];
             struct_fields(context, loc, HF::Defined(fake_field))
         }
         HF::Defined(field_vec) => {
-            let fields = field_vec
-                .into_iter()
-                .map(|(f, ty)| (field(f), base_type(context, ty)))
-                .collect();
+            let fields =
+                field_vec.into_iter().map(|(f, ty)| (field(f), base_type(context, ty))).collect();
             IRF::Move { fields }
         }
     }
@@ -421,10 +382,7 @@ fn constants(
 ) -> Vec<IR::Constant> {
     let mut constants = constants.into_iter().collect::<Vec<_>>();
     constants.sort_by_key(|(_, c)| c.index);
-    constants
-        .into_iter()
-        .map(|(n, c)| constant(context, m, n, c))
-        .collect::<Vec<_>>()
+    constants.into_iter().map(|(n, c)| constant(context, m, n, c)).collect::<Vec<_>>()
 }
 
 fn constant(
@@ -433,18 +391,11 @@ fn constant(
     n: ConstantName,
     c: G::Constant,
 ) -> IR::Constant {
-    let is_error_constant = c
-        .attributes
-        .contains_key_(&known_attributes::ErrorAttribute.into());
+    let is_error_constant = c.attributes.contains_key_(&known_attributes::ErrorAttribute.into());
     let name = context.constant_definition_name(m, n);
     let signature = base_type(context, c.signature);
     let value = c.value.unwrap();
-    IR::Constant {
-        name,
-        signature,
-        value,
-        is_error_constant,
-    }
+    IR::Constant { name, signature, value, is_error_constant }
 }
 
 //**************************************************************************************************
@@ -501,32 +452,15 @@ fn function(
     let signature = function_signature(context, signature);
     let body = match body.value {
         G::FunctionBody_::Native => IR::FunctionBody::Native,
-        G::FunctionBody_::Defined {
-            locals,
-            start,
-            block_info,
-            blocks,
-        } => {
-            let (locals, code) = function_body(
-                context,
-                &f,
-                parameters.clone(),
-                locals,
-                block_info,
-                start,
-                blocks,
-            );
+        G::FunctionBody_::Defined { locals, start, block_info, blocks } => {
+            let (locals, code) =
+                function_body(context, &f, parameters.clone(), locals, block_info, start, blocks);
             IR::FunctionBody::Bytecode { locals, code }
         }
     };
     let loc = f.loc();
     let name = context.function_definition_name(m, f);
-    let ir_function = IR::Function_ {
-        visibility: v,
-        is_entry: entry.is_some(),
-        signature,
-        body,
-    };
+    let ir_function = IR::Function_ { visibility: v, is_entry: entry.is_some(), signature, body };
     ((name, sp(loc, ir_function)), (parameters, attributes))
 }
 
@@ -546,19 +480,13 @@ fn function_signature(context: &mut Context, sig: H::FunctionSignature) -> IR::F
         .map(|(_mut, v, st)| (var(v), single_type(context, st)))
         .collect();
     let type_parameters = fun_type_parameters(sig.type_parameters);
-    IR::FunctionSignature {
-        return_type,
-        formals,
-        type_formals: type_parameters,
-    }
+    IR::FunctionSignature { return_type, formals, type_formals: type_parameters }
 }
 
 fn seen_datatypes(sig: &H::FunctionSignature) -> BTreeSet<(ModuleIdent, DatatypeName)> {
     let mut seen = BTreeSet::new();
     seen_datatypes_type(&mut seen, &sig.return_type);
-    sig.parameters
-        .iter()
-        .for_each(|(_, _, st)| seen_datatypes_single_type(&mut seen, st));
+    sig.parameters.iter().for_each(|(_, _, st)| seen_datatypes_single_type(&mut seen, st));
     seen
 }
 
@@ -567,9 +495,7 @@ fn seen_datatypes_type(seen: &mut BTreeSet<(ModuleIdent, DatatypeName)>, sp!(_, 
     match t_ {
         T::Unit => (),
         T::Single(st) => seen_datatypes_single_type(seen, st),
-        T::Multiple(ss) => ss
-            .iter()
-            .for_each(|st| seen_datatypes_single_type(seen, st)),
+        T::Multiple(ss) => ss.iter().for_each(|st| seen_datatypes_single_type(seen, st)),
     }
 }
 
@@ -611,9 +537,7 @@ fn function_body(
     start: H::Label,
     blocks_map: H::BasicBlocks,
 ) -> (Vec<(IR::Var, IR::Type)>, IR::BytecodeBlocks) {
-    parameters
-        .iter()
-        .for_each(|(_, var, _)| assert!(locals_map.remove(var).is_some()));
+    parameters.iter().for_each(|(_, var, _)| assert!(locals_map.remove(var).is_some()));
     let mut locals = locals_map
         .into_iter()
         .filter(|(_, (_, ty))| {
@@ -700,10 +624,9 @@ fn struct_definition_name_base(
 ) -> (IR::StructName, Vec<IR::Type>) {
     use H::{BaseType_ as B, TypeName_ as TN};
     match bt_ {
-        B::Apply(_, sp!(_, TN::ModuleType(m, s)), tys) => (
-            context.struct_definition_name(&m, s),
-            base_types(context, tys),
-        ),
+        B::Apply(_, sp!(_, TN::ModuleType(m, s)), tys) => {
+            (context.struct_definition_name(&m, s), base_types(context, tys))
+        }
         _ => panic!("ICE expected module struct type"),
     }
 }
@@ -728,9 +651,7 @@ fn abilities(set: &AbilitySet) -> BTreeSet<IR::Ability> {
 }
 
 fn fun_type_parameters(tps: Vec<TParam>) -> Vec<(IR::TypeVar, BTreeSet<IR::Ability>)> {
-    tps.into_iter()
-        .map(|tp| (type_var(tp.user_specified_name), abilities(&tp.abilities)))
-        .collect()
+    tps.into_iter().map(|tp| (type_var(tp.user_specified_name), abilities(&tp.abilities))).collect()
 }
 
 fn datatype_type_parameters(tps: Vec<DatatypeTypeParameter>) -> Vec<IR::StructTypeParameter> {
@@ -766,10 +687,7 @@ fn base_type(context: &mut Context, sp!(_, bt_): H::BaseType) -> IR::Type {
 
         B::Apply(_, sp!(_, TN::Builtin(sp!(_, BT::Bool))), _) => IRT::Bool,
         B::Apply(_, sp!(_, TN::Builtin(sp!(_, BT::Vector))), mut args) => {
-            assert!(
-                args.len() == 1,
-                "ICE vector must have exactly 1 type argument"
-            );
+            assert!(args.len() == 1, "ICE vector must have exactly 1 type argument");
             IRT::Vector(Box::new(base_type(context, args.pop().unwrap())))
         }
         B::Apply(_, sp!(_, TN::ModuleType(m, s)), tys) => {
@@ -777,10 +695,9 @@ fn base_type(context: &mut Context, sp!(_, bt_): H::BaseType) -> IR::Type {
             let tys = base_types(context, tys);
             IRT::Struct(n, tys)
         }
-        B::Param(TParam {
-            user_specified_name,
-            ..
-        }) => IRT::TypeParameter(type_var(user_specified_name).value),
+        B::Param(TParam { user_specified_name, .. }) => {
+            IRT::TypeParameter(type_var(user_specified_name).value)
+        }
     }
 }
 
@@ -838,11 +755,7 @@ fn command(context: &mut Context, code: &mut IR::BytecodeBlock, sp!(loc, cmd_): 
             }
         }
         C::Jump { target, .. } => code.push(sp(loc, B::Branch(label(target)))),
-        C::JumpIf {
-            cond,
-            if_true,
-            if_false,
-        } => {
+        C::JumpIf { cond, if_true, if_false } => {
             exp(context, code, cond);
             code.push(sp(loc, B::BrFalse(label(if_false))));
             code.push(sp(loc, B::Branch(label(if_true))));
@@ -878,11 +791,7 @@ fn lvalue(context: &mut Context, code: &mut IR::BytecodeBlock, sp!(loc, l_): H::
     use IR::Bytecode_ as B;
     match l_ {
         L::Ignore => code.push(sp(loc, B::Pop)),
-        L::Var {
-            var: v,
-            unused_assignment,
-            ty,
-        } => {
+        L::Var { var: v, unused_assignment, ty } => {
             if unused_assignment && ty.value.abilities(loc).has_ability_(Ability_::Drop) {
                 code.push(sp(loc, B::Pop));
             } else {
@@ -980,14 +889,7 @@ fn exp(context: &mut Context, code: &mut IR::BytecodeBlock, e: H::Exp) {
             for arg in mcall.arguments {
                 exp(context, code, arg);
             }
-            module_call(
-                context,
-                loc,
-                code,
-                mcall.module,
-                mcall.name,
-                mcall.type_arguments,
-            );
+            module_call(context, loc, code, mcall.module, mcall.name, mcall.type_arguments);
         }
 
         E::Freeze(er) => {
@@ -1071,11 +973,7 @@ fn exp(context: &mut Context, code: &mut IR::BytecodeBlock, e: H::Exp) {
         }
 
         E::BorrowLocal(mut_, v) => {
-            let instr = if mut_ {
-                B::MutBorrowLoc(var(v))
-            } else {
-                B::ImmBorrowLoc(var(v))
-            };
+            let instr = if mut_ { B::MutBorrowLoc(var(v)) } else { B::ImmBorrowLoc(var(v)) };
             code.push(sp(loc, instr));
         }
 

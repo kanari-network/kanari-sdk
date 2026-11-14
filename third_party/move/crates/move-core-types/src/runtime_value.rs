@@ -137,10 +137,7 @@ where
     I: IntoIterator<Item = &'a MoveValue>,
 {
     vals.into_iter()
-        .map(|val| {
-            val.simple_serialize()
-                .expect("serialization should succeed")
-        })
+        .map(|val| val.simple_serialize().expect("serialization should succeed"))
         .collect()
 }
 
@@ -210,9 +207,9 @@ impl<'d> serde::de::DeserializeSeed<'d> for &MoveTypeLayout {
                 AccountAddress::deserialize(deserializer).map(MoveValue::Signer)
             }
             MoveTypeLayout::Struct(ty) => Ok(MoveValue::Struct(ty.deserialize(deserializer)?)),
-            MoveTypeLayout::Vector(layout) => Ok(MoveValue::Vector(
-                deserializer.deserialize_seq(VectorElementVisitor(layout))?,
-            )),
+            MoveTypeLayout::Vector(layout) => {
+                Ok(MoveValue::Vector(deserializer.deserialize_seq(VectorElementVisitor(layout))?))
+            }
         }
     }
 }
@@ -269,10 +266,7 @@ impl<'d> serde::de::DeserializeSeed<'d> for &MoveStructLayout {
         self,
         deserializer: D,
     ) -> Result<Self::Value, D::Error> {
-        Ok(MoveStruct(deserializer.deserialize_tuple(
-            self.0.len(),
-            StructFieldVisitor(&self.0),
-        )?))
+        Ok(MoveStruct(deserializer.deserialize_tuple(self.0.len(), StructFieldVisitor(&self.0))?))
     }
 }
 
@@ -337,11 +331,7 @@ impl fmt::Display for MoveTypeLayout {
 struct DebugAsDisplay<'a, T>(&'a T);
 impl<'a, T: fmt::Display> fmt::Debug for DebugAsDisplay<'a, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if f.alternate() {
-            write!(f, "{:#}", self.0)
-        } else {
-            write!(f, "{}", self.0)
-        }
+        if f.alternate() { write!(f, "{:#}", self.0) } else { write!(f, "{}", self.0) }
     }
 }
 

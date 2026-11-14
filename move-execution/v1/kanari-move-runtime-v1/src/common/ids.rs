@@ -19,9 +19,7 @@ pub(crate) fn canonical_object_id(id: &str) -> Option<String> {
     } else if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    AccountAddress::from_hex_literal(trimmed)
-        .ok()
-        .map(|addr| addr.to_hex_literal())
+    AccountAddress::from_hex_literal(trimmed).ok().map(|addr| addr.to_hex_literal())
 }
 
 pub(crate) fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {

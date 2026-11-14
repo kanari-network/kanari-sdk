@@ -182,12 +182,8 @@ fn attack_simulation_rejects_hybrid_public_key_substitution() {
     let legitimate = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
     let attacker = generate_keypair(CurveType::Ed25519Dilithium3).unwrap();
     let message = b"kanari attack simulation: hybrid key substitution";
-    let signature = sign_message(
-        &legitimate.private_key,
-        message,
-        CurveType::Ed25519Dilithium3,
-    )
-    .unwrap();
+    let signature =
+        sign_message(&legitimate.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
 
     assert!(
         verify_signature(&legitimate.tagged_address(), message, &signature).unwrap(),
@@ -203,11 +199,9 @@ fn attack_simulation_rejects_hybrid_public_key_substitution() {
 
 #[test]
 fn attack_simulation_rejects_encrypted_payload_tampering_and_wrong_password() {
-    let encrypted = encrypt_data(
-        b"kanari attack simulation: wallet secret",
-        "CorrectHorseBatteryStaple!2026",
-    )
-    .unwrap();
+    let encrypted =
+        encrypt_data(b"kanari attack simulation: wallet secret", "CorrectHorseBatteryStaple!2026")
+            .unwrap();
 
     assert!(decrypt_data(&encrypted, "WrongHorseBatteryStaple!2026").is_err());
 
@@ -319,15 +313,7 @@ fn attack_simulation_rejects_stream_header_downgrade_and_trailing_frames() {
     let mut with_trailing_frame = encrypted.clone();
     with_trailing_frame.extend_from_slice(&[1, 0, 0, 0, 16]);
     with_trailing_frame.extend_from_slice(&[0xAA; 16]);
-    assert!(
-        decrypt_stream(
-            &header,
-            with_trailing_frame.as_slice(),
-            Vec::new(),
-            password
-        )
-        .is_err()
-    );
+    assert!(decrypt_stream(&header, with_trailing_frame.as_slice(), Vec::new(), password).is_err());
 }
 
 #[test]
@@ -353,14 +339,9 @@ fn attack_simulation_rejects_private_key_import_resource_abuse() {
         Err(KeyError::InvalidPrivateKey)
     ));
 
-    for malformed in [
-        "",
-        "kana",
-        "kana-not-hex",
-        "K256:0x1234",
-        "kanamldsa65:public-only",
-        "kana00010203",
-    ] {
+    for malformed in
+        ["", "kana", "kana-not-hex", "K256:0x1234", "kanamldsa65:public-only", "kana00010203"]
+    {
         assert!(
             keypair_from_private_key(malformed, CurveType::K256).is_err(),
             "malformed private key unexpectedly imported: {malformed}"
@@ -372,9 +353,7 @@ fn attack_simulation_rejects_private_key_import_resource_abuse() {
 fn attack_simulation_rejects_keystore_corruption_and_key_count_dos() {
     let encrypted = encrypt_data(b"wallet secret", "CorrectHorseBatteryStaple!2026").unwrap();
     let mut keystore = Keystore::new();
-    keystore
-        .keys
-        .insert("0xgood".to_string(), encrypted.clone());
+    keystore.keys.insert("0xgood".to_string(), encrypted.clone());
     assert!(keystore.validate().is_ok());
 
     let mut corrupted_json = serde_json::to_value(&encrypted).unwrap();
@@ -388,9 +367,7 @@ fn attack_simulation_rejects_keystore_corruption_and_key_count_dos() {
 
     let mut huge_keystore = Keystore::new();
     for index in 0..10_001 {
-        huge_keystore
-            .keys
-            .insert(format!("0x{index:064x}"), encrypted.clone());
+        huge_keystore.keys.insert(format!("0x{index:064x}"), encrypted.clone());
     }
     assert!(matches!(
         huge_keystore.validate(),
@@ -431,10 +408,7 @@ fn attack_simulation_rejects_hd_wallet_derivation_abuse() {
         1,
     )
     .expect("repeat PQC derivation should succeed");
-    assert_eq!(
-        batch[0].address, repeat[0].address,
-        "PQC HD derivation must be deterministic"
-    );
+    assert_eq!(batch[0].address, repeat[0].address, "PQC HD derivation must be deterministic");
 
     assert!(matches!(
         derive_multiple_addresses(

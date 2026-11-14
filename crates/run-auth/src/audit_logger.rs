@@ -191,16 +191,10 @@ impl AuditLogger {
         crate::security::secure_path(&log_dir, true)?;
 
         let log_path = log_dir.join(format!("audit_{}.log", Utc::now().format("%Y%m%d")));
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&log_path)?;
         crate::security::secure_path(&log_path, false)?;
 
-        Ok(Self {
-            log_path,
-            file_handle: Arc::new(Mutex::new(Some(file))),
-        })
+        Ok(Self { log_path, file_handle: Arc::new(Mutex::new(Some(file))) })
     }
 
     /// Log an audit event

@@ -32,56 +32,42 @@ const MAX_PUBLIC_KEY_BYTES: usize = 4_096;
 type Verifier = fn(&str, &[u8], &[u8]) -> Result<bool, kanari_crypto::signatures::SignatureError>;
 
 fn make_pqc_verify(gas_cost: InternalGas, verifier: Verifier) -> NativeFunction {
-    make_native(
-        move |context, ty_args: Vec<Type>, mut arguments: VecDeque<Value>| {
-            native_charge_gas_early_exit!(context, gas_cost);
-            expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
-            let message: VectorRef = pop_arg!(arguments, VectorRef);
-            let public_key: VectorRef = pop_arg!(arguments, VectorRef);
-            let signature: VectorRef = pop_arg!(arguments, VectorRef);
-            let message = message.as_bytes_ref().to_vec();
-            let public_key = public_key.as_bytes_ref().to_vec();
-            let signature = signature.as_bytes_ref().to_vec();
-            let valid = message.len() <= MAX_MESSAGE_BYTES
-                && public_key.len() <= MAX_PUBLIC_KEY_BYTES
-                && signature.len() <= MAX_SIGNATURE_BYTES
-                && verifier(&hex::encode(public_key), &message, &signature).unwrap_or(false);
-            Ok(NativeResult::ok(
-                context.gas_used(),
-                smallvec![Value::bool(valid)],
-            ))
-        },
-    )
+    make_native(move |context, ty_args: Vec<Type>, mut arguments: VecDeque<Value>| {
+        native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
+        let message: VectorRef = pop_arg!(arguments, VectorRef);
+        let public_key: VectorRef = pop_arg!(arguments, VectorRef);
+        let signature: VectorRef = pop_arg!(arguments, VectorRef);
+        let message = message.as_bytes_ref().to_vec();
+        let public_key = public_key.as_bytes_ref().to_vec();
+        let signature = signature.as_bytes_ref().to_vec();
+        let valid = message.len() <= MAX_MESSAGE_BYTES
+            && public_key.len() <= MAX_PUBLIC_KEY_BYTES
+            && signature.len() <= MAX_SIGNATURE_BYTES
+            && verifier(&hex::encode(public_key), &message, &signature).unwrap_or(false);
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::bool(valid)]))
+    })
 }
 
 fn make_hybrid_verify(gas_cost: InternalGas, verifier: Verifier) -> NativeFunction {
-    make_native(
-        move |context, ty_args: Vec<Type>, mut arguments: VecDeque<Value>| {
-            native_charge_gas_early_exit!(context, gas_cost);
-            expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
-            let message: VectorRef = pop_arg!(arguments, VectorRef);
-            let pqc_public_key: VectorRef = pop_arg!(arguments, VectorRef);
-            let classical_public_key: VectorRef = pop_arg!(arguments, VectorRef);
-            let signature: VectorRef = pop_arg!(arguments, VectorRef);
-            let message = message.as_bytes_ref().to_vec();
-            let pqc_public_key = pqc_public_key.as_bytes_ref().to_vec();
-            let classical_public_key = classical_public_key.as_bytes_ref().to_vec();
-            let signature = signature.as_bytes_ref().to_vec();
-            let key = format!(
-                "{}:{}",
-                hex::encode(classical_public_key),
-                hex::encode(pqc_public_key)
-            );
-            let valid = message.len() <= MAX_MESSAGE_BYTES
-                && signature.len() <= MAX_SIGNATURE_BYTES
-                && key.len() <= (MAX_PUBLIC_KEY_BYTES * 2 + 1) * 2
-                && verifier(&key, &message, &signature).unwrap_or(false);
-            Ok(NativeResult::ok(
-                context.gas_used(),
-                smallvec![Value::bool(valid)],
-            ))
-        },
-    )
+    make_native(move |context, ty_args: Vec<Type>, mut arguments: VecDeque<Value>| {
+        native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
+        let message: VectorRef = pop_arg!(arguments, VectorRef);
+        let pqc_public_key: VectorRef = pop_arg!(arguments, VectorRef);
+        let classical_public_key: VectorRef = pop_arg!(arguments, VectorRef);
+        let signature: VectorRef = pop_arg!(arguments, VectorRef);
+        let message = message.as_bytes_ref().to_vec();
+        let pqc_public_key = pqc_public_key.as_bytes_ref().to_vec();
+        let classical_public_key = classical_public_key.as_bytes_ref().to_vec();
+        let signature = signature.as_bytes_ref().to_vec();
+        let key = format!("{}:{}", hex::encode(classical_public_key), hex::encode(pqc_public_key));
+        let valid = message.len() <= MAX_MESSAGE_BYTES
+            && signature.len() <= MAX_SIGNATURE_BYTES
+            && key.len() <= (MAX_PUBLIC_KEY_BYTES * 2 + 1) * 2
+            && verifier(&key, &message, &signature).unwrap_or(false);
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::bool(valid)]))
+    })
 }
 
 pub fn make_dilithium2(gas_cost: InternalGas) -> impl Iterator<Item = (String, NativeFunction)> {

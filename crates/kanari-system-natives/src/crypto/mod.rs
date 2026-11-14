@@ -165,18 +165,12 @@ pub fn make_ecdsa_k1(
     gas_params: GasParameters,
 ) -> impl Iterator<Item = (String, move_vm_runtime::native_functions::NativeFunction)> {
     let natives = vec![
-        (
-            "ecrecover".to_string(),
-            ecdsa_k1::make_ecrecover_native(gas_params.ecrecover),
-        ),
+        ("ecrecover".to_string(), ecdsa_k1::make_ecrecover_native(gas_params.ecrecover)),
         (
             "decompress_pubkey".to_string(),
             ecdsa_k1::make_decompress_pubkey_native(gas_params.decompress_pubkey),
         ),
-        (
-            "verify".to_string(),
-            ecdsa_k1::make_verify_k1_native(gas_params.verify_k1),
-        ),
+        ("verify".to_string(), ecdsa_k1::make_verify_k1_native(gas_params.verify_k1)),
     ];
 
     crate::helpers::make_module_natives(natives)

@@ -20,16 +20,10 @@ const INTEGER_TYPES: &[SignatureToken] = &[
 
 #[test]
 fn bytecode_comparison_integers() {
-    for (op, ty) in [
-        Bytecode::Lt,
-        Bytecode::Gt,
-        Bytecode::Le,
-        Bytecode::Ge,
-        Bytecode::Eq,
-        Bytecode::Neq,
-    ]
-    .iter()
-    .cartesian_product(INTEGER_TYPES.iter())
+    for (op, ty) in
+        [Bytecode::Lt, Bytecode::Gt, Bytecode::Le, Bytecode::Ge, Bytecode::Eq, Bytecode::Neq]
+            .iter()
+            .cartesian_product(INTEGER_TYPES.iter())
     {
         let mut state1 = AbstractState::new();
         state1.stack_push(AbstractValue::new_primitive(ty.clone()));

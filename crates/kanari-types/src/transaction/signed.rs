@@ -45,9 +45,7 @@ impl SignedTransaction {
         let signature = sign_message(private_key, &tx_hash, curve_type)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
         self.signature = signature;
-        let _ = self
-            .cached_verified_signature
-            .set((tx_hash, self.signature.clone()));
+        let _ = self.cached_verified_signature.set((tx_hash, self.signature.clone()));
         Ok(())
     }
 
@@ -57,9 +55,7 @@ impl SignedTransaction {
     }
 
     pub fn transaction_hash(&self) -> &[u8] {
-        self.cached_transaction_hash
-            .get_or_init(|| self.transaction.hash())
-            .as_slice()
+        self.cached_transaction_hash.get_or_init(|| self.transaction.hash()).as_slice()
     }
 
     pub fn verify_signature_for_hash(&self, tx_hash: &[u8]) -> Result<bool> {
@@ -91,9 +87,7 @@ impl SignedTransaction {
         if !verified {
             return Ok(false);
         }
-        let _ = self
-            .cached_verified_signature
-            .set((current_hash, signature.clone()));
+        let _ = self.cached_verified_signature.set((current_hash, signature.clone()));
         Ok(true)
     }
 
@@ -121,18 +115,13 @@ impl SignedTransaction {
         if !verified {
             anyhow::bail!("Invalid transaction signature");
         }
-        let _ = self
-            .cached_verified_signature
-            .set((current_hash.clone(), signature.clone()));
+        let _ = self.cached_verified_signature.set((current_hash.clone(), signature.clone()));
         Ok(current_hash)
     }
 
     pub fn into_verified(self) -> Result<VerifiedSignedTransaction> {
         let tx_hash = self.verified_transaction_hash()?;
-        Ok(VerifiedSignedTransaction {
-            signed: self,
-            tx_hash,
-        })
+        Ok(VerifiedSignedTransaction { signed: self, tx_hash })
     }
 
     pub fn hash(&self) -> Vec<u8> {

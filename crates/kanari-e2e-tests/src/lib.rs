@@ -93,10 +93,7 @@ pub async fn wait_for_rpc(client: &RpcClient, timeout: Duration) -> anyhow::Resu
 /// client ไปยัง node จริง ถ้าตั้ง `KANARI_E2E_RPC_URL` ไว้ ไม่งั้นคืน `None`
 /// ใช้กับ flow ที่ต้องใช้เงินจริง/faucet (transfer, publish, call function)
 pub fn external_client() -> Option<RpcClient> {
-    std::env::var("KANARI_E2E_RPC_URL")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .map(RpcClient::new)
+    std::env::var("KANARI_E2E_RPC_URL").ok().filter(|s| !s.trim().is_empty()).map(RpcClient::new)
 }
 
 /// ข้าม test แบบนุ่มนวลเมื่อไม่มี node จริง (return `None` ให้ caller `return` ทันที)

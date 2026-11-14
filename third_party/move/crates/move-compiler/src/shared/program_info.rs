@@ -131,17 +131,12 @@ impl NamingProgramInfo {
 
 impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
     pub fn module(&self, m: &ModuleIdent) -> &ModuleInfo {
-        self.modules
-            .get(m)
-            .expect("ICE should have failed in naming")
+        self.modules.get(m).expect("ICE should have failed in naming")
     }
 
     pub fn struct_definition(&self, m: &ModuleIdent, n: &DatatypeName) -> &StructDefinition {
         let minfo = self.module(m);
-        minfo
-            .structs
-            .get(n)
-            .expect("ICE should have failed in naming")
+        minfo.structs.get(n).expect("ICE should have failed in naming")
     }
 
     pub fn struct_declared_abilities(&self, m: &ModuleIdent, n: &DatatypeName) -> &AbilitySet {
@@ -154,10 +149,7 @@ impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
 
     pub fn struct_declared_loc_(&self, m: &ModuleIdent, n: &Symbol) -> Loc {
         let minfo = self.module(m);
-        *minfo
-            .structs
-            .get_loc_(n)
-            .expect("ICE should have failed in naming")
+        *minfo.structs.get_loc_(n).expect("ICE should have failed in naming")
     }
 
     pub fn struct_type_parameters(
@@ -170,10 +162,7 @@ impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
 
     pub fn enum_definition(&self, m: &ModuleIdent, n: &DatatypeName) -> &EnumDefinition {
         let minfo = self.module(m);
-        minfo
-            .enums
-            .get(n)
-            .expect("ICE should have failed in naming")
+        minfo.enums.get(n).expect("ICE should have failed in naming")
     }
 
     pub fn enum_declared_abilities(&self, m: &ModuleIdent, n: &DatatypeName) -> &AbilitySet {
@@ -186,10 +175,7 @@ impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
 
     pub fn enum_declared_loc_(&self, m: &ModuleIdent, n: &Symbol) -> Loc {
         let minfo = self.module(m);
-        *minfo
-            .enums
-            .get_loc_(n)
-            .expect("ICE should have failed in naming")
+        *minfo.enums.get_loc_(n).expect("ICE should have failed in naming")
     }
 
     pub fn enum_type_parameters(
@@ -201,10 +187,7 @@ impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
     }
 
     pub fn datatype_kind(&self, m: &ModuleIdent, n: &DatatypeName) -> DatatypeKind {
-        match (
-            self.module(m).structs.contains_key(n),
-            self.module(m).enums.contains_key(n),
-        ) {
+        match (self.module(m).structs.contains_key(n), self.module(m).enums.contains_key(n)) {
             (true, false) => DatatypeKind::Struct,
             (false, true) => DatatypeKind::Enum,
             (false, false) | (true, true) => panic!("ICE should have failed in naming"),
@@ -212,10 +195,7 @@ impl<const AFTER_TYPING: bool> ProgramInfo<AFTER_TYPING> {
     }
 
     pub fn function_info(&self, m: &ModuleIdent, n: &FunctionName) -> &FunctionInfo {
-        self.module(m)
-            .functions
-            .get(n)
-            .expect("ICE should have failed in naming")
+        self.module(m).functions.get(n).expect("ICE should have failed in naming")
     }
 
     pub fn constant_info(&mut self, m: &ModuleIdent, n: &ConstantName) -> &ConstantInfo {
@@ -234,10 +214,7 @@ impl NamingProgramInfo {
     }
 
     pub fn take_use_funs(self) -> BTreeMap<ModuleIdent, ResolvedUseFuns> {
-        self.modules
-            .into_iter()
-            .map(|(mident, minfo)| (mident, minfo.use_funs))
-            .collect()
+        self.modules.into_iter().map(|(mident, minfo)| (mident, minfo.use_funs)).collect()
     }
 
     pub fn set_module_syntax_methods(

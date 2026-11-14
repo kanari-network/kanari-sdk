@@ -13,10 +13,7 @@ fn read(file: &str) -> String {
 
 /// Asserts that `file` declares `declaration` verbatim as code.
 fn assert_declares(file: &str, src: &str, declaration: &str) {
-    assert!(
-        src.contains(declaration),
-        "{file} must declare `{declaration}`"
-    );
+    assert!(src.contains(declaration), "{file} must declare `{declaration}`");
 }
 
 /// Asserts that every `declaration` appears in `file`.
@@ -55,11 +52,7 @@ fn extra_move_sources_exist() {
 
     for f in &files {
         let path = sources_dir.join(f);
-        assert!(
-            path.exists(),
-            "Move source should exist: {}",
-            path.display()
-        );
+        assert!(path.exists(), "Move source should exist: {}", path.display());
         let content = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
         assert!(
@@ -79,23 +72,11 @@ fn extra_move_sources_exist() {
 #[test]
 fn extra_move_modules_have_correct_names() {
     let expected = [
-        (
-            "move_e2e_storage.move",
-            "module kanari_e2e_tests::move_e2e_storage",
-        ),
-        (
-            "move_e2e_time.move",
-            "module kanari_e2e_tests::move_e2e_time",
-        ),
+        ("move_e2e_storage.move", "module kanari_e2e_tests::move_e2e_storage"),
+        ("move_e2e_time.move", "module kanari_e2e_tests::move_e2e_time"),
         ("move_e2e_nft.move", "module kanari_e2e_tests::move_e2e_nft"),
-        (
-            "move_e2e_pool.move",
-            "module kanari_e2e_tests::move_e2e_pool",
-        ),
-        (
-            "move_e2e_registry.move",
-            "module kanari_e2e_tests::move_e2e_registry",
-        ),
+        ("move_e2e_pool.move", "module kanari_e2e_tests::move_e2e_pool"),
+        ("move_e2e_registry.move", "module kanari_e2e_tests::move_e2e_registry"),
     ];
 
     for (file, header) in expected {

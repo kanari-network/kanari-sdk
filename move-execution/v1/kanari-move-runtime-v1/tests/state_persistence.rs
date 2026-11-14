@@ -33,9 +33,7 @@ struct WithoutSupplyFailFast {
 
 impl WithoutSupplyFailFast {
     fn acquire() -> Self {
-        let lock = fail_fast_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let lock = fail_fast_env_lock().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let previous = std::env::var_os("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH");
         // SAFETY: the process-wide lock above is held for the whole guard
         // lifetime, so no other test mutates process env concurrently.
@@ -43,10 +41,7 @@ impl WithoutSupplyFailFast {
         unsafe {
             std::env::set_var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH", "0");
         }
-        Self {
-            _lock: lock,
-            previous,
-        }
+        Self { _lock: lock, previous }
     }
 }
 
@@ -69,9 +64,7 @@ fn owned_objects_key(owner: &AccountAddress) -> Vec<u8> {
 }
 
 fn open_state(db_path: &Path) -> Result<StateManager> {
-    let store = Arc::new(PersistentStore::open_with_path(Some(
-        db_path.to_path_buf(),
-    ))?);
+    let store = Arc::new(PersistentStore::open_with_path(Some(db_path.to_path_buf()))?);
     Ok(StateManager::new(store))
 }
 
@@ -100,10 +93,7 @@ fn lone_zero_supply_record_does_not_suppress_genesis() -> Result<()> {
 
     let state = open_state(&db_path)?;
     assert_eq!(state.total_supply, GENESIS_SUPPLY);
-    assert_eq!(
-        state.store.load::<bool>(b"system:genesis_initialized")?,
-        Some(true)
-    );
+    assert_eq!(state.store.load::<bool>(b"system:genesis_initialized")?, Some(true));
     Ok(())
 }
 
@@ -120,10 +110,7 @@ fn legacy_zero_supply_with_canonical_state_is_preserved() -> Result<()> {
 
     let state = open_state(&db_path)?;
     assert_eq!(state.total_supply, 0);
-    assert_eq!(
-        state.store.load::<bool>(b"system:genesis_initialized")?,
-        Some(true)
-    );
+    assert_eq!(state.store.load::<bool>(b"system:genesis_initialized")?, Some(true));
     Ok(())
 }
 
@@ -268,27 +255,16 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
         owner_ids.contains(&alice.to_hex_literal()),
         "rebuilt owner index should include alice"
     );
-    assert!(
-        owner_ids.contains(&bob.to_hex_literal()),
-        "rebuilt owner index should include bob"
-    );
-    assert_eq!(
-        reopened.get_owned_objects(&alice)?,
-        vec!["0xaaa1".to_string()]
-    );
-    assert_eq!(
-        reopened.get_owned_objects(&bob)?,
-        vec!["0xbbb2".to_string()]
-    );
+    assert!(owner_ids.contains(&bob.to_hex_literal()), "rebuilt owner index should include bob");
+    assert_eq!(reopened.get_owned_objects(&alice)?, vec!["0xaaa1".to_string()]);
+    assert_eq!(reopened.get_owned_objects(&bob)?, vec!["0xbbb2".to_string()]);
     let object_index = reopened
         .load_internal::<Vec<String>>(b"object_index")?
         .invariant("object_index should be rebuilt");
     assert!(object_index.contains(&"0xaaa1".to_string()));
     assert!(object_index.contains(&"0xbbb2".to_string()));
     assert!(
-        reopened
-            .load_internal::<Vec<String>>(b"account_index")?
-            .is_none(),
+        reopened.load_internal::<Vec<String>>(b"account_index")?.is_none(),
         "legacy account_index should be deleted during startup repair"
     );
     assert_eq!(reopened.compute_state_root(), canonical_root_before);

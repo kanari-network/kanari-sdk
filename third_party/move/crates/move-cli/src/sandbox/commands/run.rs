@@ -66,18 +66,14 @@ pub fn run(
     let script_type_parameters = vec![];
     let script_parameters = vec![];
 
-    let script_type_arguments = vm_type_tags
-        .iter()
-        .map(|tag| session.load_type(tag))
-        .collect::<Result<Vec<_>, _>>()?;
+    let script_type_arguments =
+        vm_type_tags.iter().map(|tag| session.load_type(tag)).collect::<Result<Vec<_>, _>>()?;
 
     // TODO rethink move-cli arguments for executing functions
     let vm_args = signer_addresses
         .iter()
         .map(|a| {
-            MoveValue::Signer(*a)
-                .simple_serialize()
-                .expect("transaction arguments must serialize")
+            MoveValue::Signer(*a).simple_serialize().expect("transaction arguments must serialize")
         })
         .chain(vm_args)
         .collect();

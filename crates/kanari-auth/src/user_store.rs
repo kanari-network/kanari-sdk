@@ -187,10 +187,7 @@ impl UserRecord {
         }
 
         // Check for at least one special character
-        if !password
-            .chars()
-            .any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c))
-        {
+        if !password.chars().any(|c| "!@#$%^&*()_+-=[]{}|;:,.<>?".contains(c)) {
             return Err(AuthError::InvalidPassword(
                 "Password must contain at least one special character".to_string(),
             ));
@@ -241,9 +238,7 @@ impl UserRecord {
         backup_codes: Vec<String>,
         password: &str,
     ) -> AuthResult<()> {
-        self.totp_secret = Some(crate::private_key_crypto::encrypt_private_key(
-            &secret, password,
-        )?);
+        self.totp_secret = Some(crate::private_key_crypto::encrypt_private_key(&secret, password)?);
         self.totp_enabled = false;
         self.backup_codes = backup_codes
             .iter()
@@ -271,9 +266,7 @@ impl UserRecord {
         let index = self.backup_codes.iter().position(|stored| {
             if stored.starts_with("$argon2") {
                 PasswordHash::new(stored).ok().is_some_and(|hash| {
-                    Argon2::default()
-                        .verify_password(backup_code.as_bytes(), &hash)
-                        .is_ok()
+                    Argon2::default().verify_password(backup_code.as_bytes(), &hash).is_ok()
                 })
             } else {
                 // Legacy plaintext values are accepted once and removed after use.
@@ -338,10 +331,7 @@ impl UserStore {
             Connection::open(&path).map_err(|e| AuthError::DatabaseError(e.to_string()))?
         };
 
-        let mut store = Self {
-            conn,
-            db_path: path,
-        };
+        let mut store = Self { conn, db_path: path };
 
         // Initialize database schema
         store.init_schema()?;
@@ -377,17 +367,13 @@ impl UserStore {
             "ALTER TABLE users ADD COLUMN curve_type TEXT NOT NULL DEFAULT 'Ed25519';",
             [],
         );
+        let _ = self.conn.execute("ALTER TABLE users ADD COLUMN totp_secret TEXT;", []);
         let _ = self
             .conn
-            .execute("ALTER TABLE users ADD COLUMN totp_secret TEXT;", []);
-        let _ = self.conn.execute(
-            "ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE users ADD COLUMN backup_codes TEXT NOT NULL DEFAULT '[]';",
-            [],
-        );
+            .execute("ALTER TABLE users ADD COLUMN totp_enabled BOOLEAN NOT NULL DEFAULT 0;", []);
+        let _ = self
+            .conn
+            .execute("ALTER TABLE users ADD COLUMN backup_codes TEXT NOT NULL DEFAULT '[]';", []);
 
         // SECURITY FIX #1: Create unique index on normalized email to prevent race conditions
         self.conn
@@ -399,10 +385,7 @@ impl UserStore {
 
         // Create index for faster lookups
         self.conn
-            .execute(
-                "CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);",
-                [],
-            )
+            .execute("CREATE INDEX IF NOT EXISTS idx_users_active ON users(is_active);", [])
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
         Ok(())
@@ -428,18 +411,13 @@ impl UserStore {
     /// Error if user already exists
     pub fn add_user(&mut self, user: UserRecord) -> AuthResult<()> {
         // SECURITY FIX #1: Use transaction to prevent race conditions
-        let tx = self
-            .conn
-            .transaction()
-            .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+        let tx = self.conn.transaction().map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
         // Check if user already exists (within transaction)
         let count: i64 = tx
-            .query_row(
-                "SELECT COUNT(*) FROM users WHERE email = ?1",
-                [&user.email],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM users WHERE email = ?1", [&user.email], |row| {
+                row.get(0)
+            })
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
         if count > 0 {
@@ -471,8 +449,7 @@ impl UserStore {
             ],
         ) {
             Ok(_) => {
-                tx.commit()
-                    .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
+                tx.commit().map_err(|e| AuthError::DatabaseError(e.to_string()))?;
                 Ok(())
             }
             Err(rusqlite::Error::SqliteFailure(sqlite_err, _))
@@ -615,11 +592,9 @@ impl UserStore {
         let normalized = email_validator::normalize_email(email);
         let count: i64 = self
             .conn
-            .query_row(
-                "SELECT COUNT(*) FROM users WHERE email = ?1",
-                [&normalized],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM users WHERE email = ?1", [&normalized], |row| {
+                row.get(0)
+            })
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
         Ok(count > 0)
     }
@@ -633,11 +608,7 @@ impl UserStore {
             .execute("DELETE FROM users WHERE email = ?1", [&normalized])
             .map_err(|e| AuthError::DatabaseError(e.to_string()))?;
 
-        if changes == 0 {
-            Err(AuthError::UserNotFound(normalized))
-        } else {
-            Ok(())
-        }
+        if changes == 0 { Err(AuthError::UserNotFound(normalized)) } else { Ok(()) }
     }
 
     /// List all registered users (emails only)
@@ -817,12 +788,7 @@ mod tests {
         );
         assert!(loaded.totp_enabled);
         assert_eq!(loaded.backup_codes.len(), 2);
-        assert!(
-            loaded
-                .backup_codes
-                .iter()
-                .all(|code| code.starts_with("$argon2"))
-        );
+        assert!(loaded.backup_codes.iter().all(|code| code.starts_with("$argon2")));
         assert!(!loaded.backup_codes.iter().any(|code| code == "CODE1234"));
     }
 }

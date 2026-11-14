@@ -95,9 +95,8 @@ fn lock_file_roundtrip() {
     )
     .expect("Reading DependencyGraph");
 
-    let lock = graph
-        .write_to_lock(tmp.path().to_path_buf(), None)
-        .expect("Writing DependencyGraph");
+    let lock =
+        graph.write_to_lock(tmp.path().to_path_buf(), None).expect("Writing DependencyGraph");
 
     lock.commit(&commit).expect("Committing lock file");
 
@@ -252,10 +251,7 @@ fn merge_simple() {
             )
             .is_ok(),
     );
-    assert_eq!(
-        outer.topological_order(),
-        vec![Symbol::from("Root"), Symbol::from("A")],
-    );
+    assert_eq!(outer.topological_order(), vec![Symbol::from("Root"), Symbol::from("A")],);
 }
 #[test]
 fn merge_into_root() {
@@ -310,10 +306,7 @@ fn merge_into_root() {
             .is_ok()
     );
 
-    assert_eq!(
-        outer.topological_order(),
-        vec![Symbol::from("Root"), Symbol::from("A")],
-    );
+    assert_eq!(outer.topological_order(), vec![Symbol::from("Root"), Symbol::from("A")],);
 }
 
 #[test]
@@ -587,10 +580,7 @@ fn immediate_dependencies() {
     let d = Symbol::from("D");
 
     let deps = |pkg, mode| {
-        graph
-            .immediate_dependencies(pkg, mode)
-            .map(|(pkg, _, _)| pkg)
-            .collect::<BTreeSet<_>>()
+        graph.immediate_dependencies(pkg, mode).map(|(pkg, _, _)| pkg).collect::<BTreeSet<_>>()
     };
 
     assert_eq!(deps(r, DependencyMode::Always), BTreeSet::from([a, c]));
@@ -607,21 +597,15 @@ fn immediate_dependencies() {
 }
 
 fn no_dep_test_package() -> PathBuf {
-    [".", "tests", "test_sources", "basic_no_deps"]
-        .into_iter()
-        .collect()
+    [".", "tests", "test_sources", "basic_no_deps"].into_iter().collect()
 }
 
 fn one_dep_test_package() -> PathBuf {
-    [".", "tests", "test_sources", "one_dep"]
-        .into_iter()
-        .collect()
+    [".", "tests", "test_sources", "one_dep"].into_iter().collect()
 }
 
 fn dev_dep_test_package() -> PathBuf {
-    [".", "tests", "test_sources", "dep_dev_dep_diamond"]
-        .into_iter()
-        .collect()
+    [".", "tests", "test_sources", "dep_dev_dep_diamond"].into_iter().collect()
 }
 
 const EMPTY_LOCK: &str = r#"

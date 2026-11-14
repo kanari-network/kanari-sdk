@@ -11,10 +11,7 @@ fn serialize_move_arg<T: serde::Serialize>(
     field: &str,
 ) -> Result<Vec<u8>, Box<RpcResponse>> {
     bcs::to_bytes(value).map_err(|error| {
-        Box::new(internal_error_response(
-            id,
-            format!("Failed to serialize {field}: {error}"),
-        ))
+        Box::new(internal_error_response(id, format!("Failed to serialize {field}: {error}")))
     })
 }
 
@@ -58,11 +55,7 @@ pub async fn handle_build_native_transfer(
         build_data.gas_limit,
         build_data.gas_price,
         &pending_access_keys,
-        &build_data
-            .excluded_object_ids
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>(),
+        &build_data.excluded_object_ids.iter().cloned().collect::<HashSet<_>>(),
     ) {
         Ok(payment) => payment,
         Err(e) => {
@@ -101,10 +94,8 @@ pub async fn handle_build_native_transfer(
         build_data.gas_limit,
         build_data.gas_price,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: canonical_gas_payment,
-        ..
-    } = &mut canonical_tx
+    if let Transaction::ExecuteFunction { gas_payment: canonical_gas_payment, .. } =
+        &mut canonical_tx
     {
         *canonical_gas_payment = Some(gas_payment.clone());
     }
@@ -297,10 +288,8 @@ pub async fn handle_build_token_transfer(
     // The transferred tokens come from the selected coin object; any gas coin
     // the wallet can afford may pay for execution.
     let mut transfer_needs = std::collections::BTreeMap::new();
-    transfer_needs.insert(
-        CoinModule::normalize_token_type(&build_data.token_type),
-        build_data.amount,
-    );
+    transfer_needs
+        .insert(CoinModule::normalize_token_type(&build_data.token_type), build_data.amount);
     let (gas_payment, effective_gas_price_value) = match select_gas_payment_auto(
         &owned_objects,
         &build_data.sender,
@@ -420,10 +409,7 @@ pub async fn handle_build_nft_transfer(
     let Some(owned_nft) = owned_nft else {
         return invalid_params_response(
             request.id,
-            format!(
-                "NFT object {} not found in sender's owned object list",
-                build_data.object_id
-            ),
+            format!("NFT object {} not found in sender's owned object list", build_data.object_id),
         );
     };
     let nft_input = match build_object_input(&owned_nft, &build_data.sender) {
@@ -535,11 +521,8 @@ pub async fn handle_build_krc1155_transfer(
 
     // Two selection modes: a caller-supplied `object_id` (legacy) or a
     // `token_type` from which the server picks the Balance objects.
-    let requested_token_type = build_data
-        .token_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|token_type| !token_type.is_empty());
+    let requested_token_type =
+        build_data.token_type.as_deref().map(str::trim).filter(|token_type| !token_type.is_empty());
     if let Some(token_type) = requested_token_type
         && let Err(response) = parse_hex_address(request.id, token_type, "token type")
     {

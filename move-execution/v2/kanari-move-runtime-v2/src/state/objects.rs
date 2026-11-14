@@ -48,10 +48,7 @@ impl StateManager {
             return None;
         }
         let supply_bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
-        Some((
-            CoinModule::normalize_token_type(&token_type),
-            u64::from_le_bytes(supply_bytes),
-        ))
+        Some((CoinModule::normalize_token_type(&token_type), u64::from_le_bytes(supply_bytes)))
     }
 
     // Helper to construct DB key for object
@@ -102,10 +99,7 @@ impl StateManager {
                 );
             } else if key.starts_with(b"owned_objects:") {
                 let object_ids = bcs::from_bytes::<Vec<String>>(value).with_context(|| {
-                    format!(
-                        "Malformed owned-object index {:?}",
-                        String::from_utf8_lossy(key)
-                    )
+                    format!("Malformed owned-object index {:?}", String::from_utf8_lossy(key))
                 })?;
                 canonical_object_keys.extend(
                     object_ids
@@ -164,12 +158,8 @@ impl StateManager {
             return Ok(None);
         };
         let normalized_id = crate::common::ids::canonical_object_id_invariant(&stored_id);
-        let uid = AccountAddress::from_hex_literal(&normalized_id)
-            .ok()
-            .map(UIDRecord::new);
-        let id = AccountAddress::from_hex_literal(&normalized_id)
-            .ok()
-            .map(IDRecord::new);
+        let uid = AccountAddress::from_hex_literal(&normalized_id).ok().map(UIDRecord::new);
+        let id = AccountAddress::from_hex_literal(&normalized_id).ok().map(IDRecord::new);
 
         let owner = stored.current_address_owner().unwrap_or(stored.owner);
         Ok(Some(CreatedObject {

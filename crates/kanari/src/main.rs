@@ -70,9 +70,7 @@ fn main() -> Result<()> {
 
         Commands::Move { command } => {
             // Dispatch into the move CLI helper
-            command
-                .execute()
-                .context("Failed to execute move subcommand")?;
+            command.execute().context("Failed to execute move subcommand")?;
 
             Ok(())
         }

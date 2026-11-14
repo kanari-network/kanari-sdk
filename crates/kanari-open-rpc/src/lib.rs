@@ -38,10 +38,7 @@ impl Project {
                     url: contact_url,
                     email: contact_email,
                 },
-                license: LicenseObject {
-                    name: license_name,
-                    url: license_url,
-                },
+                license: LicenseObject { name: license_name, url: license_url },
             },
             methods: Vec::new(),
         }
@@ -175,12 +172,7 @@ pub fn param(
     required: bool,
     schema: Value,
 ) -> ContentDescriptorObject {
-    ContentDescriptorObject {
-        name,
-        description: Some(description),
-        required,
-        schema,
-    }
+    ContentDescriptorObject { name, description: Some(description), required, schema }
 }
 
 pub fn result(
@@ -188,12 +180,7 @@ pub fn result(
     description: &'static str,
     schema: Value,
 ) -> ContentDescriptorObject {
-    ContentDescriptorObject {
-        name,
-        description: Some(description),
-        required: true,
-        schema,
-    }
+    ContentDescriptorObject { name, description: Some(description), required: true, schema }
 }
 
 pub fn schema_string() -> Value {

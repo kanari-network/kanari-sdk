@@ -30,11 +30,7 @@ fn sign_object_transfer_request(
     wallet: &Wallet,
 ) -> anyhow::Result<ObjectTransferData> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing object-transfer signature"
     );
 
@@ -74,11 +70,7 @@ fn sign_call_function_request(
     wallet: &Wallet,
 ) -> anyhow::Result<CallFunctionRequest> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing call-function signature"
     );
 
@@ -141,10 +133,7 @@ async fn wait_for_transaction_commit(
         }
 
         if start.elapsed() >= timeout {
-            anyhow::bail!(
-                "Timed out waiting for faucet transaction {} to commit",
-                tx_hash
-            );
+            anyhow::bail!("Timed out waiting for faucet transaction {} to commit", tx_hash);
         }
 
         thread::sleep(poll_interval);
@@ -202,9 +191,8 @@ pub async fn request_from_dev_mist(
     amount_mist: u64,
     rpc_url: &str,
 ) -> anyhow::Result<TransactionStatus> {
-    let dev_address = dev_address
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| Address::DEV_ADDRESS.to_string());
+    let dev_address =
+        dev_address.map(|s| s.to_string()).unwrap_or_else(|| Address::DEV_ADDRESS.to_string());
 
     if std::path::Path::new("crates/kanari-faucet/.env").exists() {
         let _ = dotenvy::from_filename("crates/kanari-faucet/.env");
@@ -237,10 +225,7 @@ pub async fn request_from_dev_mist(
         .context("Failed to load Dev wallet; check address and password")?;
 
     let client = RpcClient::new(rpc_url);
-    client
-        .get_block_height()
-        .await
-        .context("Cannot connect to RPC server")?;
+    client.get_block_height().await.context("Cannot connect to RPC server")?;
 
     let signing_curve = wallet
         .validated_signing_curve()

@@ -512,10 +512,7 @@ fn test_status_codes() {
     // Now make sure that all of the error codes (including any that may be out-of-range) succeed.
     // Make sure there aren't any duplicate mappings
     for major_status_code in STATUS_CODE_VALUES.iter() {
-        assert!(
-            !seen_codes.contains(major_status_code),
-            "Duplicate major_status_code found"
-        );
+        assert!(!seen_codes.contains(major_status_code), "Duplicate major_status_code found");
         seen_codes.insert(*major_status_code);
         let status = StatusCode::try_from(*major_status_code);
         assert!(status.is_ok());

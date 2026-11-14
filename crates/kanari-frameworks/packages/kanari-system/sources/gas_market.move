@@ -117,6 +117,7 @@ module kanari_system::gas_market {
         gas_units: u64,
         usd_per_gas_unit_micros: u64
     ): u64 {
+        assert!(usd_per_gas_unit_micros == 0 || gas_units <= 18446744073709551615, EOVERFLOW_QUOTE);
         let fee = (gas_units as u128) * (usd_per_gas_unit_micros as u128);
         assert!(fee <= 18446744073709551615, EOVERFLOW_QUOTE);
         (fee as u64)

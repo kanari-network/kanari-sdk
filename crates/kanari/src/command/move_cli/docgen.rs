@@ -63,10 +63,7 @@ impl Docgen {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
         let model = config.move_model_for_package(
             &reroot_path(path)?,
-            ModelConfig {
-                all_files_as_targets: false,
-                target_filter: None,
-            },
+            ModelConfig { all_files_as_targets: false, target_filter: None },
         )?;
 
         let mut options = DocgenOptions::default();
@@ -113,17 +110,13 @@ impl Docgen {
         for (file, content) in generator.r#gen() {
             let path = PathBuf::from(&file);
             fs::create_dir_all(
-                path.parent()
-                    .require("Generated doc path must have a parent directory")?,
+                path.parent().require("Generated doc path must have a parent directory")?,
             )?;
             fs::write(path.as_path(), content)?;
             eprintln!("Generated {:?}", path);
         }
 
-        anyhow::ensure!(
-            !model.has_errors(),
-            "Errors encountered while generating documentation!"
-        );
+        anyhow::ensure!(!model.has_errors(), "Errors encountered while generating documentation!");
 
         eprintln!("\nDocumentation generation successful!");
         Ok(())

@@ -54,19 +54,9 @@ impl StateManager {
         self.save_internal(b"total_supply", &total_supply)?;
 
         let supply_key = Self::supply_key(GAS_COIN);
-        if self
-            .load_internal::<TreasuryCap>(&supply_key)
-            .ok()
-            .flatten()
-            .is_some()
-        {
+        if self.load_internal::<TreasuryCap>(&supply_key).ok().flatten().is_some() {
             self.save_internal(&supply_key, &TreasuryCap { total_supply })?;
-        } else if self
-            .load_internal::<u64>(&supply_key)
-            .ok()
-            .flatten()
-            .is_some()
-        {
+        } else if self.load_internal::<u64>(&supply_key).ok().flatten().is_some() {
             self.save_internal(&supply_key, &total_supply)?;
         }
 
@@ -97,11 +87,7 @@ impl StateManager {
                 return Ok(supply);
             }
         }
-        Ok(self
-            .global_token_supplies
-            .get(&normalized)
-            .copied()
-            .unwrap_or(0))
+        Ok(self.global_token_supplies.get(&normalized).copied().unwrap_or(0))
     }
 
     /// Compute wallet-visible supply by scanning all owners and objects.
@@ -129,9 +115,8 @@ impl StateManager {
             }
             owners.insert(object.owner);
             let balance = object_balances.entry(object.owner).or_insert(0);
-            *balance = balance
-                .checked_add(amount)
-                .require("Indexed owner token balance overflow")?;
+            *balance =
+                balance.checked_add(amount).require("Indexed owner token balance overflow")?;
         }
 
         let mut total = 0u64;
@@ -145,9 +130,7 @@ impl StateManager {
             } else {
                 object_balance
             };
-            total = total
-                .checked_add(balance)
-                .require("Indexed wallet supply overflow")?;
+            total = total.checked_add(balance).require("Indexed wallet supply overflow")?;
         }
         Ok(total)
     }
@@ -155,11 +138,7 @@ impl StateManager {
     /// Sync the native visible supply cache with the canonical index.
     pub(crate) fn sync_native_visible_supply_cache(&mut self) -> Result<bool> {
         let indexed_visible = self.indexed_wallet_supply(GAS_COIN)?.min(self.total_supply);
-        let current = self
-            .global_token_supplies
-            .get(GAS_COIN)
-            .copied()
-            .unwrap_or(0);
+        let current = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
         if current == indexed_visible {
             return Ok(false);
         }
@@ -167,8 +146,7 @@ impl StateManager {
         if indexed_visible == 0 {
             self.global_token_supplies.remove(GAS_COIN);
         } else {
-            self.global_token_supplies
-                .insert(GAS_COIN.to_string(), indexed_visible);
+            self.global_token_supplies.insert(GAS_COIN.to_string(), indexed_visible);
         }
         Ok(true)
     }

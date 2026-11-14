@@ -55,10 +55,7 @@ impl GasModule {
 
     /// Get function names used in gas module
     pub fn function_names() -> GasFunctions {
-        GasFunctions {
-            transfer: "transfer",
-            burn: "burn",
-        }
+        GasFunctions { transfer: "transfer", burn: "burn" }
     }
     /// Convert Gas to Mist
     pub fn gas_to_mist(gas: u64) -> u64 {
@@ -105,10 +102,7 @@ impl GasModule {
             anyhow::bail!("invalid KANARI amount: {s:?}");
         }
         if frac_part.len() > Self::KANARI_DECIMALS as usize {
-            anyhow::bail!(
-                "too many fraction digits (max {}): {s:?}",
-                Self::KANARI_DECIMALS
-            );
+            anyhow::bail!("too many fraction digits (max {}): {s:?}", Self::KANARI_DECIMALS);
         }
         let mut frac_padded = frac_part.to_string();
         while frac_padded.len() < Self::KANARI_DECIMALS as usize {
@@ -116,14 +110,8 @@ impl GasModule {
         }
         let combined = format!("{int_digits}{frac_padded}");
         let normalized = combined.trim_start_matches('0');
-        let normalized = if normalized.is_empty() {
-            "0"
-        } else {
-            normalized
-        };
-        normalized
-            .parse::<u64>()
-            .with_context(|| format!("KANARI amount overflows u64: {s:?}"))
+        let normalized = if normalized.is_empty() { "0" } else { normalized };
+        normalized.parse::<u64>().with_context(|| format!("KANARI amount overflows u64: {s:?}"))
     }
 
     /// Format Mist into exact KANARI (`12500000000` -> `"12.5"`), trimming
@@ -142,11 +130,7 @@ impl GasModule {
         let split = digits.len() - scale;
         let (int_part, frac_part) = digits.split_at(split);
         let trimmed = frac_part.trim_end_matches('0');
-        if trimmed.is_empty() {
-            int_part.to_string()
-        } else {
-            format!("{int_part}.{trimmed}")
-        }
+        if trimmed.is_empty() { int_part.to_string() } else { format!("{int_part}.{trimmed}") }
     }
 }
 
@@ -205,16 +189,10 @@ mod tests {
     fn kanari_decimal_parsing_is_exact() {
         assert_eq!(GasModule::parse_kanari_to_mist("0").unwrap(), 0);
         assert_eq!(GasModule::parse_kanari_to_mist("1").unwrap(), 1_000_000_000);
-        assert_eq!(
-            GasModule::parse_kanari_to_mist("10.5").unwrap(),
-            10_500_000_000
-        );
+        assert_eq!(GasModule::parse_kanari_to_mist("10.5").unwrap(), 10_500_000_000);
         assert_eq!(GasModule::parse_kanari_to_mist("0.000000001").unwrap(), 1);
         // Past f64 precision (2^53 Mist): floats silently drop Mist here.
-        assert_eq!(
-            GasModule::parse_kanari_to_mist("10999989").unwrap(),
-            10_999_989_000_000_000
-        );
+        assert_eq!(GasModule::parse_kanari_to_mist("10999989").unwrap(), 10_999_989_000_000_000);
         assert_eq!(
             GasModule::parse_kanari_to_mist("10999989.000000001").unwrap(),
             10_999_989_000_000_001
@@ -234,13 +212,7 @@ mod tests {
         assert_eq!(GasModule::format_mist_to_kanari(100), "0.0000001");
         assert_eq!(GasModule::format_mist_to_kanari(1_000_000_000), "1");
         assert_eq!(GasModule::format_mist_to_kanari(10_500_000_000), "10.5");
-        assert_eq!(
-            GasModule::format_mist_to_kanari(10_999_989_000_000_000),
-            "10999989"
-        );
-        assert_eq!(
-            GasModule::format_mist_to_kanari(u64::MAX),
-            "18446744073.709551615"
-        );
+        assert_eq!(GasModule::format_mist_to_kanari(10_999_989_000_000_000), "10999989");
+        assert_eq!(GasModule::format_mist_to_kanari(u64::MAX), "18446744073.709551615");
     }
 }

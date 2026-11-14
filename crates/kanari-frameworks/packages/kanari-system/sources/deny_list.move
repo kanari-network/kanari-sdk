@@ -22,6 +22,8 @@ module kanari_system::deny_list {
 
     friend kanari_system::krc_721;
 
+    friend kanari_system::krc_1155;
+
     use kanari_system::bag::{Self, Bag};
     use kanari_system::dynamic_object_field as ofield;
     use kanari_system::object::{Self, UID};
@@ -347,6 +349,17 @@ module kanari_system::deny_list {
         if (!ofield::exists_(&deny_list.id, key)) return false;
         let set: &TypeDenySet = ofield::borrow(&deny_list.id, key);
         set.paused
+    }
+
+    #[test_only]
+    /// Freeze a test deny_list and return its address so it can be borrowed
+    /// from global storage. This consumes the deny_list value, allowing it to
+    /// be used in tests with `#[expected_failure]` where the value must be
+    /// consumed before an aborting call.
+    public fun freeze_and_get_address(deny_list: DenyList): address {
+        let addr = object::uid_address(&deny_list.id);
+        transfer::public_freeze_object(deny_list);
+        addr
     }
 
 }

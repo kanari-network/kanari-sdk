@@ -40,10 +40,7 @@ impl<'a> TextBuilder<'a> {
             .chunks
             .last()
             .map(|last_span| {
-                last_span
-                    .last()
-                    .map(|last_span| last_span.content.ends_with('\n'))
-                    .unwrap_or(false)
+                last_span.last().map(|last_span| last_span.content.ends_with('\n')).unwrap_or(false)
             })
             .unwrap_or(true);
 

@@ -119,11 +119,7 @@ pub fn create_feature_error(edition: Edition, feature: FeatureGate, loc: Loc) ->
 }
 
 pub fn valid_editions_for_feature(feature: FeatureGate) -> Vec<Edition> {
-    Edition::VALID
-        .iter()
-        .filter(|e| e.supports(feature))
-        .copied()
-        .collect()
+    Edition::VALID.iter().filter(|e| e.supports(feature)).copied().collect()
 }
 
 //**************************************************************************************************
@@ -166,30 +162,14 @@ const E2024_MIGRATION_FEATURES: &[FeatureGate] = &[FeatureGate::Move2024Migratio
 const E2024_FEATURES: &[FeatureGate] = &[];
 
 impl Edition {
-    pub const LEGACY: Self = Self {
-        edition: symbol!("legacy"),
-        release: None,
-    };
-    pub const E2024_ALPHA: Self = Self {
-        edition: symbol!("2024"),
-        release: Some(symbol!("alpha")),
-    };
-    pub const E2024_BETA: Self = Self {
-        edition: symbol!("2024"),
-        release: Some(symbol!("beta")),
-    };
-    pub const E2024_MIGRATION: Self = Self {
-        edition: symbol!("2024"),
-        release: Some(symbol!("migration")),
-    };
-    pub const E2024: Self = Self {
-        edition: symbol!("2024"),
-        release: None,
-    };
-    pub const DEVELOPMENT: Self = Self {
-        edition: symbol!("development"),
-        release: None,
-    };
+    pub const LEGACY: Self = Self { edition: symbol!("legacy"), release: None };
+    pub const E2024_ALPHA: Self =
+        Self { edition: symbol!("2024"), release: Some(symbol!("alpha")) };
+    pub const E2024_BETA: Self = Self { edition: symbol!("2024"), release: Some(symbol!("beta")) };
+    pub const E2024_MIGRATION: Self =
+        Self { edition: symbol!("2024"), release: Some(symbol!("migration")) };
+    pub const E2024: Self = Self { edition: symbol!("2024"), release: None };
+    pub const DEVELOPMENT: Self = Self { edition: symbol!("development"), release: None };
 
     const SEP: &'static str = ".";
 
@@ -201,12 +181,8 @@ impl Edition {
         Self::E2024,
         Self::DEVELOPMENT,
     ];
-    pub const VALID: &'static [Self] = &[
-        Self::LEGACY,
-        Self::E2024_ALPHA,
-        Self::E2024_BETA,
-        Self::E2024,
-    ];
+    pub const VALID: &'static [Self] =
+        &[Self::LEGACY, Self::E2024_ALPHA, Self::E2024_BETA, Self::E2024];
 
     pub fn supports(&self, feature: FeatureGate) -> bool {
         SUPPORTED_FEATURES.get(self).unwrap().contains(&feature)
@@ -319,10 +295,8 @@ impl FromStr for Edition {
         } else {
             (s, None)
         };
-        let edition = Edition {
-            edition: Symbol::from(edition),
-            release: release.map(Symbol::from),
-        };
+        let edition =
+            Edition { edition: Symbol::from(edition), release: release.map(Symbol::from) };
         if !Self::VALID.iter().any(|e| e == &edition) && edition != Edition::DEVELOPMENT {
             return Err(edition.unknown_edition_error());
         }
@@ -339,11 +313,7 @@ impl FromStr for Flavor {
             Self::SUI => Self::Sui,
             _ => anyhow::bail!(
                 "Unknown flavor \"{s}\". Expected one of: {}",
-                Self::ALL
-                    .iter()
-                    .map(|e| format!("\"{}\"", e))
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                Self::ALL.iter().map(|e| format!("\"{}\"", e)).collect::<Vec<_>>().join(", ")
             ),
         })
     }

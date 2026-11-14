@@ -36,10 +36,7 @@ where
                     // Parse as array of numbers
                     let bytes: Result<Vec<u8>, _> = arr
                         .iter()
-                        .map(|v| {
-                            v.as_u64()
-                                .ok_or_else(|| de::Error::custom("Expected number"))
-                        })
+                        .map(|v| v.as_u64().ok_or_else(|| de::Error::custom("Expected number")))
                         .map(|r| r.map(|n| n as u8))
                         .collect();
                     args.push(bytes?);

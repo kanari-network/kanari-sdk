@@ -45,13 +45,11 @@ fn unbalanced_stack_crash() {
     module.function_handles.push(fun_handle);
 
     module.signatures.pop();
-    module.signatures.push(Signature(vec![
-        Address, U64, Address, Address, U128, Address, U64, U64, U64,
-    ]));
-    module.signatures.push(Signature(vec![]));
     module
         .signatures
-        .push(Signature(vec![Address, Bool, Address]));
+        .push(Signature(vec![Address, U64, Address, Address, U128, Address, U64, U64, U64]));
+    module.signatures.push(Signature(vec![]));
+    module.signatures.push(Signature(vec![Address, Bool, Address]));
 
     module.identifiers.extend(vec![
         Identifier::from_str("zf_hello_world").unwrap(),
@@ -62,10 +60,9 @@ fn unbalanced_stack_crash() {
     ]);
     module.address_identifiers.push(AccountAddress::random());
 
-    module.constant_pool.push(Constant {
-        type_: Address,
-        data: AccountAddress::ZERO.into_bytes().to_vec(),
-    });
+    module
+        .constant_pool
+        .push(Constant { type_: Address, data: AccountAddress::ZERO.into_bytes().to_vec() });
 
     module.struct_defs.push(StructDefinition {
         struct_handle: StructHandleIndex(0),
@@ -116,9 +113,7 @@ fn too_many_locals() {
     // as a result the following iterator in abstract state
     // would be empty, breaking reference analysis: `0..self.num_locals as LocalIndex`
     // (since LocalIndex is u8).
-    let sign_128 = (0..128)
-        .map(|_| Reference(Box::new(U64)))
-        .collect::<Vec<_>>();
+    let sign_128 = (0..128).map(|_| Reference(Box::new(U64))).collect::<Vec<_>>();
     let module = CompiledModule {
         version: 5,
         self_module_handle_idx: ModuleHandleIndex(0),
@@ -187,10 +182,7 @@ fn borrow_graph() {
         struct_def_instantiations: vec![],
         function_instantiations: vec![],
         field_instantiations: vec![],
-        signatures: vec![Signature(vec![
-            Reference(Box::new(U64)),
-            Reference(Box::new(U64)),
-        ])],
+        signatures: vec![Signature(vec![Reference(Box::new(U64)), Reference(Box::new(U64))])],
         identifiers: vec![Identifier::new("a").unwrap()],
         address_identifiers: vec![AccountAddress::ONE],
         constant_pool: vec![],
@@ -305,17 +297,11 @@ fn indirect_code() {
             visibility: Visibility::Public,
             is_entry: false,
             acquires_global_resources: vec![],
-            code: Some(CodeUnit {
-                locals: SignatureIndex(1),
-                code,
-            }),
+            code: Some(CodeUnit { locals: SignatureIndex(1), code }),
         }],
     };
 
     let res = crate::verify_module_with_config_unmetered(&VerifierConfig::default(), &module)
         .unwrap_err();
-    assert_eq!(
-        res.major_status(),
-        StatusCode::VEC_UPDATE_EXISTS_MUTABLE_BORROW_ERROR
-    );
+    assert_eq!(res.major_status(), StatusCode::VEC_UPDATE_EXISTS_MUTABLE_BORROW_ERROR);
 }

@@ -40,25 +40,18 @@ fn test_ownership_transfer() -> Result<()> {
 
     // 4. Create ChangeSet to add object for Alice
     let mut cs1 = ChangeSet::new();
-    cs1.created_objects
-        .push((object_id.to_string(), created_obj));
+    cs1.created_objects.push((object_id.to_string(), created_obj));
 
     // 5. Apply ChangeSet 1
     state.apply_changeset(&cs1)?;
 
     // Verify Alice owns it
     let alice_owned = state.get_owned_objects(&alice)?;
-    assert!(
-        alice_owned.contains(&canonical_id),
-        "Alice should own the object"
-    );
+    assert!(alice_owned.contains(&canonical_id), "Alice should own the object");
 
     // Verify Bob does not own it
     let bob_owned = state.get_owned_objects(&bob)?;
-    assert!(
-        !bob_owned.contains(&canonical_id),
-        "Bob should not own the object"
-    );
+    assert!(!bob_owned.contains(&canonical_id), "Bob should not own the object");
 
     // 6. Transfer object to Bob (Update object with new owner)
     let updated_obj = CreatedObject {
@@ -73,18 +66,14 @@ fn test_ownership_transfer() -> Result<()> {
 
     // 7. Create ChangeSet 2 to update object
     let mut cs2 = ChangeSet::new();
-    cs2.created_objects
-        .push((object_id.to_string(), updated_obj));
+    cs2.created_objects.push((object_id.to_string(), updated_obj));
 
     // 8. Apply ChangeSet 2
     state.apply_changeset(&cs2)?;
 
     // Verify Bob owns it
     let bob_owned_after = state.get_owned_objects(&bob)?;
-    assert!(
-        bob_owned_after.contains(&canonical_id),
-        "Bob should own the object after transfer"
-    );
+    assert!(bob_owned_after.contains(&canonical_id), "Bob should own the object after transfer");
 
     // Verify Alice NO LONGER owns it (The Fix)
     let alice_owned_after = state.get_owned_objects(&alice)?;
@@ -121,8 +110,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     };
 
     let mut cs1 = ChangeSet::new();
-    cs1.created_objects
-        .push((object_id.to_string(), created_obj));
+    cs1.created_objects.push((object_id.to_string(), created_obj));
     state.apply_changeset(&cs1)?;
 
     // Verify initial state
@@ -145,8 +133,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     };
 
     let mut cs2 = ChangeSet::new();
-    cs2.created_objects
-        .push((object_id.to_string(), transferred_obj.clone()));
+    cs2.created_objects.push((object_id.to_string(), transferred_obj.clone()));
     state.apply_changeset(&cs2)?;
 
     // Verify transfer: Alice should NOT own it anymore
@@ -174,8 +161,7 @@ fn test_object_transfer_removes_from_old_owner() -> Result<()> {
     };
 
     let mut cs3 = ChangeSet::new();
-    cs3.created_objects
-        .push((object_id.to_string(), transferred_obj2));
+    cs3.created_objects.push((object_id.to_string(), transferred_obj2));
     state.apply_changeset(&cs3)?;
 
     // Verify second transfer: Bob should NOT own it anymore
@@ -221,9 +207,7 @@ fn test_coin_split_inflation() -> Result<()> {
     };
 
     let mut cs_init = ChangeSet::new();
-    cs_init
-        .created_objects
-        .push((coin_a_id.to_string(), created_a));
+    cs_init.created_objects.push((coin_a_id.to_string(), created_a));
     state.apply_changeset(&cs_init)?;
 
     // Verify Initial State
@@ -265,12 +249,8 @@ fn test_coin_split_inflation() -> Result<()> {
     };
 
     let mut cs_split = ChangeSet::new();
-    cs_split
-        .created_objects
-        .push((coin_a_id.to_string(), updated_a));
-    cs_split
-        .created_objects
-        .push((coin_b_id.to_string(), created_b));
+    cs_split.created_objects.push((coin_a_id.to_string(), updated_a));
+    cs_split.created_objects.push((coin_b_id.to_string(), created_b));
 
     state.apply_changeset(&cs_split)?;
 
@@ -287,9 +267,8 @@ fn test_coin_split_inflation() -> Result<()> {
     // Verify Data of Coin A in DB
     let stored_a = state.get_object(coin_a_id)?.invariant("Coin A must exist");
     // Check last 8 bytes
-    let stored_balance_bytes: [u8; 8] = stored_a.data[32..40]
-        .try_into()
-        .invariant("stored coin balance bytes should be 8 bytes");
+    let stored_balance_bytes: [u8; 8] =
+        stored_a.data[32..40].try_into().invariant("stored coin balance bytes should be 8 bytes");
     let stored_balance = u64::from_le_bytes(stored_balance_bytes);
     assert_eq!(stored_balance, 500, "Coin A balance should be 500");
 
@@ -346,15 +325,8 @@ fn test_transfer_with_same_version_is_not_treated_as_collision() -> Result<()> {
         !alice_owned.contains(&canonical_id),
         "Alice should no longer own object after transfer"
     );
-    assert!(
-        bob_owned.contains(&canonical_id),
-        "Bob should own the transferred object id"
-    );
-    assert_eq!(
-        bob_owned.len(),
-        1,
-        "Transfer should not create collision id"
-    );
+    assert!(bob_owned.contains(&canonical_id), "Bob should own the transferred object id");
+    assert_eq!(bob_owned.len(), 1, "Transfer should not create collision id");
 
     Ok(())
 }
@@ -422,10 +394,7 @@ fn test_duplicate_created_object_id_keeps_latest_owner() -> Result<()> {
         !alice_owned.contains(&canonical_id),
         "Alice should not keep duplicate id after final transfer"
     );
-    assert!(
-        bob_owned.contains(&canonical_id),
-        "Latest owner should keep the object id"
-    );
+    assert!(bob_owned.contains(&canonical_id), "Latest owner should keep the object id");
 
     Ok(())
 }

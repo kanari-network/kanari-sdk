@@ -128,12 +128,8 @@ pub(super) fn parse_hex_address(
     raw: &str,
     field: &str,
 ) -> Result<Address, Box<RpcResponse>> {
-    Address::from_hex_literal(raw).map_err(|e| {
-        Box::new(invalid_params_response(
-            id,
-            format!("Invalid {}: {}", field, e),
-        ))
-    })
+    Address::from_hex_literal(raw)
+        .map_err(|e| Box::new(invalid_params_response(id, format!("Invalid {}: {}", field, e))))
 }
 
 #[cfg(test)]

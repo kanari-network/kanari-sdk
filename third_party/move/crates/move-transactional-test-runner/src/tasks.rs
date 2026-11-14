@@ -45,10 +45,8 @@ pub fn taskify<Command: Debug + Parser>(filename: &Path) -> Result<Vec<TaskInput
     let re_command_text = Regex::new(r"^\s*//#\s*(.*)\s*$").unwrap();
 
     let file = File::open(filename).unwrap();
-    let lines: Vec<String> = io::BufReader::new(file)
-        .lines()
-        .map(|ln| ln.expect("Could not parse line"))
-        .collect();
+    let lines: Vec<String> =
+        io::BufReader::new(file).lines().map(|ln| ln.expect("Could not parse line")).collect();
 
     let lines_iter = lines.into_iter().enumerate().map(|(idx, l)| (idx + 1, l));
     let skipped_whitespace = lines_iter.skip_while(|(_line_number, line)| {
@@ -130,11 +128,7 @@ pub fn taskify<Command: Debug + Parser>(filename: &Path) -> Result<Vec<TaskInput
         };
         let name = name_opt.unwrap();
 
-        let stop_line = if text.is_empty() {
-            command_lines_stop
-        } else {
-            text[text.len() - 1].0
-        };
+        let stop_line = if text.is_empty() { command_lines_stop } else { text[text.len() - 1].0 };
 
         // Keep fucking this up somehow
         // let last_non_whitespace = text
@@ -153,8 +147,7 @@ pub fn taskify<Command: Debug + Parser>(filename: &Path) -> Result<Vec<TaskInput
             None
         } else {
             let data = NamedTempFile::new()?;
-            data.reopen()?
-                .write_all(file_text_vec.join("\n").as_bytes())?;
+            data.reopen()?.write_all(file_text_vec.join("\n").as_bytes())?;
             Some(data)
         };
 
@@ -173,15 +166,7 @@ pub fn taskify<Command: Debug + Parser>(filename: &Path) -> Result<Vec<TaskInput
 
 impl<T> TaskInput<T> {
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> TaskInput<U> {
-        let Self {
-            command,
-            name,
-            number,
-            start_line,
-            command_lines_stop,
-            stop_line,
-            data,
-        } = self;
+        let Self { command, name, number, start_line, command_lines_stop, stop_line, data } = self;
         TaskInput {
             command: f(command),
             name,

@@ -113,30 +113,17 @@ fn main() {
             MoveValue::Vector(v.into_iter().map(MoveValue::U8).collect())
         };
 
-        let arg_name = vec_u8_to_mv(name_bytes)
-            .simple_serialize()
-            .expect("serialize name");
-        let arg_desc = vec_u8_to_mv(desc_bytes)
-            .simple_serialize()
-            .expect("serialize desc");
-        let arg_url = vec_u8_to_mv(url_bytes)
-            .simple_serialize()
-            .expect("serialize url");
+        let arg_name = vec_u8_to_mv(name_bytes).simple_serialize().expect("serialize name");
+        let arg_desc = vec_u8_to_mv(desc_bytes).simple_serialize().expect("serialize desc");
+        let arg_url = vec_u8_to_mv(url_bytes).simple_serialize().expect("serialize url");
         let arg_keys = bcs::to_bytes(&Vec::<String>::new()).expect("serialize attribute keys");
         let arg_values = bcs::to_bytes(&Vec::<String>::new()).expect("serialize attribute values");
 
         // Object-typed parameters (&mut NftCap, &Collection) are bound through
         // object_inputs; their arg slots stay empty placeholders. TxContext is
         // appended by the runtime.
-        let mint_args = vec![
-            Vec::new(),
-            Vec::new(),
-            arg_name,
-            arg_desc,
-            arg_url,
-            arg_keys,
-            arg_values,
-        ];
+        let mint_args =
+            vec![Vec::new(), Vec::new(), arg_name, arg_desc, arg_url, arg_keys, arg_values];
         let mint_inputs = vec![
             ObjectInput {
                 object_ref: ObjectRef::new(nft_id.clone(), None, None),

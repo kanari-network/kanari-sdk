@@ -36,12 +36,7 @@ impl StateManager {
             .reads
             .iter()
             .chain(access.writes.iter())
-            .map(|key| {
-                (
-                    key.clone(),
-                    self.access_versions.get(key).copied().unwrap_or(0),
-                )
-            })
+            .map(|key| (key.clone(), self.access_versions.get(key).copied().unwrap_or(0)))
             .collect()
     }
 
@@ -73,10 +68,8 @@ impl StateManager {
             .map(|value| !matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
             .unwrap_or(true);
         if !access.writes.is_empty() {
-            self.access_epoch = self
-                .access_epoch
-                .checked_add(1)
-                .context("State access epoch overflow")?;
+            self.access_epoch =
+                self.access_epoch.checked_add(1).context("State access epoch overflow")?;
         }
         for key in &access.writes {
             let next = self

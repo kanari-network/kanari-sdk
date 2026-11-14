@@ -34,10 +34,7 @@ pub fn verify_or_update_baseline(baseline_file_name: &Path, text: &str) -> anyho
         } else {
             String::new()
         };
-        diff(
-            clean_for_baseline(text).as_ref(),
-            clean_for_baseline(&contents).as_ref(),
-        )
+        diff(clean_for_baseline(text).as_ref(), clean_for_baseline(&contents).as_ref())
     }
 }
 

@@ -35,10 +35,7 @@ use move_symbol_pool::Symbol;
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum ModuleKey {
     SelfModule,
-    Named {
-        address: Symbol,
-        name: IdentifierIndex,
-    },
+    Named { address: Symbol, name: IdentifierIndex },
     Unnamed,
 }
 
@@ -47,10 +44,7 @@ enum ModuleKey {
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum ReferenceKey {
     Internal(TableIndex),
-    External {
-        module: ModuleHandleIndex,
-        name: IdentifierIndex,
-    },
+    External { module: ModuleHandleIndex, name: IdentifierIndex },
 }
 
 /// Forward the index at `$ix`, of type `$Ix` to its new location according to the `$perm`utation
@@ -116,10 +110,7 @@ pub fn in_module(
         };
 
         // Layout remaining modules in lexicographical order of named address and module name.
-        ModuleKey::Named {
-            address: *address_name,
-            name: handle.name,
-        }
+        ModuleKey::Named { address: *address_name, name: handle.name }
     });
 
     // 2 (b). Update references to module handles.
@@ -148,10 +139,7 @@ pub fn in_module(
         } else {
             // Order the remaining handles afterwards, in lexicographical order of module, then
             // struct name.
-            ReferenceKey::External {
-                module: handle.module,
-                name: handle.name,
-            }
+            ReferenceKey::External { module: handle.module, name: handle.name }
         }
     });
 
@@ -186,10 +174,7 @@ pub fn in_module(
         } else {
             // Order the remaining handles afterwards, in lexicographical order of module, then
             // function name.
-            ReferenceKey::External {
-                module: handle.module,
-                name: handle.name,
-            }
+            ReferenceKey::External { module: handle.module, name: handle.name }
         }
     });
 
@@ -220,10 +205,7 @@ pub fn in_module(
         };
 
         // Layout remaining modules in lexicographical order of named address and module name.
-        ModuleKey::Named {
-            address: *address_name,
-            name: handle.name,
-        }
+        ModuleKey::Named { address: *address_name, name: handle.name }
     });
 }
 

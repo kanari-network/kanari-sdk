@@ -25,18 +25,11 @@ fn refresh_committed_modules_rebuilds_runtime_module_index() -> Result<()> {
     let committed: HashSet<_> = runtime.state.get_all_module_ids()?.into_iter().collect();
     assert!(!committed.is_empty());
 
-    runtime
-        .published_modules
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clear();
+    runtime.published_modules.write().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
     runtime.refresh_committed_modules()?;
 
     assert_eq!(
-        *runtime
-            .published_modules
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        *runtime.published_modules.read().unwrap_or_else(|poisoned| poisoned.into_inner()),
         committed
     );
     Ok(())
@@ -324,11 +317,7 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
         &GasModule::get_module_id()?,
         GasModule::function_names().transfer,
         vec![],
-        vec![
-            vec![],
-            bcs::to_bytes(&transfer_amount)?,
-            bcs::to_bytes(&recipient)?,
-        ],
+        vec![vec![], bcs::to_bytes(&transfer_amount)?, bcs::to_bytes(&recipient)?],
         EntryFunctionObjectContext {
             object_inputs: vec![ObjectInput {
                 object_ref: ObjectRef::new(
@@ -407,9 +396,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     let _ = runtime.execute_entry_function_with_object_context_and_persistence(
         &module_id,
         "create_deal",
-        vec![TypeTag::Struct(Box::new(StructTag::from_str(
-            kanari_types::gas_coin::GAS_COIN,
-        )?))],
+        vec![TypeTag::Struct(Box::new(StructTag::from_str(kanari_types::gas_coin::GAS_COIN)?))],
         vec![
             bcs::to_bytes("deal-1")?,
             bcs::to_bytes(&seller)?,
@@ -463,9 +450,7 @@ fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<(
         .execute_entry_function_with_object_context_and_persistence(
             &module_id,
             "create_deal",
-            vec![TypeTag::Struct(Box::new(StructTag::from_str(
-                kanari_types::gas_coin::GAS_COIN,
-            )?))],
+            vec![TypeTag::Struct(Box::new(StructTag::from_str(kanari_types::gas_coin::GAS_COIN)?))],
             vec![
                 bcs::to_bytes("deal-1")?,
                 bcs::to_bytes(&seller)?,
@@ -526,9 +511,7 @@ fn raw_address_arg_cannot_mutably_borrow_non_coin_object_from_other_owner() -> R
             &module_id,
             "touch_marker",
             vec![],
-            vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
-                marker_id,
-            )?)?],
+            vec![bcs::to_bytes(&AccountAddress::from_hex_literal(marker_id)?)?],
             EntryFunctionObjectContext {
                 object_inputs: vec![],
                 sender: Some(sender),
@@ -581,9 +564,7 @@ fn explicit_object_input_can_mutably_borrow_non_coin_defi_object_from_other_owne
         &module_id,
         "touch_marker",
         vec![],
-        vec![bcs::to_bytes(&AccountAddress::from_hex_literal(
-            marker_id,
-        )?)?],
+        vec![bcs::to_bytes(&AccountAddress::from_hex_literal(marker_id)?)?],
         EntryFunctionObjectContext {
             object_inputs: vec![ObjectInput {
                 object_ref: ObjectRef::new(marker_id.to_string(), Some(1), None),
@@ -619,10 +600,7 @@ fn coin_data(object_id: &str, balance: u64) -> Result<Vec<u8>> {
 
 fn assert_out_of_gas(err: anyhow::Error) {
     let message = format!("{err:?}");
-    assert!(
-        message.contains("OUT_OF_GAS"),
-        "expected out-of-gas error, got: {message}"
-    );
+    assert!(message.contains("OUT_OF_GAS"), "expected out-of-gas error, got: {message}");
 }
 
 fn new_runtime_with_metered_sha2_native() -> Result<MoveRuntime> {
@@ -814,10 +792,7 @@ fn publish_runs_module_init_effects() -> Result<()> {
     // The init event is merged into the publish changeset.
     let expected = bcs::to_bytes(&777u64)?;
     assert!(
-        changeset
-            .events
-            .iter()
-            .any(|event| event.event_data == expected),
+        changeset.events.iter().any(|event| event.event_data == expected),
         "publish must run module init"
     );
     Ok(())
@@ -851,10 +826,7 @@ fn publish_runs_witness_style_init() -> Result<()> {
     // The one-time-witness slot is synthesized by the entry machinery.
     let expected = bcs::to_bytes(&999u64)?;
     assert!(
-        changeset
-            .events
-            .iter()
-            .any(|event| event.event_data == expected),
+        changeset.events.iter().any(|event| event.event_data == expected),
         "publish must run witness-style module init"
     );
     Ok(())
@@ -891,10 +863,7 @@ fn upgrade_never_reruns_module_init() -> Result<()> {
     // v2's init (which would emit 888) must not run on upgrade.
     let upgraded = bcs::to_bytes(&888u64)?;
     assert!(
-        changeset
-            .events
-            .iter()
-            .all(|event| event.event_data != upgraded),
+        changeset.events.iter().all(|event| event.event_data != upgraded),
         "upgrade must never re-run module init"
     );
     Ok(())
@@ -935,29 +904,21 @@ fn create_test_package(
 fn kanari_system_package_path() -> Result<String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let package = manifest_dir.join("../../../crates/kanari-frameworks/packages/kanari-system");
-    let canonical = package.canonicalize().with_context(|| {
-        format!(
-            "resolve KanariSystem package path from {}",
-            package.display()
-        )
-    })?;
+    let canonical = package
+        .canonicalize()
+        .with_context(|| format!("resolve KanariSystem package path from {}", package.display()))?;
     Ok(move_manifest_local_path(&canonical))
 }
 
 fn move_manifest_local_path(path: &Path) -> String {
     let normalized = path.display().to_string().replace('\\', "/");
-    normalized
-        .strip_prefix("//?/")
-        .unwrap_or(&normalized)
-        .to_string()
+    normalized.strip_prefix("//?/").unwrap_or(&normalized).to_string()
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

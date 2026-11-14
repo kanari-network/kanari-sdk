@@ -16,18 +16,13 @@ impl StateManager {
         let ledger_locked_supply = self.object_locked_supply_for_token(GAS_COIN)?;
         let max_wallet_visible = self.total_supply.saturating_sub(ledger_locked_supply);
         if indexed_visible <= max_wallet_visible {
-            let current = self
-                .global_token_supplies
-                .get(GAS_COIN)
-                .copied()
-                .unwrap_or(0);
+            let current = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
             let changed = current != indexed_visible;
             if changed {
                 if indexed_visible == 0 {
                     self.global_token_supplies.remove(GAS_COIN);
                 } else {
-                    self.global_token_supplies
-                        .insert(GAS_COIN.to_string(), indexed_visible);
+                    self.global_token_supplies.insert(GAS_COIN.to_string(), indexed_visible);
                 }
                 let supplies_clone = self.global_token_supplies.clone();
                 self.save_internal(b"global_token_supplies", &supplies_clone)?;
@@ -83,11 +78,7 @@ impl StateManager {
 
     /// Repair the cached native wallet-visible overcount if it exceeds the maximum.
     pub fn repair_cached_native_wallet_overcount(&mut self) -> Result<bool> {
-        let cached_visible = self
-            .global_token_supplies
-            .get(GAS_COIN)
-            .copied()
-            .unwrap_or(0);
+        let cached_visible = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
         let ledger_locked_supply = self.object_locked_supply_for_token(GAS_COIN)?;
         let max_wallet_visible = self.total_supply.saturating_sub(ledger_locked_supply);
         if cached_visible <= max_wallet_visible {
@@ -99,9 +90,8 @@ impl StateManager {
 
     /// Load the object-locked coin records from the store.
     pub(crate) fn load_object_locked_coin_records(&self) -> Result<Vec<ObjectLockedCoinRecord>> {
-        let mut records: Vec<ObjectLockedCoinRecord> = self
-            .load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?
-            .unwrap_or_default();
+        let mut records: Vec<ObjectLockedCoinRecord> =
+            self.load_internal(OBJECT_LOCKED_COIN_RECORDS_KEY)?.unwrap_or_default();
         for record in &mut records {
             record.token_type = CoinModule::normalize_token_type(&record.token_type);
         }
@@ -123,8 +113,7 @@ impl StateManager {
             .filter(|record| record.token_type == token_type)
             .map(|record| record.amount)
             .try_fold(0u64, |acc, amount| {
-                acc.checked_add(amount)
-                    .require("Object-locked token supply overflow")
+                acc.checked_add(amount).require("Object-locked token supply overflow")
             })
     }
 }

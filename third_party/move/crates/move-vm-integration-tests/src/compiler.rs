@@ -33,9 +33,7 @@ pub fn compile_units(s: &str) -> Result<Vec<AnnotatedCompiledUnit>> {
 pub fn expect_modules(
     units: impl IntoIterator<Item = AnnotatedCompiledUnit>,
 ) -> impl Iterator<Item = CompiledModule> {
-    units
-        .into_iter()
-        .map(|annot_module| annot_module.named_module.module)
+    units.into_iter().map(|annot_module| annot_module.named_module.module)
 }
 
 pub fn compile_modules_in_file(path: &Path) -> Result<Vec<CompiledModule>> {

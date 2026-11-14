@@ -58,9 +58,7 @@ pub fn decrypt_stream<R: Read, W: Write>(
     let mut reader = StreamDecryptingReader::new(header, reader, password)?;
     io::copy(&mut reader, &mut writer)
         .map_err(|error| EncryptionError::AeadError(error.to_string()))?;
-    writer
-        .flush()
-        .map_err(|error| EncryptionError::AeadError(error.to_string()))?;
+    writer.flush().map_err(|error| EncryptionError::AeadError(error.to_string()))?;
     Ok(())
 }
 
@@ -124,27 +122,18 @@ impl<W: Write> StreamEncryptingWriter<W> {
             self.write_encrypted_frame(true)?;
             self.finished = true;
         }
-        self.writer
-            .flush()
-            .map_err(|error| EncryptionError::AeadError(error.to_string()))?;
+        self.writer.flush().map_err(|error| EncryptionError::AeadError(error.to_string()))?;
         Ok(self.writer)
     }
 
     fn write_encrypted_frame(&mut self, is_last: bool) -> Result<(), EncryptionError> {
-        let aad = stream_frame_aad(
-            &self.nonce_prefix,
-            self.frame_index,
-            is_last,
-            self.buffer.len(),
-        );
+        let aad =
+            stream_frame_aad(&self.nonce_prefix, self.frame_index, is_last, self.buffer.len());
         let nonce_bytes = stream_frame_nonce(&self.nonce_prefix, self.frame_index);
         let nonce = Nonce::try_from(&nonce_bytes[..]).map_err(|_| {
             EncryptionError::InvalidInput("Invalid stream nonce length".to_string())
         })?;
-        let payload = Payload {
-            msg: &self.buffer,
-            aad: &aad,
-        };
+        let payload = Payload { msg: &self.buffer, aad: &aad };
         let ciphertext = self
             .cipher
             .encrypt(&nonce, payload)
@@ -175,8 +164,7 @@ impl<W: Write> Write for StreamEncryptingWriter<W> {
             self.buffer.extend_from_slice(&buf[..take]);
             buf = &buf[take..];
             if self.buffer.len() == self.chunk_size {
-                self.write_encrypted_frame(false)
-                    .map_err(encryption_error_to_io)?;
+                self.write_encrypted_frame(false).map_err(encryption_error_to_io)?;
             }
         }
         Ok(original_len)
@@ -229,9 +217,7 @@ impl<R: Read> StreamDecryptingReader<R> {
             .decode(&header.nonce)
             .map_err(|e| EncryptionError::InvalidFormat(format!("Invalid nonce base64: {}", e)))?;
         if nonce_bytes.len() != STREAM_NONCE_PREFIX_LEN {
-            return Err(EncryptionError::InvalidFormat(
-                "Invalid stream nonce length".to_string(),
-            ));
+            return Err(EncryptionError::InvalidFormat("Invalid stream nonce length".to_string()));
         }
         let nonce_prefix: [u8; STREAM_NONCE_PREFIX_LEN] =
             nonce_bytes.as_slice().try_into().map_err(|_| {
@@ -276,10 +262,7 @@ impl<R: Read> StreamDecryptingReader<R> {
                 "Invalid stream nonce length".to_string(),
             ))
         })?;
-        let payload = Payload {
-            msg: &current,
-            aad: &aad,
-        };
+        let payload = Payload { msg: &current, aad: &aad };
         self.plaintext = self
             .cipher
             .decrypt(&nonce, payload)
@@ -331,9 +314,7 @@ impl<R: Read> Read for StreamDecryptingReader<R> {
 
 fn validate_chunk_size(chunk_size: usize) -> Result<(), EncryptionError> {
     if chunk_size == 0 {
-        return Err(EncryptionError::InvalidInput(
-            "Stream chunk size cannot be zero".to_string(),
-        ));
+        return Err(EncryptionError::InvalidInput("Stream chunk size cannot be zero".to_string()));
     }
     if chunk_size > MAX_STREAM_CHUNK_SIZE {
         return Err(EncryptionError::InvalidInput(format!(
@@ -342,9 +323,7 @@ fn validate_chunk_size(chunk_size: usize) -> Result<(), EncryptionError> {
         )));
     }
     if chunk_size > u32::MAX as usize - AEAD_TAG_LEN {
-        return Err(EncryptionError::InvalidInput(
-            "Stream chunk size is too large".to_string(),
-        ));
+        return Err(EncryptionError::InvalidInput("Stream chunk size is too large".to_string()));
     }
     Ok(())
 }

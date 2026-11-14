@@ -13,12 +13,31 @@ module kanari_system::krc_20 {
     use std::option::Option;
     use kanari_system::coin::{Self, Coin, CoinMetadata, DenyCapV2, TreasuryCap};
     use kanari_system::deny_list::DenyList;
+    use kanari_system::event;
     use kanari_system::pay;
     use kanari_system::tx_context::{Self, TxContext};
     use kanari_system::url::Url;
 
     /// Sender, recipient, or token type is blocked by its deny-list policy.
     const E_DENIED_OR_PAUSED: u64 = 0;
+
+    /// Emitted when tokens are minted.
+    struct Minted has copy, drop {
+        recipient: address,
+        amount: u64
+    }
+
+    /// Emitted when tokens are burned.
+    struct Burned has copy, drop {
+        amount: u64
+    }
+
+    /// Emitted when tokens are transferred.
+    struct Transferred has copy, drop {
+        sender: address,
+        recipient: address,
+        amount: u64
+    }
 
     /// Create the canonical KRC-20 currency for witness `T`.
     /// `coin::create_currency` claims the witness before returning, so no
@@ -73,7 +92,14 @@ module kanari_system::krc_20 {
         amount: u64,
         ctx: &mut TxContext
     ): Coin<T> {
-        coin::mint(cap, amount, ctx)
+        let coin = coin::mint(cap, amount, ctx);
+        event::emit(
+            Minted {
+                recipient: tx_context::sender(ctx),
+                amount
+            }
+        );
+        coin
     }
 
     /// Mint directly to an address. This is the issuer's airdrop primitive.
@@ -83,12 +109,25 @@ module kanari_system::krc_20 {
         recipient: address,
         ctx: &mut TxContext
     ) {
-        coin::mint_and_transfer(cap, amount, recipient, ctx)
+        coin::mint_and_transfer(cap, amount, recipient, ctx);
+        event::emit(
+            Minted {
+                recipient,
+                amount
+            }
+        );
     }
 
     /// Burn a complete coin object and reduce total supply.
     public fun burn<T>(cap: &mut TreasuryCap<T>, token: Coin<T>): u64 {
-        coin::burn(cap, token)
+        let amount = coin::value(&token);
+        let result = coin::burn(cap, token);
+        event::emit(
+            Burned {
+                amount
+            }
+        );
+        result
     }
 
     /// Send an amount by splitting the sender-owned coin object.
@@ -106,7 +145,14 @@ module kanari_system::krc_20 {
         assert!(!coin::is_denied<T>(sender), E_DENIED_OR_PAUSED);
         assert!(!coin::is_denied<T>(recipient), E_DENIED_OR_PAUSED);
         assert!(!coin::is_paused<T>(), E_DENIED_OR_PAUSED);
-        pay::split_and_transfer(token, amount, recipient, ctx)
+        pay::split_and_transfer(token, amount, recipient, ctx);
+        event::emit(
+            Transferred {
+                sender,
+                recipient,
+                amount
+            }
+        );
     }
 
     /// Regulated KRC-20 transfer. Both sender and recipient are checked
@@ -118,7 +164,15 @@ module kanari_system::krc_20 {
         deny: &DenyList,
         ctx: &mut TxContext
     ) {
-        pay::split_and_transfer_checked(token, amount, recipient, deny, ctx)
+        let sender = tx_context::sender(ctx);
+        pay::split_and_transfer_checked(token, amount, recipient, deny, ctx);
+        event::emit(
+            Transferred {
+                sender,
+                recipient,
+                amount
+            }
+        );
     }
 
     /// Merge `other` into `token`, reducing coin-object fragmentation.
@@ -160,6 +214,31 @@ module kanari_system::krc_20 {
         assert!(total_supply(&cap) == 1_000, 1);
         assert!(burn(&mut cap, token) == 1_000, 2);
         assert!(total_supply(&cap) == 0, 3);
+        kanari_system::transfer::public_freeze_object(cap);
+        kanari_system::transfer::public_freeze_object(metadata);
+    }
+
+    #[test]
+    fun test_split_conserves_balance() {
+        let ctx = kanari_system::tx_context::dummy();
+        let (cap, metadata) = create(
+            TEST {},
+            6,
+            b"TEST",
+            b"Test Token",
+            b"",
+            std::option::none(),
+            &mut ctx
+        );
+        let token = mint(&mut cap, 1_000, &mut ctx);
+        // Split 300 off
+        let part = coin::split(&mut token, 300, &mut ctx);
+        assert!(value(&token) == 700, 0);
+        assert!(value(&part) == 300, 1);
+        // Join back
+        coin::join(&mut token, part);
+        assert!(value(&token) == 1_000, 2);
+        kanari_system::transfer::public_freeze_object(token);
         kanari_system::transfer::public_freeze_object(cap);
         kanari_system::transfer::public_freeze_object(metadata);
     }

@@ -74,10 +74,7 @@ pub fn make_to_u256_native(gas_cost: InternalGas) -> NativeFunction {
         be_bytes.copy_from_slice(&addr_bytes);
         let value = from_be_bytes(&be_bytes);
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::u256(value)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::u256(value)]))
     })
 }
 
@@ -92,10 +89,7 @@ pub fn make_from_u256_native(gas_cost: InternalGas) -> NativeFunction {
         let be_bytes = to_be_bytes(val);
         let addr = AccountAddress::new(be_bytes);
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::address(addr)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::address(addr)]))
     })
 }
 
@@ -114,10 +108,7 @@ pub fn make_from_bytes_native(gas_cost: InternalGas) -> NativeFunction {
                 .with_message("Address must be exactly 32 bytes".to_string())
         })?;
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::address(addr)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::address(addr)]))
     })
 }
 
@@ -126,18 +117,9 @@ pub fn make_address_natives(
     gas_params: GasParameters,
 ) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = vec![
-        (
-            "to_u256".to_string(),
-            make_to_u256_native(gas_params.to_u256),
-        ),
-        (
-            "from_u256".to_string(),
-            make_from_u256_native(gas_params.from_u256),
-        ),
-        (
-            "from_bytes".to_string(),
-            make_from_bytes_native(gas_params.from_bytes),
-        ),
+        ("to_u256".to_string(), make_to_u256_native(gas_params.to_u256)),
+        ("from_u256".to_string(), make_from_u256_native(gas_params.from_u256)),
+        ("from_bytes".to_string(), make_from_bytes_native(gas_params.from_bytes)),
     ];
 
     crate::helpers::make_module_natives(natives)

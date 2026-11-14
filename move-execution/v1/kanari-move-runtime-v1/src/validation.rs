@@ -38,11 +38,7 @@ pub fn validate_function_name(name: &str) -> Result<()> {
     }
 
     if name.len() > MAX_FUNCTION_NAME_LENGTH {
-        anyhow::bail!(
-            "Function name too long: {} > {}",
-            name.len(),
-            MAX_FUNCTION_NAME_LENGTH
-        );
+        anyhow::bail!("Function name too long: {} > {}", name.len(), MAX_FUNCTION_NAME_LENGTH);
     }
 
     // Check for null bytes
@@ -68,11 +64,7 @@ pub fn validate_module_id(module_id: &ModuleId) -> Result<()> {
     }
 
     if module_name.len() > MAX_MODULE_NAME_LENGTH {
-        anyhow::bail!(
-            "Module name too long: {} > {}",
-            module_name.len(),
-            MAX_MODULE_NAME_LENGTH
-        );
+        anyhow::bail!("Module name too long: {} > {}", module_name.len(), MAX_MODULE_NAME_LENGTH);
     }
 
     Ok(())
@@ -81,11 +73,7 @@ pub fn validate_module_id(module_id: &ModuleId) -> Result<()> {
 /// Validates type tags
 pub fn validate_type_tags(type_tags: &[TypeTag]) -> Result<()> {
     if type_tags.len() > MAX_TYPE_ARGS {
-        anyhow::bail!(
-            "Too many type arguments: {} > {}",
-            type_tags.len(),
-            MAX_TYPE_ARGS
-        );
+        anyhow::bail!("Too many type arguments: {} > {}", type_tags.len(), MAX_TYPE_ARGS);
     }
 
     for tag in type_tags {
@@ -119,11 +107,7 @@ pub fn validate_gas_info(gas_limit: u64, gas_price: u64) -> Result<()> {
     // Check for overflow in total cost calculation
     // gas_limit * gas_price should not overflow u64
     if gas_limit > 0 && gas_price > u64::MAX / gas_limit {
-        anyhow::bail!(
-            "Gas calculation would overflow: limit={}, price={}",
-            gas_limit,
-            gas_price
-        );
+        anyhow::bail!("Gas calculation would overflow: limit={}, price={}", gas_limit, gas_price);
     }
 
     // Reasonable limits

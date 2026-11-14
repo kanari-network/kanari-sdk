@@ -47,10 +47,7 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
         },
     ));
 
-    println!(
-        "ChangeSet 1 token_balance_sets: {:?}",
-        cs1.token_balance_sets.len()
-    );
+    println!("ChangeSet 1 token_balance_sets: {:?}", cs1.token_balance_sets.len());
     state.apply_changeset(&cs1)?;
 
     // Second mint: 50 tokens (should consolidate to 150)
@@ -70,10 +67,7 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
         },
     ));
 
-    println!(
-        "ChangeSet 2 token_balance_sets: {:?}",
-        cs2.token_balance_sets.len()
-    );
+    println!("ChangeSet 2 token_balance_sets: {:?}", cs2.token_balance_sets.len());
     state.apply_changeset(&cs2)?;
 
     // Third mint: 75 tokens (should consolidate to 225)
@@ -93,20 +87,14 @@ fn test_multiple_mints_consolidate_into_single_balance() -> Result<()> {
         },
     ));
 
-    println!(
-        "ChangeSet 3 token_balance_sets: {:?}",
-        cs3.token_balance_sets.len()
-    );
+    println!("ChangeSet 3 token_balance_sets: {:?}", cs3.token_balance_sets.len());
     state.apply_changeset(&cs3)?;
 
     // Verify final balance
     let final_balance = state.resolve_owner_token_balance(alice, token_type)?;
 
     println!("Final balance for Alice: {}", final_balance);
-    assert_eq!(
-        final_balance, 225,
-        "Final balance should be 225 (100 + 50 + 75)"
-    );
+    assert_eq!(final_balance, 225, "Final balance should be 225 (100 + 50 + 75)");
 
     Ok(())
 }
@@ -136,19 +124,12 @@ fn test_changeset_merge_consolidates_token_balances() -> Result<()> {
 
     println!("After merge:");
     println!("  cs1 token_balance_sets: {}", cs1.token_balance_sets.len());
-    assert_eq!(
-        cs1.token_balance_sets.len(),
-        1,
-        "Should have only 1 consolidated entry, not 2"
-    );
+    assert_eq!(cs1.token_balance_sets.len(), 1, "Should have only 1 consolidated entry, not 2");
 
     let (_, _, balance) = &cs1.token_balance_sets[0];
     let combined_amount = balance.value();
     println!("  Combined amount: {}", combined_amount);
-    assert_eq!(
-        combined_amount, 150,
-        "Merged balance should be 150 (100 + 50)"
-    );
+    assert_eq!(combined_amount, 150, "Merged balance should be 150 (100 + 50)");
 
     Ok(())
 }
@@ -363,10 +344,7 @@ fn test_balance_updates_immediately_after_second_mint_object() -> Result<()> {
         .get_owner_state(&alice)
         .invariant("Alice owner state should exist after second mint")
         .get_token_balance(token_type);
-    assert_eq!(
-        second, 150,
-        "second mint should update balance immediately without self-transfer"
-    );
+    assert_eq!(second, 150, "second mint should update balance immediately without self-transfer");
 
     Ok(())
 }
@@ -445,10 +423,7 @@ fn test_self_transfer_should_not_duplicate_coins() -> Result<()> {
         .invariant("Alice owner state should exist")
         .get_token_balance(token_type);
     println!("After mint 2: {}", balance_after_mint2);
-    assert_eq!(
-        balance_after_mint2, 200,
-        "Second mint should result in total 200"
-    );
+    assert_eq!(balance_after_mint2, 200, "Second mint should result in total 200");
 
     // Self-transfer: Split a coin and transfer to yourself
     // This should NOT create additional coins, just reorganize
@@ -615,11 +590,7 @@ fn test_mint_then_self_transfer_real_scenario() -> Result<()> {
 
     // EXPECTED: Still 200 (100 from original + 100 from split = 200 total)
     // BUG SCENARIO: If it's 300+, the split is being double-counted
-    assert_eq!(
-        bal3, 200,
-        "Self-transfer should NOT create new coins. Expected 200, got {}",
-        bal3
-    );
+    assert_eq!(bal3, 200, "Self-transfer should NOT create new coins. Expected 200, got {}", bal3);
 
     Ok(())
 }

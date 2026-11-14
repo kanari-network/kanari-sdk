@@ -101,10 +101,7 @@ mod tests {
         assert!(path.exists());
         let back = session::load_session_in(&dir, "0xdeadbeef").unwrap();
         assert_eq!(back.sub, "u1");
-        assert_eq!(
-            session::latest_session_in(&dir).unwrap().unwrap().address,
-            "0xdeadbeef"
-        );
+        assert_eq!(session::latest_session_in(&dir).unwrap().unwrap().address, "0xdeadbeef");
         assert!(session::delete_session_in(&dir, "0xdeadbeef").unwrap());
         assert!(!session::delete_session_in(&dir, "0xdeadbeef").unwrap());
         std::fs::remove_dir_all(&dir).ok();

@@ -112,11 +112,7 @@ pub async fn handle_build_call_function(
             function: build_data.function,
             type_args: build_data.type_args,
             args: build_data.args,
-            object_inputs: if object_inputs.is_empty() {
-                None
-            } else {
-                Some(object_inputs)
-            },
+            object_inputs: if object_inputs.is_empty() { None } else { Some(object_inputs) },
             gas_limit: build_data.gas_limit,
             gas_price: effective_gas_price_value,
             nonce: Some(nonce),

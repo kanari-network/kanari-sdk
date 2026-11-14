@@ -115,12 +115,7 @@ struct HashingWriter<W: Write> {
 
 impl<W: Write> HashingWriter<W> {
     fn new(inner: W, limit: u64) -> Self {
-        Self {
-            inner,
-            hasher: Sha3_256::new(),
-            bytes: 0,
-            limit,
-        }
+        Self { inner, hasher: Sha3_256::new(), bytes: 0, limit }
     }
 
     fn finish(self) -> (W, String, u64) {
@@ -160,12 +155,7 @@ struct HashingReader<R: Read> {
 
 impl<R: Read> HashingReader<R> {
     fn new(inner: R, limit: u64) -> Self {
-        Self {
-            inner,
-            hasher: Sha3_256::new(),
-            bytes: 0,
-            limit,
-        }
+        Self { inner, hasher: Sha3_256::new(), bytes: 0, limit }
     }
 
     fn digest_hex(self) -> String {
@@ -199,18 +189,9 @@ fn required_backup_files(
     genesis: &Path,
 ) -> Result<Vec<(String, PathBuf)>> {
     let mut files = vec![
-        (
-            "identity/p2p-identity.key".to_string(),
-            data_dir.join("p2p-identity.key"),
-        ),
-        (
-            "consensus/private-key.key".to_string(),
-            consensus_private_key.to_path_buf(),
-        ),
-        (
-            "consensus/public-keys.json".to_string(),
-            consensus_public_keys.to_path_buf(),
-        ),
+        ("identity/p2p-identity.key".to_string(), data_dir.join("p2p-identity.key")),
+        ("consensus/private-key.key".to_string(), consensus_private_key.to_path_buf()),
+        ("consensus/public-keys.json".to_string(), consensus_public_keys.to_path_buf()),
         ("network/genesis.json".to_string(), genesis.to_path_buf()),
     ];
 
@@ -235,22 +216,15 @@ pub fn export_validator_backup(
     output: &Path,
 ) -> Result<ValidatorBackupSummary> {
     if output.exists() {
-        anyhow::bail!(
-            "Refusing to overwrite validator backup: {}",
-            output.display()
-        );
+        anyhow::bail!("Refusing to overwrite validator backup: {}", output.display());
     }
     let password = backup_password()?;
     let started = std::time::Instant::now();
     let temp_dir = tempfile::tempdir()?;
     let snapshot_path = temp_dir.path().join("state-snapshot.json");
     let snapshot = engine.export_state_snapshot(&snapshot_path, network)?;
-    let files = required_backup_files(
-        data_dir,
-        consensus_private_key,
-        consensus_public_keys,
-        genesis,
-    )?;
+    let files =
+        required_backup_files(data_dir, consensus_private_key, consensus_public_keys, genesis)?;
     let included_files = files.len();
 
     export_validator_backup_v2(
@@ -451,12 +425,8 @@ fn remove_restore_subtree(staging_root: &Path, subtree: &Path) -> Result<()> {
             staging_root.display()
         )
     })?;
-    fs::remove_dir_all(subtree).with_context(|| {
-        format!(
-            "Failed to remove restore staging subtree {}",
-            subtree.display()
-        )
-    })
+    fs::remove_dir_all(subtree)
+        .with_context(|| format!("Failed to remove restore staging subtree {}", subtree.display()))
 }
 
 fn persist_staged_tree_inner(staged_base: &Path, current: &Path, target_base: &Path) -> Result<()> {
@@ -483,15 +453,9 @@ fn create_restore_staging_dir(target: &Path, prefix: &str) -> Result<tempfile::T
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
     fs::create_dir_all(parent)?;
-    tempfile::Builder::new()
-        .prefix(prefix)
-        .tempdir_in(parent)
-        .with_context(|| {
-            format!(
-                "Failed to create restore staging directory near {}",
-                target.display()
-            )
-        })
+    tempfile::Builder::new().prefix(prefix).tempdir_in(parent).with_context(|| {
+        format!("Failed to create restore staging directory near {}", target.display())
+    })
 }
 
 fn promote_restore_staging(staging: tempfile::TempDir, target: &Path) -> Result<()> {
@@ -657,16 +621,10 @@ pub fn import_validator_backup(
     recovery_dir: &Path,
 ) -> Result<ValidatorBackupSummary> {
     if data_dir.exists() && fs::read_dir(data_dir)?.next().is_some() {
-        anyhow::bail!(
-            "Validator restore data directory must be empty: {}",
-            data_dir.display()
-        );
+        anyhow::bail!("Validator restore data directory must be empty: {}", data_dir.display());
     }
     if recovery_dir.exists() && fs::read_dir(recovery_dir)?.next().is_some() {
-        anyhow::bail!(
-            "Validator recovery directory must be empty: {}",
-            recovery_dir.display()
-        );
+        anyhow::bail!("Validator recovery directory must be empty: {}", recovery_dir.display());
     }
 
     let password = backup_password()?;
@@ -699,10 +657,7 @@ fn import_validator_backup_v1(
 ) -> Result<ValidatorBackupSummary> {
     let archive: EncryptedValidatorBackup = read_json_file(backup)?;
     if archive.format_version != BACKUP_FORMAT_VERSION {
-        anyhow::bail!(
-            "Unsupported validator backup format {}",
-            archive.format_version
-        );
+        anyhow::bail!("Unsupported validator backup format {}", archive.format_version);
     }
     let compressed = Zeroizing::new(
         kanari_crypto::decrypt_data(&archive.encrypted_payload, password)
@@ -722,10 +677,7 @@ fn import_validator_backup_v1(
         anyhow::bail!("Validator backup payload contains trailing data");
     }
     if payload.format_version != BACKUP_FORMAT_VERSION {
-        anyhow::bail!(
-            "Unsupported validator payload format {}",
-            payload.format_version
-        );
+        anyhow::bail!("Unsupported validator payload format {}", payload.format_version);
     }
     if payload.network != expected_network {
         anyhow::bail!(
@@ -785,10 +737,7 @@ fn import_validator_backup_v2_reader<R: Read>(
     let header_json = read_len_prefixed(&mut reader, 1024 * 1024)?;
     let header: EncryptedValidatorBackupV2Header = serde_json::from_slice(&header_json)?;
     if header.format_version != BACKUP_FORMAT_VERSION_V2 {
-        anyhow::bail!(
-            "Unsupported validator backup format {}",
-            header.format_version
-        );
+        anyhow::bail!("Unsupported validator backup format {}", header.format_version);
     }
 
     let decrypting_reader =
@@ -832,10 +781,7 @@ fn restore_payload_v2<R: Read>(
     let manifest_json = read_len_prefixed(reader, 1024 * 1024)?;
     let manifest: ValidatorBackupV2Manifest = serde_json::from_slice(&manifest_json)?;
     if manifest.format_version != BACKUP_FORMAT_VERSION_V2 {
-        anyhow::bail!(
-            "Unsupported validator payload format {}",
-            manifest.format_version
-        );
+        anyhow::bail!("Unsupported validator payload format {}", manifest.format_version);
     }
     if manifest.network != expected_network {
         anyhow::bail!(

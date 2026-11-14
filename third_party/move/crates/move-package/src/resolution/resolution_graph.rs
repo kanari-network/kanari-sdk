@@ -159,11 +159,9 @@ impl ResolvedGraph {
         for (name, addr) in &build_options.additional_named_addresses {
             let name = NamedAddress::from(name.as_str());
             for pkg in package_table.keys() {
-                resolving_table
-                    .define((*pkg, name), Some(*addr))
-                    .with_context(|| {
-                        format!("Adding additional address '{name}' to package '{pkg}'")
-                    })?;
+                resolving_table.define((*pkg, name), Some(*addr)).with_context(|| {
+                    format!("Adding additional address '{name}' to package '{pkg}'")
+                })?;
             }
         }
 
@@ -174,18 +172,11 @@ impl ResolvedGraph {
             let mut addr_to_name_mapping = BTreeMap::new();
             for (name, addr) in resolving_table.bindings(graph.root_package_id) {
                 if let Some(addr) = addr {
-                    addr_to_name_mapping
-                        .entry(*addr)
-                        .or_insert_with(Vec::new)
-                        .push(name);
+                    addr_to_name_mapping.entry(*addr).or_insert_with(Vec::new).push(name);
                 };
             }
 
-            for (name, addr) in root_package
-                .source_package
-                .dev_address_assignments
-                .iter()
-                .flatten()
+            for (name, addr) in root_package.source_package.dev_address_assignments.iter().flatten()
             {
                 let root_dev_addr = (graph.root_package_id, *name);
                 if !resolving_table.contains(root_dev_addr) {
@@ -198,15 +189,13 @@ impl ResolvedGraph {
                     );
                 }
 
-                resolving_table
-                    .define(root_dev_addr, Some(*addr))
-                    .with_context(|| {
-                        format!(
-                            "Unable to resolve named address '{}' in package '{}' when resolving \
+                resolving_table.define(root_dev_addr, Some(*addr)).with_context(|| {
+                    format!(
+                        "Unable to resolve named address '{}' in package '{}' when resolving \
                              dependencies in dev mode",
-                            name, graph.root_package_name,
-                        )
-                    })?;
+                        name, graph.root_package_name,
+                    )
+                })?;
 
                 if let Some(conflicts) = addr_to_name_mapping.insert(*addr, vec![*name]) {
                     bail!(
@@ -231,10 +220,9 @@ impl ResolvedGraph {
         // Now that all address unification has happened, individual package resolution tables can
         // be unified.
         for pkg in package_table.values_mut() {
-            pkg.finalize_address_resolution(&resolving_table)
-                .with_context(|| {
-                    format!(
-                        "Unresolved addresses found. To fix this, add an entry for each unresolved \
+            pkg.finalize_address_resolution(&resolving_table).with_context(|| {
+                format!(
+                    "Unresolved addresses found. To fix this, add an entry for each unresolved \
                          address to the [addresses] section of {}/Move.toml: e.g.,\n\n\
                          \
                          [addresses]\n\
@@ -242,16 +230,12 @@ impl ResolvedGraph {
                          \
                          Alternatively, you can also define [dev-addresses] and call with the -d \
                          flag",
-                        graph.root_path.display()
-                    )
-                })?;
+                    graph.root_path.display()
+                )
+            })?;
         }
 
-        Ok(ResolvedGraph {
-            graph,
-            build_options,
-            package_table,
-        })
+        Ok(ResolvedGraph { graph, build_options, package_table })
     }
 
     pub fn root_package(&self) -> PackageIdentifier {
@@ -275,11 +259,7 @@ impl ResolvedGraph {
         let pkg = self.package_table.get(current_node).unwrap();
 
         for (name, addr) in &pkg.resolved_table {
-            tree.push(Tree::root(format!(
-                "{}:0x{}",
-                name,
-                addr.short_str_lossless()
-            )));
+            tree.push(Tree::root(format!("{}:0x{}", name, addr.short_str_lossless())));
         }
 
         for dep in pkg.immediate_dependencies(self) {
@@ -348,10 +328,7 @@ impl Package {
 
     fn define_addresses_in_package(&self, resolving_table: &mut ResolvingTable) -> Result<()> {
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
-            format!(
-                "Resolving package name for '{}'",
-                self.source_package.package.name
-            )
+            format!("Resolving package name for '{}'", self.source_package.package.name)
         })?;
         for (name, addr) in self.source_package.addresses.iter().flatten() {
             resolving_table.define((pkg_id, *name), *addr)?;
@@ -368,10 +345,7 @@ impl Package {
     ) -> Result<()> {
         let pkg_name = self.source_package.package.name;
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
-            format!(
-                "Resolving package name for '{}'",
-                self.source_package.package.name
-            )
+            format!("Resolving package name for '{}'", self.source_package.package.name)
         })?;
         let dep_name = dep.dep_name;
 
@@ -407,10 +381,7 @@ impl Package {
             }
         }
 
-        let bound_in_dep: Vec<_> = resolving_table
-            .bindings(dep_id)
-            .map(|(from, _)| from)
-            .collect();
+        let bound_in_dep: Vec<_> = resolving_table.bindings(dep_id).map(|(from, _)| from).collect();
 
         for from in bound_in_dep {
             let to = *dep_renaming.get(&from).unwrap_or(&from);
@@ -440,10 +411,7 @@ impl Package {
     fn finalize_address_resolution(&mut self, resolving_table: &ResolvingTable) -> Result<()> {
         let pkg_name = self.source_package.package.name;
         let pkg_id = custom_resolve_pkg_id(&self.source_package).with_context(|| {
-            format!(
-                "Resolving package name for '{}'",
-                self.source_package.package.name
-            )
+            format!("Resolving package name for '{}'", self.source_package.package.name)
         })?;
         let mut unresolved_addresses = Vec::new();
 
@@ -460,10 +428,7 @@ impl Package {
         }
 
         if !unresolved_addresses.is_empty() {
-            bail!(
-                "Unresolved addresses: [\n{}\n]",
-                unresolved_addresses.join("\n"),
-            )
+            bail!("Unresolved addresses: [\n{}\n]", unresolved_addresses.join("\n"),)
         }
 
         Ok(())
@@ -472,10 +437,7 @@ impl Package {
     pub fn immediate_dependencies(&self, graph: &ResolvedGraph) -> BTreeSet<PackageName> {
         let pkg_id = custom_resolve_pkg_id(&self.source_package)
             .with_context(|| {
-                format!(
-                    "Resolving package name for '{}'",
-                    self.source_package.package.name
-                )
+                format!("Resolving package name for '{}'", self.source_package.package.name)
             })
             .unwrap();
 
@@ -495,10 +457,7 @@ impl Package {
 
     pub fn get_sources(&self, config: &BuildConfig) -> Result<Vec<FileName>> {
         let places_to_look = source_paths_for_config(&self.package_path, config);
-        Ok(find_move_filenames(&places_to_look, false)?
-            .into_iter()
-            .map(FileName::from)
-            .collect())
+        Ok(find_move_filenames(&places_to_look, false)?.into_iter().map(FileName::from).collect())
     }
 
     fn get_build_paths(package_path: &Path) -> Result<Vec<PathBuf>> {
@@ -512,12 +471,10 @@ impl Package {
 
     pub fn get_bytecodes(&self) -> Result<Vec<FileName>> {
         let path = Package::get_build_paths(&self.package_path)?;
-        Ok(find_filenames(&path, |path| {
-            extension_equals(path, MOVE_COMPILED_EXTENSION)
-        })?
-        .into_iter()
-        .map(Symbol::from)
-        .collect())
+        Ok(find_filenames(&path, |path| extension_equals(path, MOVE_COMPILED_EXTENSION))?
+            .into_iter()
+            .map(Symbol::from)
+            .collect())
     }
 
     pub(crate) fn compiler_config(

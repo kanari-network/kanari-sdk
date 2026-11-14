@@ -111,10 +111,7 @@ fn main() -> Result<()> {
     // New password should work
     println!("   Testing new password...");
     let new_session = auth.login(email, "NewSecurePass789!", None)?;
-    println!(
-        "   ✓ New password works, session: {}\n",
-        new_session.session_id
-    );
+    println!("   ✓ New password works, session: {}\n", new_session.session_id);
 
     // 9. Logout - use the new_session since old one was invalidated
     println!("9. Logging out...");

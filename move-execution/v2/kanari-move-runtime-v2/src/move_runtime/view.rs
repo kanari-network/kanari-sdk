@@ -43,11 +43,8 @@ impl MoveRuntime {
         for type_arg in type_args {
             // Parse type tag from string (e.g., "0x1::aptos_coin::AptosCoin") - uses cache
             let type_tag = self.parse_type_tag_fast(type_arg)?;
-            ty_args_loaded.push(
-                session
-                    .load_type(&type_tag)
-                    .require("Failed to load type argument")?,
-            );
+            ty_args_loaded
+                .push(session.load_type(&type_tag).require("Failed to load type argument")?);
         }
 
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
@@ -100,10 +97,7 @@ impl MoveRuntime {
                     .collect();
 
                 if results.len() == 1 {
-                    results
-                        .into_iter()
-                        .next()
-                        .require("View function returned no values")
+                    results.into_iter().next().require("View function returned no values")
                 } else {
                     Ok(serde_json::Value::Array(results))
                 }

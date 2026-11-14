@@ -88,25 +88,15 @@ impl TestPlan {
             .map(|module_test| (module_test.module_id.clone(), module_test))
             .collect();
 
-        let module_info = units
-            .into_iter()
-            .map(|unit| (unit.module.self_id(), unit))
-            .collect();
+        let module_info = units.into_iter().map(|unit| (unit.module.self_id(), unit)).collect();
 
-        Self {
-            files,
-            module_tests,
-            module_info,
-        }
+        Self { files, module_tests, module_info }
     }
 }
 
 impl ExpectedMoveError {
     pub fn verbiage(&'_ self, is_past_tense: bool) -> ExpectedMoveErrorDisplay<'_> {
-        ExpectedMoveErrorDisplay {
-            error: self,
-            is_past_tense,
-        }
+        ExpectedMoveErrorDisplay { error: self, is_past_tense }
     }
 }
 
@@ -122,10 +112,7 @@ impl fmt::Display for MoveErrorType {
 impl<'a> fmt::Display for ExpectedMoveErrorDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use move_binary_format::errors::Location;
-        let Self {
-            error: ExpectedMoveError(status, sub_status, location),
-            is_past_tense,
-        } = self;
+        let Self { error: ExpectedMoveError(status, sub_status, location), is_past_tense } = self;
         let status_val: u64 = (*status).into();
         if *is_past_tense {
             match status {

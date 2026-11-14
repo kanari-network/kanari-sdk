@@ -51,11 +51,7 @@ impl CreatedObject {
 
     /// Constructs an ObjectRef for this object with the given id, version, and digest.
     pub fn object_ref(&self, object_id: &str) -> ObjectRef {
-        ObjectRef::new(
-            object_id.to_string(),
-            Some(self.version),
-            Some(self.digest()),
-        )
+        ObjectRef::new(object_id.to_string(), Some(self.version), Some(self.digest()))
     }
 }
 
@@ -83,9 +79,7 @@ pub struct StateAccessSet {
 impl StateAccessSet {
     /// Returns true if this access set conflicts with another (writes overlap with reads or writes).
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        self.writes
-            .iter()
-            .any(|key| other.reads.contains(key) || other.writes.contains(key))
+        self.writes.iter().any(|key| other.reads.contains(key) || other.writes.contains(key))
             || other.writes.iter().any(|key| self.reads.contains(key))
     }
 
@@ -100,11 +94,7 @@ impl StateAccessSet {
 
 impl OwnerDelta {
     fn new(address: AccountAddress) -> Self {
-        Self {
-            address,
-            balance_delta: 0,
-            modules_added: BTreeSet::new(),
-        }
+        Self { address, balance_delta: 0, modules_added: BTreeSet::new() }
     }
 
     /// Decrements the balance delta by the given amount.
@@ -147,11 +137,7 @@ pub struct ChangeSet {
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
     /// NFT capability creations or updates: (owner, token_type, NftCapRecord)
-    pub nft_caps: Vec<(
-        AccountAddress,
-        String,
-        kanari_types::collection::NftCapRecord,
-    )>,
+    pub nft_caps: Vec<(AccountAddress, String, kanari_types::collection::NftCapRecord)>,
     /// Per-owner token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     pub input_objects: Vec<ObjectInput>,
@@ -216,9 +202,7 @@ impl ChangeSet {
 
     /// Returns a mutable reference to the owner delta for the given address, creating one if absent.
     pub fn get_or_create_owner_delta(&mut self, address: AccountAddress) -> &mut OwnerDelta {
-        self.owner_deltas
-            .entry(address)
-            .or_insert_with(|| OwnerDelta::new(address))
+        self.owner_deltas.entry(address).or_insert_with(|| OwnerDelta::new(address))
     }
 
     /// Returns true if this ChangeSet contains no side effects.

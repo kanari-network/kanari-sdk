@@ -16,11 +16,8 @@ use move_vm_types::gas::UnmeteredGasMeter;
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 
-static MOVE_BENCH_SRC_PATH: Lazy<PathBuf> = Lazy::new(|| {
-    vec![env!("CARGO_MANIFEST_DIR"), "src", "bench.move"]
-        .into_iter()
-        .collect()
-});
+static MOVE_BENCH_SRC_PATH: Lazy<PathBuf> =
+    Lazy::new(|| vec![env!("CARGO_MANIFEST_DIR"), "src", "bench.move"].into_iter().collect());
 
 /// Entry point for the bench, provide a function name to invoke in Module Bench in bench.move.
 pub fn bench<M: Measurement + 'static>(c: &mut Criterion<M>, fun: &str) {
@@ -37,18 +34,11 @@ pub fn bench<M: Measurement + 'static>(c: &mut Criterion<M>, fun: &str) {
 fn compile_modules() -> Vec<CompiledModule> {
     let mut src_files = move_stdlib::move_stdlib_files();
     src_files.push(MOVE_BENCH_SRC_PATH.to_str().unwrap().to_owned());
-    let (_files, compiled_units) = Compiler::from_files(
-        None,
-        src_files,
-        vec![],
-        move_stdlib::move_stdlib_named_addresses(),
-    )
-    .build_and_report()
-    .expect("Error compiling...");
-    compiled_units
-        .into_iter()
-        .map(|annot_unit| annot_unit.named_module.module)
-        .collect()
+    let (_files, compiled_units) =
+        Compiler::from_files(None, src_files, vec![], move_stdlib::move_stdlib_named_addresses())
+            .build_and_report()
+            .expect("Error compiling...");
+    compiled_units.into_iter().map(|annot_unit| annot_unit.named_module.module).collect()
 }
 
 // execute a given function in the Bench module
@@ -67,12 +57,8 @@ fn execute<M: Measurement + 'static>(
 
     for module in modules {
         let mut mod_blob = vec![];
-        module
-            .serialize(&mut mod_blob)
-            .expect("Module serialization error");
-        session
-            .publish_module(mod_blob, sender, &mut UnmeteredGasMeter)
-            .expect("Module must load");
+        module.serialize(&mut mod_blob).expect("Module serialization error");
+        session.publish_module(mod_blob, sender, &mut UnmeteredGasMeter).expect("Module must load");
     }
 
     // module and function to call

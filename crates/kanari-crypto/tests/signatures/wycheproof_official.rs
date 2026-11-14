@@ -72,19 +72,11 @@ fn official_wycheproof_ed25519_corpus_matches_kanari_policy() {
             match test.result.as_str() {
                 "valid" => {
                     valid += 1;
-                    assert!(
-                        verified,
-                        "Wycheproof Ed25519 tcId {} must verify",
-                        test.tc_id
-                    );
+                    assert!(verified, "Wycheproof Ed25519 tcId {} must verify", test.tc_id);
                 }
                 "invalid" => {
                     invalid += 1;
-                    assert!(
-                        !verified,
-                        "Wycheproof Ed25519 tcId {} must not verify",
-                        test.tc_id
-                    );
+                    assert!(!verified, "Wycheproof Ed25519 tcId {} must not verify", test.tc_id);
                 }
                 "acceptable" => {
                     acceptable += 1;
@@ -94,14 +86,8 @@ fn official_wycheproof_ed25519_corpus_matches_kanari_policy() {
         }
     }
 
-    assert!(
-        valid > 0,
-        "official Ed25519 corpus should include valid cases"
-    );
-    assert!(
-        invalid > 0,
-        "official Ed25519 corpus should include invalid cases"
-    );
+    assert!(valid > 0, "official Ed25519 corpus should include valid cases");
+    assert!(invalid > 0, "official Ed25519 corpus should include invalid cases");
     assert_eq!(valid + invalid + acceptable, corpus.number_of_tests);
 }
 
@@ -155,11 +141,7 @@ fn run_ecdsa_corpus(corpus: &WycheproofFile, curve: EcdsaCurve) {
                 }
                 "invalid" => {
                     invalid += 1;
-                    assert!(
-                        !verified,
-                        "Wycheproof ECDSA tcId {} must not verify",
-                        test.tc_id
-                    );
+                    assert!(!verified, "Wycheproof ECDSA tcId {} must not verify", test.tc_id);
                 }
                 "acceptable" => {
                     acceptable += 1;
@@ -169,14 +151,8 @@ fn run_ecdsa_corpus(corpus: &WycheproofFile, curve: EcdsaCurve) {
         }
     }
 
-    assert!(
-        valid > 0,
-        "official ECDSA corpus should include valid cases"
-    );
-    assert!(
-        invalid > 0,
-        "official ECDSA corpus should include invalid cases"
-    );
+    assert!(valid > 0, "official ECDSA corpus should include valid cases");
+    assert!(invalid > 0, "official ECDSA corpus should include invalid cases");
     assert_eq!(valid + invalid + acceptable, corpus.number_of_tests);
 }
 
@@ -217,9 +193,5 @@ fn decode_hex(hex_value: &str, tc_id: u64) -> Vec<u8> {
 }
 
 fn count_tests(corpus: &WycheproofFile) -> usize {
-    corpus
-        .test_groups
-        .iter()
-        .map(|group| group.tests.len())
-        .sum()
+    corpus.test_groups.iter().map(|group| group.tests.len()).sum()
 }

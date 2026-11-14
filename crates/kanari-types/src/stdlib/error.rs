@@ -106,18 +106,9 @@ mod tests {
 
     #[test]
     fn test_error_categories() {
-        assert_eq!(
-            ErrorModule::category_name(ErrorModule::INVALID_ARGUMENT),
-            "INVALID_ARGUMENT"
-        );
-        assert_eq!(
-            ErrorModule::category_name(ErrorModule::NOT_FOUND),
-            "NOT_FOUND"
-        );
-        assert_eq!(
-            ErrorModule::category_name(ErrorModule::INTERNAL),
-            "INTERNAL"
-        );
+        assert_eq!(ErrorModule::category_name(ErrorModule::INVALID_ARGUMENT), "INVALID_ARGUMENT");
+        assert_eq!(ErrorModule::category_name(ErrorModule::NOT_FOUND), "NOT_FOUND");
+        assert_eq!(ErrorModule::category_name(ErrorModule::INTERNAL), "INTERNAL");
     }
 
     #[test]

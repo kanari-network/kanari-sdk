@@ -108,10 +108,7 @@ impl AuditLogger {
         }
 
         // Open log file in append mode
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.log_path)?;
+        let mut file = OpenOptions::new().create(true).append(true).open(&self.log_path)?;
 
         // Write JSON line
         let json_line = entry.to_json_line()?;

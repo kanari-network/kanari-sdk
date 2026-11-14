@@ -49,12 +49,7 @@ impl PointerKind {
         match src_kind {
             ModuleHandle => &[One(AddressIdentifier), One(Identifier)],
             StructHandle => &[One(ModuleHandle), One(Identifier)],
-            FunctionHandle => &[
-                One(ModuleHandle),
-                One(Identifier),
-                One(Signature),
-                One(Signature),
-            ],
+            FunctionHandle => &[One(ModuleHandle), One(Identifier), One(Signature), One(Signature)],
             StructDefinition => &[One(StructHandle), Star(StructHandle)],
             FunctionDefinition => &[One(FunctionHandle), One(Signature)],
             FriendDeclaration => &[One(AddressIdentifier), One(Identifier)],
@@ -121,21 +116,12 @@ pub struct OutOfBoundsMutation {
 
 impl OutOfBoundsMutation {
     pub fn strategy() -> impl Strategy<Value = Self> {
-        (
-            Self::src_kind_strategy(),
-            any::<PropIndex>(),
-            any::<PropIndex>(),
-            0..16_usize,
-        )
-            .prop_map(|(src_kind, src_idx, dst_kind_idx, offset)| {
+        (Self::src_kind_strategy(), any::<PropIndex>(), any::<PropIndex>(), 0..16_usize).prop_map(
+            |(src_kind, src_idx, dst_kind_idx, offset)| {
                 let dst_kind = Self::dst_kind(src_kind, dst_kind_idx);
-                Self {
-                    src_kind,
-                    src_idx,
-                    dst_kind,
-                    offset,
-                }
-            })
+                Self { src_kind, src_idx, dst_kind, offset }
+            },
+        )
     }
 
     // Not all source kinds can be made to be out of bounds (e.g. inherent types can't.)
@@ -144,9 +130,7 @@ impl OutOfBoundsMutation {
     }
 
     fn dst_kind(src_kind: IndexKind, dst_kind_idx: PropIndex) -> IndexKind {
-        dst_kind_idx
-            .get(PointerKind::pointers_from(src_kind))
-            .to_index_kind()
+        dst_kind_idx.get(PointerKind::pointers_from(src_kind)).to_index_kind()
     }
 }
 
@@ -172,11 +156,7 @@ impl ApplyOutOfBoundsContext {
     pub fn new(module: CompiledModule, mutations: Vec<OutOfBoundsMutation>) -> Self {
         let sig_structs: Vec<_> = Self::sig_structs(&module).collect();
 
-        Self {
-            module,
-            mutations: Some(mutations),
-            sig_structs,
-        }
+        Self { module, mutations: Some(mutations), sig_structs }
     }
 
     pub fn apply(mut self) -> (CompiledModule, Vec<PartialVMError>) {
@@ -184,11 +164,7 @@ impl ApplyOutOfBoundsContext {
         // figure out how many mutations to do for a particular pair, which is required for
         // pick_slice_idxs below.
         let mut mutation_map = BTreeMap::new();
-        for mutation in self
-            .mutations
-            .take()
-            .expect("mutations should always be present")
-        {
+        for mutation in self.mutations.take().expect("mutations should always be present") {
             mutation_map
                 .entry((mutation.src_kind, mutation.dst_kind))
                 .or_insert_with(Vec::new)
@@ -253,12 +229,7 @@ impl ApplyOutOfBoundsContext {
 
         // These are default values, but some of the match arms below mutate them.
         let mut src_idx = src_idx;
-        let err = bounds_error(
-            StatusCode::INDEX_OUT_OF_BOUNDS,
-            dst_kind,
-            new_idx,
-            dst_count,
-        );
+        let err = bounds_error(StatusCode::INDEX_OUT_OF_BOUNDS, dst_kind, new_idx, dst_count);
 
         // A dynamic type system would be able to express this next block of code far more
         // concisely. A static type system would require some sort of complicated dependent type
@@ -294,11 +265,8 @@ impl ApplyOutOfBoundsContext {
                 self.module.function_defs[src_idx].function = FunctionHandleIndex(new_idx)
             }
             (FunctionDefinition, Signature) => {
-                self.module.function_defs[src_idx]
-                    .code
-                    .as_mut()
-                    .unwrap()
-                    .locals = SignatureIndex(new_idx)
+                self.module.function_defs[src_idx].code.as_mut().unwrap().locals =
+                    SignatureIndex(new_idx)
             }
             (Signature, StructHandle) => {
                 let (actual_src_idx, arg_idx) = self.sig_structs[src_idx];
@@ -323,14 +291,10 @@ impl ApplyOutOfBoundsContext {
 
     /// Returns the indexes of locals signatures that contain struct handles inside them.
     fn sig_structs(module: &CompiledModule) -> impl Iterator<Item = (SignatureIndex, usize)> + '_ {
-        module
-            .signatures()
-            .iter()
-            .enumerate()
-            .flat_map(|(idx, signature)| {
-                let idx = SignatureIndex(idx as u16);
-                Self::find_struct_tokens(&signature.0, move |arg_idx| (idx, arg_idx))
-            })
+        module.signatures().iter().enumerate().flat_map(|(idx, signature)| {
+            let idx = SignatureIndex(idx as u16);
+            Self::find_struct_tokens(&signature.0, move |arg_idx| (idx, arg_idx))
+        })
     }
 
     #[inline]

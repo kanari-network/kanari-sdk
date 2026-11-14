@@ -90,12 +90,7 @@ impl SimpleAbsIntConstructor for SelfTransferVerifier {
 
         if context.entry.is_some()
             || context.attributes.is_test_or_test_only()
-            || program
-                .modules
-                .get(&context.module)
-                .unwrap()
-                .attributes
-                .is_test_or_test_only()
+            || program.modules.get(&context.module).unwrap().attributes.is_test_or_test_only()
         {
             // Cannot return objects from entry
             // No need to check test functions
@@ -108,9 +103,7 @@ impl SimpleAbsIntConstructor for SelfTransferVerifier {
             // values instead of using transfer
             return None;
         }
-        Some(SelfTransferVerifierAI {
-            fn_ret_loc: context.signature.return_type.loc,
-        })
+        Some(SelfTransferVerifierAI { fn_ret_loc: context.signature.return_type.loc })
     }
 }
 
@@ -123,9 +116,7 @@ impl SimpleAbsInt for SelfTransferVerifierAI {
     }
 
     fn start_command(&self, _: &mut State) -> ExecutionContext {
-        ExecutionContext {
-            diags: Diagnostics::new(),
-        }
+        ExecutionContext { diags: Diagnostics::new() }
     }
 
     fn finish_command(&self, context: ExecutionContext, _state: &mut State) -> Diagnostics {
@@ -142,10 +133,7 @@ impl SimpleAbsInt for SelfTransferVerifierAI {
         f: &ModuleCall,
         args: Vec<Value>,
     ) -> Option<Vec<Value>> {
-        if TRANSFER_FUNCTIONS
-            .iter()
-            .any(|(addr, module, fun)| f.is(addr, module, fun))
-        {
+        if TRANSFER_FUNCTIONS.iter().any(|(addr, module, fun)| f.is(addr, module, fun)) {
             if let Value::SenderAddress(sender_addr_loc) = args[1]
                 && is_wrappable_obj_type(&f.arguments[0].ty)
             {

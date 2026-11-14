@@ -13,6 +13,7 @@
 pub mod data_cache;
 mod interpreter;
 mod loader;
+pub use loader::VALUE_DEPTH_MAX;
 pub mod logging;
 pub mod move_vm;
 pub mod native_extensions;

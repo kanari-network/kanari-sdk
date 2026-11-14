@@ -62,18 +62,14 @@ pub fn type_(context: &mut Context, ty: &mut Type) {
             let replacement = core::unfold_type(&context.subst, ty_tvar);
             let replacement = match replacement {
                 sp!(loc, Var(_)) => {
-                    let diag = ice!((
-                        ty.loc,
-                        "ICE unfold_type_base failed to expand type inf. var"
-                    ));
+                    let diag =
+                        ice!((ty.loc, "ICE unfold_type_base failed to expand type inf. var"));
                     context.env.add_diag(diag);
                     sp(loc, UnresolvedError)
                 }
                 sp!(loc, Anything) => {
                     let msg = "Could not infer this type. Try adding an annotation";
-                    context
-                        .env
-                        .add_diag(diag!(TypeSafety::UninferredType, (ty.loc, msg)));
+                    context.env.add_diag(diag!(TypeSafety::UninferredType, (ty.loc, msg)));
                     sp(loc, UnresolvedError)
                 }
                 sp!(loc, Fun(_, _)) if !context.in_macro_function => {
@@ -88,10 +84,8 @@ pub fn type_(context: &mut Context, ty: &mut Type) {
         }
         Apply(Some(_), sp!(_, TypeName_::Builtin(_)), tys) => types(context, tys),
         aty @ Apply(Some(_), _, _) => {
-            let diag = ice!((
-                ty.loc,
-                format!("ICE expanding pre-expanded type {}", debug_display!(aty))
-            ));
+            let diag =
+                ice!((ty.loc, format!("ICE expanding pre-expanded type {}", debug_display!(aty))));
             context.env.add_diag(diag);
             *ty = sp(ty.loc, UnresolvedError)
         }
@@ -122,15 +116,10 @@ pub fn type_(context: &mut Context, ty: &mut Type) {
 }
 
 fn unexpected_lambda_type(context: &mut Context, loc: Loc) {
-    if context
-        .env
-        .check_feature(context.current_package, FeatureGate::MacroFuns, loc)
-    {
+    if context.env.check_feature(context.current_package, FeatureGate::MacroFuns, loc) {
         let msg = "Unexpected lambda type. \
             Lambdas can only be used with 'macro' functions, as parameters or direct arguments";
-        context
-            .env
-            .add_diag(diag!(TypeSafety::UnexpectedFunctionType, (loc, msg)));
+        context.env.add_diag(diag!(TypeSafety::UnexpectedFunctionType, (loc, msg)));
     }
 }
 
@@ -176,9 +165,7 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
             }
             e.ty = sp(e.ty.loc, Type_::Anything)
         }
-        E::Loop {
-            has_break: false, ..
-        } => {
+        E::Loop { has_break: false, .. } => {
             let t = e.ty.clone();
             match core::unfold_type(&context.subst, t) {
                 sp!(_, Type_::Anything) => (),
@@ -242,10 +229,9 @@ pub fn exp(context: &mut Context, e: &mut T::Exp) {
             }
         }
         E::VariantMatch(subject, _, arms) => {
-            context.env.add_diag(ice!((
-                e.exp.loc,
-                "shouldn't find variant match before HLIR lowering"
-            )));
+            context
+                .env
+                .add_diag(ice!((e.exp.loc, "shouldn't find variant match before HLIR lowering")));
             exp(context, subject);
             for (_, rhs) in arms {
                 exp(context, rhs);
@@ -331,10 +317,7 @@ fn inferred_numerical_value(
         BT::Address | BT::Signer | BT::Vector | BT::Bool => unreachable!(),
     };
     if value > max {
-        let msg = format!(
-            "Expected a literal of type '{}', but the value is too large.",
-            bt
-        );
+        let msg = format!("Expected a literal of type '{}', but the value is too large.", bt);
         let fix_bt = if value > u128_max {
             BT::U256
         } else if value > u64_max {
@@ -438,11 +421,7 @@ fn lvalue(context: &mut Context, b: &mut T::LValue) {
     use T::LValue_ as L;
     match &mut b.value {
         L::Ignore => (),
-        L::Var {
-            ty,
-            unused_binding: true,
-            ..
-        } => {
+        L::Var { ty, unused_binding: true, .. } => {
             // silence type inference error for unused bindings
             if let Type_::Var(tvar) = &ty.value {
                 let ty_tvar = sp(ty.loc, Type_::Var(*tvar));

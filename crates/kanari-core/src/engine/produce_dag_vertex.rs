@@ -191,11 +191,7 @@ impl MysticetiBackend {
                     .get(reference.authority.index())
                     .cloned()
                     .ok_or_else(|| anyhow::anyhow!("Unknown Mysticeti parent author"))?;
-                Ok((
-                    parent_author,
-                    reference.round,
-                    mysticeti_reference_to_vertex_id(reference),
-                ))
+                Ok((parent_author, reference.round, mysticeti_reference_to_vertex_id(reference)))
             })
             .collect::<Result<Vec<_>>>()?;
         let transactions = block
@@ -227,16 +223,11 @@ impl MysticetiBackend {
         authority_public_keys: &BTreeMap<String, Vec<u8>>,
         wal_dir: Option<std::path::PathBuf>,
     ) -> Result<Self> {
-        anyhow::ensure!(
-            !authorities.is_empty(),
-            "Mysticeti committee cannot be empty"
-        );
-        let local_index = authorities
-            .iter()
-            .position(|authority| authority == local_authority)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Local authority {local_authority} is not in committee")
-            })?;
+        anyhow::ensure!(!authorities.is_empty(), "Mysticeti committee cannot be empty");
+        let local_index =
+            authorities.iter().position(|authority| authority == local_authority).ok_or_else(
+                || anyhow::anyhow!("Local authority {local_authority} is not in committee"),
+            )?;
         let local_authority = MysticetiAuthority::new(local_index as u64);
         let committee_members = authorities
             .iter()
@@ -271,13 +262,8 @@ impl MysticetiBackend {
             std::fs::create_dir_all(&wal_dir)
                 .context("Failed to create Mysticeti WAL directory")?;
             let wal_path = wal_dir.join(format!("mysticeti-{}.wal", local_authority.as_u64()));
-            MysticetiStorage::open(
-                local_authority,
-                wal_path,
-                metrics.clone(),
-                committee.as_ref(),
-            )
-            .context("Failed to open persistent Mysticeti WAL")?
+            MysticetiStorage::open(local_authority, wal_path, metrics.clone(), committee.as_ref())
+                .context("Failed to open persistent Mysticeti WAL")?
         } else {
             MysticetiStorage::ephemeral(local_authority, metrics.clone(), committee.as_ref())
         };
@@ -408,20 +394,13 @@ impl MysticetiBackend {
     /// advance — without blocks from other authorities the clock stays stuck
     /// and the node cannot produce rounds beyond its own first vertex.
     fn add_network_block(&mut self, vertex: &DagVertex) -> Result<()> {
-        anyhow::ensure!(
-            !vertex.native_block.is_empty(),
-            "Missing canonical Mysticeti block"
-        );
+        anyhow::ensure!(!vertex.native_block.is_empty(), "Missing canonical Mysticeti block");
         let block = MysticetiBlockData::<Block>::from_bytes(minibytes::Bytes::copy_from_slice(
             &vertex.native_block,
         ))
         .context("Invalid canonical Mysticeti block encoding")?;
         block
-            .verify(
-                &self.committee,
-                self.core.quorum_threshold(),
-                &self.core.verifier(),
-            )
+            .verify(&self.committee, self.core.quorum_threshold(), &self.core.verifier())
             .map_err(|e| anyhow::anyhow!("Invalid canonical Mysticeti block: {e}"))?;
         // `Core::add_blocks` deliberately returns an empty list when this is a
         // duplicate *or* when it accepts the block into Mysticeti's own pending
@@ -444,9 +423,8 @@ impl MysticetiBackend {
             if leaders.is_empty() {
                 return Ok(Vec::new());
             }
-            self.pending_committed_subdags = self
-                .linearizer
-                .handle_commit(self.core.block_reader(), leaders);
+            self.pending_committed_subdags =
+                self.linearizer.handle_commit(self.core.block_reader(), leaders);
             for subdag in &mut self.pending_committed_subdags {
                 subdag.blocks.sort_by_key(|block| *block.reference());
             }
@@ -517,9 +495,7 @@ struct MysticetiBlockSummary {
 
 fn signed_tx_to_mysticeti_transaction(tx: &SignedTransaction) -> Result<MysticetiTransaction> {
     let bytes = bcs::to_bytes(tx).context("Failed to encode transaction for Mysticeti")?;
-    Ok(MysticetiTransaction::new(
-        minibytes::Bytes::copy_from_slice(&bytes),
-    ))
+    Ok(MysticetiTransaction::new(minibytes::Bytes::copy_from_slice(&bytes)))
 }
 
 pub fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> [u8; 32] {
@@ -561,10 +537,7 @@ impl DagEngine {
         local_signing_key: ed25519_dalek::SigningKey,
         authority_public_keys: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        anyhow::ensure!(
-            !authorities.is_empty(),
-            "Consensus authority set cannot be empty"
-        );
+        anyhow::ensure!(!authorities.is_empty(), "Consensus authority set cannot be empty");
         let unique_authorities = authorities.iter().collect::<BTreeSet<_>>();
         anyhow::ensure!(
             unique_authorities.len() == authorities.len(),
@@ -662,10 +635,7 @@ impl DagEngine {
     /// Map a mysticeti `Authority` to the kanari authority ID string.
     fn authority_id(&self, authority: MysticetiAuthority) -> String {
         let idx = authority.index();
-        self.authorities
-            .get(idx)
-            .cloned()
-            .unwrap_or_else(|| format!("auth{}", idx + 1))
+        self.authorities.get(idx).cloned().unwrap_or_else(|| format!("auth{}", idx + 1))
     }
 
     /// Export metrics as a Prometheus string via mysticeti.
@@ -770,10 +740,8 @@ impl DagEngine {
     }
 
     fn finalize_ready_commits(&self) -> Result<Option<CheckpointInfo>> {
-        let _finalization_guard = self
-            .finalization_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _finalization_guard =
+            self.finalization_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let committed_batches = {
             let mut state = lock_write(&self.state);
             state.mysticeti.try_committed_batches()?
@@ -828,9 +796,7 @@ impl DagEngine {
             (
                 chain.latest_checkpoint().sequence.saturating_add(1),
                 chain.latest_checkpoint().hash()?,
-                batch
-                    .timestamp_ms
-                    .max(chain.latest_checkpoint().timestamp.saturating_add(1)),
+                batch.timestamp_ms.max(chain.latest_checkpoint().timestamp.saturating_add(1)),
             )
         };
         let mut checkpoint = Checkpoint::new(
@@ -1098,10 +1064,7 @@ impl DagEngine {
         if !self.authorities.contains(&vertex.author) {
             anyhow::bail!("Unknown DAG vertex author: {}", vertex.author);
         }
-        anyhow::ensure!(
-            !vertex.native_block.is_empty(),
-            "Missing canonical Mysticeti block"
-        );
+        anyhow::ensure!(!vertex.native_block.is_empty(), "Missing canonical Mysticeti block");
         let block = MysticetiBlockData::<Block>::from_bytes(minibytes::Bytes::copy_from_slice(
             &vertex.native_block,
         ))
@@ -1118,10 +1081,7 @@ impl DagEngine {
             self.authority_id(block.author()) == vertex.author,
             "Mysticeti block author does not match transport author"
         );
-        anyhow::ensure!(
-            block.round() == vertex.round,
-            "Mysticeti block round mismatch"
-        );
+        anyhow::ensure!(block.round() == vertex.round, "Mysticeti block round mismatch");
         anyhow::ensure!(
             mysticeti_reference_to_vertex_id(block.reference()) == vertex.id,
             "Mysticeti block digest mismatch"

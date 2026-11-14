@@ -97,7 +97,7 @@ module game_items::game_items {
         let sender = tx_context::sender(ctx);
         assert!(amount > 0, 0);
         let token_type = krc_1155::balance_token_type(balance);
-        krc_1155::transfer(balance, amount, recipient, ctx);
+        krc_1155::transfer_balance(balance, amount, recipient, ctx);
         event::emit(
             ItemMoved {
                 item_type: token_type,
@@ -152,22 +152,27 @@ module game_items::game_items {
         catalog.name
     }
 
+    /// Returns the token type address of the item.
     public fun item_type(catalog: &ItemCatalog): address {
         catalog.token_type
     }
 
+    /// Returns the maximum supply of the item.
     public fun item_max_supply(catalog: &ItemCatalog): u64 {
         catalog.max_supply
     }
 
+    /// Returns the total supply of the item token type.
     public fun item_total_supply(token: &TokenType): u64 {
         krc_1155::total_supply(token)
     }
 
+    /// Returns the balance amount of the item.
     public fun item_balance_amount(balance: &Balance): u64 {
         krc_1155::balance_value(balance)
     }
 
+    /// Returns the token type of the balance.
     public fun item_balance_token_type(balance: &Balance): address {
         krc_1155::balance_token_type(balance)
     }

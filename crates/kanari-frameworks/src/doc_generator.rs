@@ -44,8 +44,7 @@ impl PackageDocConfig {
     pub fn with_address(mut self, name: &str, address: &str) -> Result<Self> {
         let numerical_addr = NumericalAddress::parse_str(address)
             .map_err(|e| anyhow::anyhow!("Failed to parse address '{}': {}", address, e))?;
-        self.named_addresses
-            .insert(name.to_string(), numerical_addr);
+        self.named_addresses.insert(name.to_string(), numerical_addr);
         Ok(self)
     }
 
@@ -118,11 +117,8 @@ fn make_docgen_options(config: &PackageDocConfig, sources: &[String]) -> move_pr
         .map(|p| vec![p.clone()])
         .unwrap_or_default();
 
-    let references = config
-        .references_template
-        .as_ref()
-        .filter(|p| PathBuf::from(p).exists())
-        .cloned();
+    let references =
+        config.references_template.as_ref().filter(|p| PathBuf::from(p).exists()).cloned();
 
     move_prover::cli::Options {
         move_sources: sources.to_vec(),

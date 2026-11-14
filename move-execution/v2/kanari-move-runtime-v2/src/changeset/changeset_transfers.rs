@@ -28,7 +28,6 @@ impl ChangeSet {
 
     /// Module publish operation. Sequence handling remains in the engine layer.
     pub fn publish_module(&mut self, publisher: AccountAddress, module_name: String) {
-        self.get_or_create_owner_delta(publisher)
-            .add_module(module_name);
+        self.get_or_create_owner_delta(publisher).add_module(module_name);
     }
 }

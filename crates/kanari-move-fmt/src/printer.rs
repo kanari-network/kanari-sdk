@@ -44,10 +44,7 @@ fn content_children<'t>(node: &Node<'t>) -> Vec<Node<'t>> {
 }
 
 fn named_children<'t>(node: &Node<'t>) -> Vec<Node<'t>> {
-    content_children(node)
-        .into_iter()
-        .filter(|child| child.is_named())
-        .collect()
+    content_children(node).into_iter().filter(|child| child.is_named()).collect()
 }
 
 fn content_child<'t>(node: &Node<'t>, index: usize) -> Option<Node<'t>> {
@@ -127,10 +124,7 @@ fn print_members<'s, 't>(
         if let Some(p) = &prev {
             // Replay the blank lines (if any) the author left between the two
             // members exactly as written.
-            parts.extend(hardlines(breaks(
-                p.end_position().row,
-                member.start_position().row,
-            )));
+            parts.extend(hardlines(breaks(p.end_position().row, member.start_position().row)));
         }
         parts.push(print_named(node, source, opts, i));
         prev = Some(*member);
@@ -156,16 +150,8 @@ fn breakable_comma_separated_list<'s, 't>(
     end: &'static str,
     force_break: bool,
 ) -> Doc<'s> {
-    let separator: Doc<'s> = if force_break {
-        RcDoc::hardline()
-    } else {
-        RcDoc::line()
-    };
-    let trailing: Doc<'s> = if force_break {
-        RcDoc::hardline()
-    } else {
-        RcDoc::line_()
-    };
+    let separator: Doc<'s> = if force_break { RcDoc::hardline() } else { RcDoc::line() };
+    let trailing: Doc<'s> = if force_break { RcDoc::hardline() } else { RcDoc::line_() };
     let children = named_children(node);
     let mut parts: Vec<Doc<'s>> = Vec::new();
     for (index, _child) in children.iter().enumerate() {
@@ -181,18 +167,10 @@ fn breakable_comma_separated_list<'s, 't>(
     }
     // No trailing comma on the last item.
     let trailing_comma: Doc<'s> = trailing.flat_alt(RcDoc::nil());
-    let inner = if force_break {
-        RcDoc::hardline()
-    } else {
-        RcDoc::line_()
-    };
+    let inner = if force_break { RcDoc::hardline() } else { RcDoc::line_() };
     concat(vec![
         text(start),
-        concat(vec![
-            indent(concat(vec![inner, concat(parts)]), opts),
-            trailing_comma,
-        ])
-        .group(),
+        concat(vec![indent(concat(vec![inner, concat(parts)]), opts), trailing_comma]).group(),
         text(end),
     ])
 }
@@ -220,10 +198,7 @@ fn block<'s, 't>(
     // Blank lines right after `{` and right before `}` are part of the
     // author's layout and are reproduced verbatim.
     let leading = breaks(node.start_position().row, members[0].start_position().row);
-    let trailing = breaks(
-        members[members.len() - 1].end_position().row,
-        node.end_position().row,
-    );
+    let trailing = breaks(members[members.len() - 1].end_position().row, node.end_position().row);
     if line_ending.is_empty() {
         return concat(vec![
             text(open),
@@ -257,10 +232,7 @@ fn block<'s, 't>(
     }
     concat(vec![
         text(open),
-        indent(
-            concat(vec![concat(hardlines(leading)), concat(parts)]),
-            opts,
-        ),
+        indent(concat(vec![concat(hardlines(leading)), concat(parts)]), opts),
         concat(hardlines(trailing)),
         text("}"),
     ])
@@ -312,11 +284,9 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 // Enforce exactly one blank line after `{` and before `}`.
                 let leading =
                     breaks(node.start_position().row, members[0].start_position().row).max(2);
-                let trailing = breaks(
-                    members[members.len() - 1].end_position().row,
-                    node.end_position().row,
-                )
-                .max(2);
+                let trailing =
+                    breaks(members[members.len() - 1].end_position().row, node.end_position().row)
+                        .max(2);
                 concat(vec![
                     text("{"),
                     indent(
@@ -337,10 +307,7 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
             text(": "),
             print_named(node, source, opts, 1),
             text(" ="),
-            indent(
-                concat(vec![RcDoc::line(), print_named(node, source, opts, 2)]),
-                opts,
-            ),
+            indent(concat(vec![RcDoc::line(), print_named(node, source, opts, 2)]), opts),
             text(";"),
         ])
         .group(),
@@ -460,21 +427,16 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                     RcDoc::nil()
                 },
                 first_named(node, source, opts),
-                if named_children(node).len() > 1 {
-                    text(": ")
-                } else {
-                    RcDoc::nil()
-                },
+                if named_children(node).len() > 1 { text(": ") } else { RcDoc::nil() },
                 join(text(" + "), abilities),
             ])
         }
         "datatype_fields" => first_named(node, source, opts),
         "named_fields" => block(node, source, opts, ","),
         // Struct literal `OrderMatched { a: x, b: y }` inside a call.
-        "pack_expression" => concat(vec![
-            print_named(node, source, opts, 0),
-            print_named(node, source, opts, 1),
-        ]),
+        "pack_expression" => {
+            concat(vec![print_named(node, source, opts, 0), print_named(node, source, opts, 1)])
+        }
         "field_initialize_list" => block(node, source, opts, ","),
         "exp_field" => {
             // `name` shorthand (`new_admin,`) vs `name: expr`.
@@ -496,11 +458,7 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
         "positional_fields" => breakable_comma_separated_list(node, source, opts, "(", ")", false),
         "block" => block(node, source, opts, ""),
         // Control flow: keep the keyword + condition inline, indent the body.
-        "if_condition" => concat(vec![
-            text("("),
-            print_named(node, source, opts, 0),
-            text(")"),
-        ]),
+        "if_condition" => concat(vec![text("("), print_named(node, source, opts, 0), text(")")]),
         // `let x = expr;` / `let (a, b): T = expr;` — keep RHS inline;
         // nested call args break internally without an extra level.
         "let_statement" => {
@@ -546,15 +504,9 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
         "block_item" => {
             // `block_item { expr ; }` — re-emit the trailing `;` so
             // `let x = 1;` keeps its terminator.
-            let has_semi = content_children(node)
-                .iter()
-                .any(|c| !c.is_named() && c.kind() == ";");
+            let has_semi = content_children(node).iter().any(|c| !c.is_named() && c.kind() == ";");
             let inner = first_named(node, source, opts);
-            if has_semi {
-                concat(vec![inner, text(";")])
-            } else {
-                inner
-            }
+            if has_semi { concat(vec![inner, text(";")]) } else { inner }
         }
         "if_statement" | "if_expression" => {
             // Named children: [cond?, then_arm, else_arm?] with
@@ -563,9 +515,8 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
             // the parens so `if (/* c */ 1 < 2)` keeps its comment.
             let named = named_children(node);
             // Find condition index = first non-comment named node.
-            let Some(cond_start) = named
-                .iter()
-                .position(|n| !matches!(n.kind(), "block_comment" | "line_comment"))
+            let Some(cond_start) =
+                named.iter().position(|n| !matches!(n.kind(), "block_comment" | "line_comment"))
             else {
                 return text(node_text(node, source));
             };
@@ -621,11 +572,7 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
                 // `//` comment eats the rest of the line — break before `else`
                 if saw_line_comment {
                     parts.push(RcDoc::hardline());
-                    parts.push(if else_is_block {
-                        text("else")
-                    } else {
-                        text("else ")
-                    });
+                    parts.push(if else_is_block { text("else") } else { text("else ") });
                 } else if else_is_block {
                     parts.push(text(" else"));
                 } else {
@@ -653,34 +600,16 @@ pub fn print_node<'s, 't>(node: &Node<'t>, source: &'s str, opts: &FormatOptions
             let body = print_named(node, source, opts, 1);
             // `while (cond) { ... }` needs no space (block starts with ` {`);
             // `while (cond) call(...)` / expr needs a space.
-            let sep = if body_node.is_some_and(|n| n.kind() == "block") {
-                text("")
-            } else {
-                text(" ")
-            };
-            concat(vec![
-                text("while ("),
-                print_named(node, source, opts, 0),
-                text(")"),
-                sep,
-                body,
-            ])
+            let sep =
+                if body_node.is_some_and(|n| n.kind() == "block") { text("") } else { text(" ") };
+            concat(vec![text("while ("), print_named(node, source, opts, 0), text(")"), sep, body])
         }
         "for_statement" | "for_expression" => {
             let body_node = named_children(node).get(1).copied();
             let body = print_named(node, source, opts, 1);
-            let sep = if body_node.is_some_and(|n| n.kind() == "block") {
-                text("")
-            } else {
-                text(" ")
-            };
-            concat(vec![
-                text("for ("),
-                print_named(node, source, opts, 0),
-                text(")"),
-                sep,
-                body,
-            ])
+            let sep =
+                if body_node.is_some_and(|n| n.kind() == "block") { text("") } else { text(" ") };
+            concat(vec![text("for ("), print_named(node, source, opts, 0), text(")"), sep, body])
         }
         "function_parameters" => {
             let children = named_children(node);

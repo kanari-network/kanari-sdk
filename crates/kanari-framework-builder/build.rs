@@ -11,29 +11,19 @@ use std::path::PathBuf;
 fn main() {
     // Paths
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let packages_dir = manifest_dir
-        .join("..")
-        .join("kanari-frameworks")
-        .join("packages");
+    let packages_dir = manifest_dir.join("..").join("kanari-frameworks").join("packages");
 
     println!("cargo:rerun-if-changed={}", packages_dir.display());
 
     if !packages_dir.exists() {
-        println!(
-            "cargo:warning=Packages directory not found: {}",
-            packages_dir.display()
-        );
+        println!("cargo:warning=Packages directory not found: {}", packages_dir.display());
         return;
     }
 
     // Iterate packages and compile using move-package API
-    for entry in fs::read_dir(&packages_dir).unwrap_or_else(|e| {
-        panic!(
-            "Failed to read packages dir {}: {}",
-            packages_dir.display(),
-            e
-        )
-    }) {
+    for entry in fs::read_dir(&packages_dir)
+        .unwrap_or_else(|e| panic!("Failed to read packages dir {}: {}", packages_dir.display(), e))
+    {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
@@ -50,10 +40,8 @@ fn main() {
 
         // Use move-package crate programmatically
         // install_dir points to the package dir, compiler will create build/ inside it
-        let config = move_package::BuildConfig {
-            install_dir: Some(path.clone()),
-            ..Default::default()
-        };
+        let config =
+            move_package::BuildConfig { install_dir: Some(path.clone()), ..Default::default() };
 
         // compile_package consumes the config
         match config.compile_package(&path, &mut io::stdout()) {

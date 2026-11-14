@@ -53,11 +53,7 @@ impl<'env> ExpGenerator<'env> for FunctionDataBuilder<'env> {
     }
 
     fn get_local_type(&self, temp: TempIndex) -> Type {
-        self.data
-            .local_types
-            .get(temp)
-            .expect("local variable")
-            .clone()
+        self.data.local_types.get(temp).expect("local variable").clone()
     }
 }
 
@@ -119,11 +115,7 @@ impl<'env> FunctionDataBuilder<'env> {
 
     /// Gets the location from the bytecode attribute.
     pub fn get_loc(&self, attr_id: AttrId) -> Loc {
-        self.data
-            .locations
-            .get(&attr_id)
-            .cloned()
-            .unwrap_or_else(|| self.fun_env.get_loc())
+        self.data.locations.get(&attr_id).cloned().unwrap_or_else(|| self.fun_env.get_loc())
     }
 
     /// Creates a new bytecode attribute id with default location.

@@ -257,39 +257,27 @@ pub fn verify_signature_with_keypair(
         }
 
         CurveType::Dilithium2 => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_dilithium2(pqc_pub, message, signature)
         }
         CurveType::Dilithium3 => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_dilithium3(pqc_pub, message, signature)
         }
         CurveType::Dilithium5 => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_dilithium5(pqc_pub, message, signature)
         }
         CurveType::SphincsPlusSha256Robust => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_sphincs(pqc_pub, message, signature)
         }
         CurveType::Falcon512 => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_falcon512(pqc_pub, message, signature)
         }
         CurveType::Falcon1024 => {
-            let pqc_pub = keypair
-                .get_pqc_public_key_ref()
-                .unwrap_or(&keypair.public_key);
+            let pqc_pub = keypair.get_pqc_public_key_ref().unwrap_or(&keypair.public_key);
             verify_signature_falcon1024(pqc_pub, message, signature)
         }
         // A KeyPair must never claim this curve (no key material exists);

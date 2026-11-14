@@ -41,9 +41,7 @@ pub fn verify_signature_p256(
     let signature = P256Signature::from_der(signature)
         .map_err(|_| SignatureError::InvalidFormat("Invalid signature format".to_string()))?;
 
-    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(
-        &signature.s(),
-    )) {
+    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(&signature.s())) {
         return Err(SignatureError::InvalidFormat(
             "High S value - malleable signature".to_string(),
         ));
@@ -59,9 +57,7 @@ pub fn verify_signature_p256(
     let decoded_hex = match hex::decode(raw_key) {
         Ok(v) => v,
         Err(_) => {
-            return Err(SignatureError::InvalidPublicKey(
-                "Invalid address format".to_string(),
-            ));
+            return Err(SignatureError::InvalidPublicKey("Invalid address format".to_string()));
         }
     };
 
@@ -86,9 +82,7 @@ pub fn verify_signature_p256(
                 return Ok(true);
             }
         } else {
-            return Err(SignatureError::InvalidPublicKey(
-                "Invalid address format".to_string(),
-            ));
+            return Err(SignatureError::InvalidPublicKey("Invalid address format".to_string()));
         }
     }
 
@@ -160,9 +154,7 @@ pub fn sign_message_p256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8
 
     // Sign and enforce low-S
     let mut signature: P256Signature = signing_key.sign(&message_hash);
-    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(
-        &signature.s(),
-    )) {
+    if bool::from(p256::elliptic_curve::scalar::IsHigh::is_high(&signature.s())) {
         let r_bytes = signature.r().to_bytes();
         let s_low = (-signature.s()).to_bytes();
         signature = P256Signature::from_scalars(r_bytes, s_low)

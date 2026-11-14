@@ -25,19 +25,14 @@ fn signed_transfer(nonce: u64) -> SignedTransaction {
         ObjectRef::new(
             "0xaaaa",
             Some(1),
-            Some(format!(
-                "0x{}",
-                hex::encode(kanari_crypto::hash_data_blake3(&coin_data))
-            )),
+            Some(format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(&coin_data)))),
         ),
         recipient.address,
         1,
         nonce,
     );
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
     signed_tx
 }
 
@@ -51,11 +46,8 @@ fn fund_sender_with_coin(
     coin_data[32..40].copy_from_slice(&balance.to_le_bytes());
     let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
     let previous_total = state.total_supply;
-    let previous_visible = state
-        .global_token_supplies
-        .get(GAS_COIN)
-        .copied()
-        .unwrap_or(previous_total);
+    let previous_visible =
+        state.global_token_supplies.get(GAS_COIN).copied().unwrap_or(previous_total);
 
     let mut create_coin = ChangeSet::new();
     create_coin.created_objects.push((
@@ -72,13 +64,9 @@ fn fund_sender_with_coin(
             version: 1,
         },
     ));
-    state
-        .apply_changeset_without_supply_validation(&create_coin)
-        .unwrap();
+    state.apply_changeset_without_supply_validation(&create_coin).unwrap();
 
-    let mut owner_state = state
-        .get_owner_state(&owner)
-        .unwrap_or_else(|| OwnerState::new(owner));
+    let mut owner_state = state.get_owner_state(&owner).unwrap_or_else(|| OwnerState::new(owner));
     owner_state.set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(balance));
     state.save_owner_state(&owner_state).unwrap();
 
@@ -90,18 +78,11 @@ fn fund_sender_with_coin(
         .store
         .save(
             format!("supply:{}", GAS_COIN).as_bytes(),
-            &TreasuryCap {
-                total_supply: updated_total,
-            },
+            &TreasuryCap { total_supply: updated_total },
         )
         .unwrap();
-    state
-        .global_token_supplies
-        .insert(GAS_COIN.to_string(), updated_visible);
-    state
-        .store
-        .save(b"global_token_supplies", &state.global_token_supplies)
-        .unwrap();
+    state.global_token_supplies.insert(GAS_COIN.to_string(), updated_visible);
+    state.store.save(b"global_token_supplies", &state.global_token_supplies).unwrap();
 }
 
 #[test]
@@ -123,9 +104,7 @@ fn genesis_manifest_round_trips_and_matches_a_fresh_node() {
     let manifest = source.genesis_manifest("devnet").unwrap();
     let target = BlockchainEngine::new_in_memory().unwrap();
 
-    target
-        .validate_genesis_manifest(&manifest, "devnet")
-        .unwrap();
+    target.validate_genesis_manifest(&manifest, "devnet").unwrap();
     assert_eq!(manifest, target.genesis_manifest("devnet").unwrap());
 }
 
@@ -134,16 +113,12 @@ fn genesis_manifest_rejects_network_or_root_mismatch() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let mut manifest = engine.genesis_manifest("devnet").unwrap();
 
-    let error = engine
-        .validate_genesis_manifest(&manifest, "mainnet")
-        .unwrap_err();
+    let error = engine.validate_genesis_manifest(&manifest, "mainnet").unwrap_err();
     assert!(error.to_string().contains("network mismatch"));
 
     manifest.network = "devnet".to_string();
     manifest.genesis_state_root = "deadbeef".to_string();
-    let error = engine
-        .validate_genesis_manifest(&manifest, "devnet")
-        .unwrap_err();
+    let error = engine.validate_genesis_manifest(&manifest, "devnet").unwrap_err();
     assert!(error.to_string().contains("state root mismatch"));
 }
 
@@ -165,9 +140,7 @@ fn state_snapshot_round_trips_into_an_empty_data_dir() {
     let snapshot_path = directory.path().join("snapshots").join("devnet.json");
     let target_dir = directory.path().join("node5");
 
-    let exported = source
-        .export_state_snapshot(&snapshot_path, "devnet")
-        .unwrap();
+    let exported = source.export_state_snapshot(&snapshot_path, "devnet").unwrap();
     let imported = BlockchainEngine::import_state_snapshot(
         &snapshot_path,
         &target_dir,
@@ -187,9 +160,7 @@ fn state_snapshot_rejects_untrusted_checkpoint_hash_before_import() {
     let directory = tempfile::tempdir().unwrap();
     let snapshot_path = directory.path().join("snapshot.json");
     let target_dir = directory.path().join("node5");
-    let _ = source
-        .export_state_snapshot(&snapshot_path, "devnet")
-        .unwrap();
+    let _ = source.export_state_snapshot(&snapshot_path, "devnet").unwrap();
 
     let error = BlockchainEngine::import_state_snapshot(
         &snapshot_path,
@@ -208,9 +179,7 @@ fn state_snapshot_rejects_tampered_entries_before_import() {
     let directory = tempfile::tempdir().unwrap();
     let snapshot_path = directory.path().join("snapshot.json");
     let target_dir = directory.path().join("node5");
-    let _ = source
-        .export_state_snapshot(&snapshot_path, "devnet")
-        .unwrap();
+    let _ = source.export_state_snapshot(&snapshot_path, "devnet").unwrap();
 
     let mut snapshot = BlockchainEngine::read_state_snapshot(&snapshot_path).unwrap();
     snapshot.entries[0].value.push('0');
@@ -226,12 +195,8 @@ fn assert_fresh_engine_exposes_separate_genesis_native_gas_coin(engine: &Blockch
     let owner = KanariAddress::DEV_ADDRESS;
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
 
-    let owner_info = engine
-        .get_owner_info(owner)
-        .expect("dev owner should exist after genesis");
-    let owned_objects = owner_info
-        .owned_objects
-        .expect("owner query should include object list");
+    let owner_info = engine.get_owner_info(owner).expect("dev owner should exist after genesis");
+    let owned_objects = owner_info.owned_objects.expect("owner query should include object list");
     let native_coin_ids: Vec<_> = owned_objects
         .into_iter()
         .filter(|object| object.type_ == native_coin_type)
@@ -255,17 +220,10 @@ fn try_get_owner_info_rejects_malformed_owner_state() {
         key.extend_from_slice(owner_addr.as_ref());
         key
     };
-    engine
-        .state_read()
-        .store
-        .apply_raw_changes(&[(owner_key, vec![0x80])], &[])
-        .unwrap();
+    engine.state_read().store.apply_raw_changes(&[(owner_key, vec![0x80])], &[]).unwrap();
 
     let error = engine.try_get_owner_info(owner).unwrap_err();
-    assert!(
-        error.to_string().contains("Failed to load owner state"),
-        "{error:#}"
-    );
+    assert!(error.to_string().contains("Failed to load owner state"), "{error:#}");
 }
 
 #[test]
@@ -275,16 +233,9 @@ fn sync_checkpoint_from_data_rejects_uncertified_checkpoint() {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().hash().unwrap()
     };
-    let state_root = engine
-        .state
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .compute_state_root();
+    let state_root = engine.state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root();
     let checkpoint = Checkpoint::new(1, vec![], vec![], state_root, 42, prev_hash);
-    let sync_data = CheckpointSyncData {
-        checkpoint,
-        dag_vertices: Vec::new(),
-    };
+    let sync_data = CheckpointSyncData { checkpoint, dag_vertices: Vec::new() };
 
     let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
     assert!(error.to_string().contains("has not been committed"));
@@ -303,10 +254,7 @@ fn sync_checkpoint_from_data_rejects_root_mismatch() {
         KanariAddress::parse_to_account_address(signed_tx.transaction.sender_address()).unwrap();
     fund_sender_with_coin(&engine, sender, "0xaaaa", 1_000_000);
     let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![9u8; 32], 42, prev_hash);
-    let sync_data = CheckpointSyncData {
-        checkpoint,
-        dag_vertices: Vec::new(),
-    };
+    let sync_data = CheckpointSyncData { checkpoint, dag_vertices: Vec::new() };
 
     let error = engine.sync_checkpoint_from_data(&sync_data).unwrap_err();
     assert!(error.to_string().contains("has not been committed"));
@@ -333,10 +281,7 @@ fn sync_checkpoint_root_mismatch_does_not_mutate_local_state() {
     let checkpoint = Checkpoint::new(1, vec![], vec![signed_tx], vec![0xabu8; 32], 42, prev_hash);
 
     let error = engine
-        .sync_checkpoint_from_data(&CheckpointSyncData {
-            checkpoint,
-            dag_vertices: Vec::new(),
-        })
+        .sync_checkpoint_from_data(&CheckpointSyncData { checkpoint, dag_vertices: Vec::new() })
         .unwrap_err();
 
     assert!(error.to_string().contains("has not been committed"));
@@ -374,9 +319,7 @@ fn block_queries_include_checkpoint_object_changes() {
 
     {
         let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
-        chain
-            .add_checkpoint_with_validation(checkpoint, false)
-            .unwrap();
+        chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
     }
 
     let block = engine.get_block(1).expect("block should exist");
@@ -391,24 +334,14 @@ fn block_queries_include_checkpoint_object_changes() {
 #[test]
 fn block_from_full_data_rejects_invalid_hash_fields() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
-    let mut full_block = engine
-        .get_full_block(0)
-        .expect("genesis block should exist");
+    let mut full_block = engine.get_full_block(0).expect("genesis block should exist");
 
     full_block.prev_hash = "not-hex".to_string();
     let error = BlockchainEngine::try_block_from_full_data(&full_block).unwrap_err();
-    assert!(
-        error.to_string().contains("block prev_hash"),
-        "unexpected error: {error}"
-    );
+    assert!(error.to_string().contains("block prev_hash"), "unexpected error: {error}");
 
-    let mut full_block = engine
-        .get_full_block(0)
-        .expect("genesis block should exist");
+    let mut full_block = engine.get_full_block(0).expect("genesis block should exist");
     full_block.state_root = "0x01".to_string();
     let error = BlockchainEngine::try_block_from_full_data(&full_block).unwrap_err();
-    assert!(
-        error.to_string().contains("block state_root"),
-        "unexpected error: {error}"
-    );
+    assert!(error.to_string().contains("block state_root"), "unexpected error: {error}");
 }

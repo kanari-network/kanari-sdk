@@ -358,10 +358,7 @@ fn get_name_len(text: &str) -> usize {
 }
 
 fn get_decimal_number(text: &str) -> (Tok, usize) {
-    let len = text
-        .chars()
-        .position(|c| !matches!(c, '0'..='9' | '_'))
-        .unwrap_or(text.len());
+    let len = text.chars().position(|c| !matches!(c, '0'..='9' | '_')).unwrap_or(text.len());
     let rest = &text[len..];
     if rest.starts_with("u8") {
         (Tok::U8Value, len + 2)

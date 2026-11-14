@@ -98,14 +98,8 @@ enum ModulePublishIntent {
     Bootstrap,
 }
 
-type LoadedMutableObject = (
-    usize,
-    String,
-    AccountAddress,
-    kanari_types::transaction::ObjectOwnerKind,
-    String,
-    u64,
-);
+type LoadedMutableObject =
+    (usize, String, AccountAddress, kanari_types::transaction::ObjectOwnerKind, String, u64);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectParamBindingRequirement {
@@ -166,18 +160,10 @@ impl SessionNativeOutputs {
         }
         for op in dynamic_fields {
             match op {
-                DynamicFieldOp::Add {
-                    object_id,
-                    name_bytes,
-                    value_bytes,
-                } => {
-                    cs.added_dynamic_fields
-                        .push((object_id, name_bytes, value_bytes));
+                DynamicFieldOp::Add { object_id, name_bytes, value_bytes } => {
+                    cs.added_dynamic_fields.push((object_id, name_bytes, value_bytes));
                 }
-                DynamicFieldOp::Remove {
-                    object_id,
-                    name_bytes,
-                } => {
+                DynamicFieldOp::Remove { object_id, name_bytes } => {
                     cs.removed_dynamic_fields.push((object_id, name_bytes));
                 }
             }
@@ -211,15 +197,12 @@ impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
     /// itself carries no tag.
     fn type_tag_for_param(&self, param_type: &RuntimeType) -> Option<TypeTag> {
         let concrete_type = self.concrete_type_for_param(param_type)?;
-        self.session
-            .get_type_tag(&concrete_type)
-            .ok()
-            .or_else(|| match &concrete_type {
-                RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
-                    self.session.get_type_tag(inner).ok()
-                }
-                _ => None,
-            })
+        self.session.get_type_tag(&concrete_type).ok().or_else(|| match &concrete_type {
+            RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                self.session.get_type_tag(inner).ok()
+            }
+            _ => None,
+        })
     }
 
     /// True when the parameter type carries the `key` ability.
@@ -249,10 +232,7 @@ impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
                 if self.is_tx_context_param(param_type) {
                     return None;
                 }
-                Some(ObjectParamBindingRequirement {
-                    param_index,
-                    mutable,
-                })
+                Some(ObjectParamBindingRequirement { param_index, mutable })
             })
             .collect()
     }

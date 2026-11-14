@@ -124,9 +124,7 @@ use sha3::Keccak256;
 // Helper to generate random bytes for key generation using SysRng (same as keys.rs)
 fn generate_random_bytes<const N: usize>() -> [u8; N] {
     let mut bytes = [0u8; N];
-    SysRng
-        .try_fill_bytes(&mut bytes)
-        .expect("Failed to get OS randomness");
+    SysRng.try_fill_bytes(&mut bytes).expect("Failed to get OS randomness");
     bytes
 }
 
@@ -183,13 +181,8 @@ fn test_secp256k1_ecrecover_and_verify() {
     );
     let sig_bytes_keccak = sig_keccak.serialize_compact();
     let sig_keccak_parsed = K256Signature::try_from(sig_bytes_keccak.as_slice()).unwrap();
-    let verified_keccak = vk
-        .verify_prehash(msg_hash_keccak.as_slice(), &sig_keccak_parsed)
-        .is_ok();
-    assert!(
-        verified_keccak,
-        "Keccak256 signature verification should succeed"
-    );
+    let verified_keccak = vk.verify_prehash(msg_hash_keccak.as_slice(), &sig_keccak_parsed).is_ok();
+    assert!(verified_keccak, "Keccak256 signature verification should succeed");
 }
 
 #[test]
@@ -246,36 +239,21 @@ fn test_p256_ecdsa_verify() {
 
     // Verify with SHA256
     use p256::ecdsa::signature::hazmat::PrehashVerifier as P256PrehashVerifier;
-    let verified = verifying_key
-        .verify_prehash(msg_hash.as_slice(), &signature)
-        .is_ok();
-    assert!(
-        verified,
-        "P-256 SHA256 signature verification should succeed"
-    );
+    let verified = verifying_key.verify_prehash(msg_hash.as_slice(), &signature).is_ok();
+    assert!(verified, "P-256 SHA256 signature verification should succeed");
 
     // Test with DER encoding
     let der_sig = signature.to_der();
     let sig_from_der = P256Signature::from_der(der_sig.as_bytes()).unwrap();
-    let verified_der = verifying_key
-        .verify_prehash(msg_hash.as_slice(), &sig_from_der)
-        .is_ok();
-    assert!(
-        verified_der,
-        "P-256 DER signature verification should succeed"
-    );
+    let verified_der = verifying_key.verify_prehash(msg_hash.as_slice(), &sig_from_der).is_ok();
+    assert!(verified_der, "P-256 DER signature verification should succeed");
 
     // Test with raw 64-byte encoding
     let raw_bytes = signature.to_bytes();
     assert_eq!(raw_bytes.len(), 64);
     let sig_from_raw = P256Signature::try_from(raw_bytes.as_slice()).unwrap();
-    let verified_raw = verifying_key
-        .verify_prehash(msg_hash.as_slice(), &sig_from_raw)
-        .is_ok();
-    assert!(
-        verified_raw,
-        "P-256 raw signature verification should succeed"
-    );
+    let verified_raw = verifying_key.verify_prehash(msg_hash.as_slice(), &sig_from_raw).is_ok();
+    assert!(verified_raw, "P-256 raw signature verification should succeed");
 }
 
 #[test]
@@ -324,10 +302,7 @@ fn test_invalid_signatures() {
     // Test invalid signature length (not 64 or 65 bytes)
     let invalid_sig_short = vec![0u8; 32];
     let parsed = K256Signature::from_der(&invalid_sig_short);
-    assert!(
-        parsed.is_err(),
-        "Should fail to parse invalid short signature"
-    );
+    assert!(parsed.is_err(), "Should fail to parse invalid short signature");
 
     // Test invalid public key
     let invalid_pk = vec![0u8; 33]; // All zeros
@@ -412,10 +387,7 @@ fn test_recovery_id_handling() {
 
     // Test legacy format (27-28)
     let legacy_v = (rec_id_value + 27) as u8;
-    assert!(
-        legacy_v == 27 || legacy_v == 28,
-        "Legacy v should be 27 or 28"
-    );
+    assert!(legacy_v == 27 || legacy_v == 28, "Legacy v should be 27 or 28");
 
     // Both should convert back correctly
     let rec_id_from_standard = SecpRecoveryId::try_from(rec_id_value).unwrap();
@@ -511,21 +483,12 @@ fn generate_test_vectors_for_move() {
 
     println!("\n=== Schnorr Test Vectors ===");
     println!("Message (32 bytes): {}", hex::encode(schnorr_msg));
-    println!(
-        "Public Key (x-only): {}",
-        hex::encode(xonly.to_byte_array())
-    );
-    println!(
-        "Signature (r||s): {}",
-        hex::encode(schnorr_sig.to_byte_array())
-    );
+    println!("Public Key (x-only): {}", hex::encode(xonly.to_byte_array()));
+    println!("Signature (r||s): {}", hex::encode(schnorr_sig.to_byte_array()));
 
     // Verify Schnorr
     let schnorr_verified = secp256k1::schnorr::verify(&schnorr_sig, &schnorr_msg, &xonly).is_ok();
-    assert!(
-        schnorr_verified,
-        "Schnorr test vector should verify correctly"
-    );
+    assert!(schnorr_verified, "Schnorr test vector should verify correctly");
 }
 
 #[test]
@@ -572,10 +535,7 @@ fn test_move_ecdsa_k1_vector() {
     // Verify
     use k256::ecdsa::signature::hazmat::PrehashVerifier;
     let verified = vk.verify_prehash(msg_hash.as_slice(), &sig_parsed).is_ok();
-    println!(
-        "Verification result: {}",
-        if verified { "✓ PASS" } else { "✗ FAIL" }
-    );
+    println!("Verification result: {}", if verified { "✓ PASS" } else { "✗ FAIL" });
 
     if !verified {
         println!("\n⚠️  The Move test vector is INVALID!");
@@ -618,14 +578,8 @@ fn generate_p256_test_vectors() {
     let vk = P256VerifyingKey::from_sec1_bytes(compressed_pk).unwrap();
     let sig = P256Signature::from_bytes(&sig_bytes).unwrap();
     let verified = vk.verify(msg, &sig).is_ok();
-    println!(
-        "Verification result: {}",
-        if verified { "✓ PASS" } else { "✗ FAIL" }
-    );
-    assert!(
-        verified,
-        "Generated P-256 test vector should verify correctly"
-    );
+    println!("Verification result: {}", if verified { "✓ PASS" } else { "✗ FAIL" });
+    assert!(verified, "Generated P-256 test vector should verify correctly");
 }
 
 #[test]
@@ -671,10 +625,7 @@ fn test_move_p256_vector() {
     println!("Message hash: {}", hex::encode(msg_hash.as_slice()));
 
     let verified = vk.verify_prehash(msg_hash.as_slice(), &sig_parsed).is_ok();
-    println!(
-        "Verification result: {}",
-        if verified { "✓ PASS" } else { "✗ FAIL" }
-    );
+    println!("Verification result: {}", if verified { "✓ PASS" } else { "✗ FAIL" });
 
     if !verified {
         println!("\n⚠️  The Move test vector is INVALID!");

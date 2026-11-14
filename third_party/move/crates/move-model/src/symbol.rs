@@ -52,12 +52,7 @@ struct InnerPool {
 impl SymbolPool {
     /// Creates a new SymbolPool.
     pub fn new() -> SymbolPool {
-        SymbolPool {
-            inner: RefCell::new(InnerPool {
-                strings: vec![],
-                lookup: HashMap::new(),
-            }),
-        }
+        SymbolPool { inner: RefCell::new(InnerPool { strings: vec![], lookup: HashMap::new() }) }
     }
 
     /// Looks up a symbol by its string representation. If a symbol with this representation

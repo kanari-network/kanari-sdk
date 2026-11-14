@@ -73,10 +73,7 @@ impl<'a, W: Write, R: BufRead> MigrationContext<'a, W, R> {
         reader: &'new mut R,
     ) -> MigrationContext<'new, W, R> {
         let terminal = Terminal::new(writer, reader);
-        MigrationContext {
-            build_plan,
-            terminal,
-        }
+        MigrationContext { build_plan, terminal }
     }
 
     pub fn prompt_for_migration(&mut self) -> anyhow::Result<MigrationOptions> {
@@ -108,8 +105,7 @@ impl<'a, W: Write, R: BufRead> MigrationContext<'a, W, R> {
     }
 
     fn select_edition(&mut self) -> anyhow::Result<Edition> {
-        self.terminal
-            .option_prompt(EDITION_SELECT_PROMPT, &EDITION_OPTIONS)
+        self.terminal.option_prompt(EDITION_SELECT_PROMPT, &EDITION_OPTIONS)
     }
 
     fn perform_upgrade(&mut self) -> anyhow::Result<()> {
@@ -136,9 +132,7 @@ impl<'a, W: Write, R: BufRead> MigrationContext<'a, W, R> {
         self.terminal.writeln(&migration.render_output())?;
         self.terminal.newline()?;
         self.terminal.writeln(BAR)?;
-        let apply = self
-            .terminal
-            .yes_no_prompt(APPLY_MIGRATION_PATCH_PROMPT, true)?;
+        let apply = self.terminal.yes_no_prompt(APPLY_MIGRATION_PATCH_PROMPT, true)?;
         if apply {
             migration.apply_changes(self.terminal.writer)?;
             self.terminal.newline()?;

@@ -17,20 +17,8 @@ fn test_changeset_transfer() {
     cs.transfer(from, to, 100);
 
     assert_eq!(cs.owner_deltas.len(), 2);
-    assert_eq!(
-        cs.owner_deltas
-            .get(&from)
-            .invariant("sender change missing")
-            .balance_delta,
-        -100
-    );
-    assert_eq!(
-        cs.owner_deltas
-            .get(&to)
-            .invariant("recipient change missing")
-            .balance_delta,
-        100
-    );
+    assert_eq!(cs.owner_deltas.get(&from).invariant("sender change missing").balance_delta, -100);
+    assert_eq!(cs.owner_deltas.get(&to).invariant("recipient change missing").balance_delta, 100);
 }
 
 #[test]
@@ -42,13 +30,7 @@ fn test_changeset_mint() {
     cs.mint(to, 1000);
 
     assert_eq!(cs.owner_deltas.len(), 1);
-    assert_eq!(
-        cs.owner_deltas
-            .get(&to)
-            .invariant("recipient change missing")
-            .balance_delta,
-        1000
-    );
+    assert_eq!(cs.owner_deltas.get(&to).invariant("recipient change missing").balance_delta, 1000);
 }
 
 #[test]
@@ -60,13 +42,7 @@ fn test_changeset_burn() {
     cs.burn(from, 500);
 
     assert_eq!(cs.owner_deltas.len(), 1);
-    assert_eq!(
-        cs.owner_deltas
-            .get(&from)
-            .invariant("sender change missing")
-            .balance_delta,
-        -500
-    );
+    assert_eq!(cs.owner_deltas.get(&from).invariant("sender change missing").balance_delta, -500);
 }
 
 #[test]
@@ -77,10 +53,7 @@ fn test_changeset_module_publish() {
 
     cs.publish_module(publisher, "kanari".to_string());
 
-    let change = cs
-        .owner_deltas
-        .get(&publisher)
-        .invariant("publisher change missing");
+    let change = cs.owner_deltas.get(&publisher).invariant("publisher change missing");
     assert_eq!(change.modules_added.len(), 1);
     assert!(change.modules_added.contains("kanari"));
 }
@@ -259,9 +232,7 @@ fn merge_and_merge_from_produce_identical_changesets() {
 fn dynamic_field_write_conflicts_with_conservative_read_fence() {
     let reader = ChangeSet::new().deterministic_access_set();
     let mut writer = ChangeSet::new();
-    writer
-        .added_dynamic_fields
-        .push(("0x1".to_string(), vec![7], vec![9]));
+    writer.added_dynamic_fields.push(("0x1".to_string(), vec![7], vec![9]));
 
     assert!(reader.conflicts_with(&writer.deterministic_access_set()));
 }
@@ -279,8 +250,7 @@ fn object_backed_native_gas_debits_do_not_lock_entire_owner() {
         coin_type: None,
         price_version: None,
     });
-    left.gas_object_refs
-        .push(ObjectRef::new("0x100".to_string(), Some(1), None));
+    left.gas_object_refs.push(ObjectRef::new("0x100".to_string(), Some(1), None));
 
     let mut right = ChangeSet::new();
     right.burn(owner, 10);
@@ -292,16 +262,12 @@ fn object_backed_native_gas_debits_do_not_lock_entire_owner() {
         coin_type: None,
         price_version: None,
     });
-    right
-        .gas_object_refs
-        .push(ObjectRef::new("0x101".to_string(), Some(1), None));
+    right.gas_object_refs.push(ObjectRef::new("0x101".to_string(), Some(1), None));
 
     let left_access = left.deterministic_access_set();
     let right_access = right.deterministic_access_set();
     assert!(
-        !left_access
-            .writes
-            .contains(&format!("owner:{}", owner.to_hex_literal()).into_bytes())
+        !left_access.writes.contains(&format!("owner:{}", owner.to_hex_literal()).into_bytes())
     );
     assert!(!left_access.conflicts_with(&right_access));
 }
@@ -314,19 +280,14 @@ fn non_gas_owner_debits_still_lock_owner() {
     let mut right = ChangeSet::new();
     right.burn(owner, 10);
 
-    assert!(
-        left.deterministic_access_set()
-            .conflicts_with(&right.deterministic_access_set())
-    );
+    assert!(left.deterministic_access_set().conflicts_with(&right.deterministic_access_set()));
 }
 
 #[test]
 fn access_conflict_detection_matches_reference_model_for_generated_sets() {
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
     let mut next = || {
-        seed = seed
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
         seed
     };
 
@@ -350,11 +311,9 @@ fn access_conflict_detection_matches_reference_model_for_generated_sets() {
             }
         }
 
-        let expected = left
-            .writes
-            .iter()
-            .any(|key| right.reads.contains(key) || right.writes.contains(key))
-            || right.writes.iter().any(|key| left.reads.contains(key));
+        let expected =
+            left.writes.iter().any(|key| right.reads.contains(key) || right.writes.contains(key))
+                || right.writes.iter().any(|key| left.reads.contains(key));
         assert_eq!(left.conflicts_with(&right), expected);
         assert_eq!(left.conflicts_with(&right), right.conflicts_with(&left));
     }
@@ -367,8 +326,5 @@ fn failed_effects_use_canonical_failed_status() {
 
     let effects = changeset.effects(None);
     assert_eq!(effects.status, "failed");
-    assert_eq!(
-        effects.error_message.as_deref(),
-        Some("expected test failure")
-    );
+    assert_eq!(effects.error_message.as_deref(), Some("expected test failure"));
 }

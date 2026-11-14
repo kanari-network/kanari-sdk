@@ -40,9 +40,7 @@ fn test_keystore_concurrent_save_safety() {
     // is atomic and one will succeed completely
 
     let mut keystore = Keystore::new();
-    keystore
-        .keys
-        .insert("key1".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("key1".to_string(), create_test_encrypted_data());
 
     // The atomic rename ensures that readers will either see:
     // 1. The old complete file, or
@@ -82,9 +80,7 @@ fn test_keystore_get_wallet() {
     let address = "0xtest";
     let encrypted_data = create_test_encrypted_data();
 
-    keystore
-        .keys
-        .insert(address.to_string(), encrypted_data.clone());
+    keystore.keys.insert(address.to_string(), encrypted_data.clone());
 
     let retrieved = keystore.get_wallet(address);
     assert!(retrieved.is_some());
@@ -119,15 +115,9 @@ fn test_keystore_remove_nonexistent_wallet() {
 fn test_keystore_list_wallets() {
     let mut keystore = Keystore::new();
 
-    keystore
-        .keys
-        .insert("0x1".to_string(), create_test_encrypted_data());
-    keystore
-        .keys
-        .insert("0x2".to_string(), create_test_encrypted_data());
-    keystore
-        .keys
-        .insert("0x3".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("0x1".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("0x2".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("0x3".to_string(), create_test_encrypted_data());
 
     let wallets = keystore.list_wallets();
     assert_eq!(wallets.len(), 3);
@@ -143,9 +133,7 @@ fn test_keystore_wallet_exists() {
 
     assert!(!keystore.wallet_exists(address));
 
-    keystore
-        .keys
-        .insert(address.to_string(), create_test_encrypted_data());
+    keystore.keys.insert(address.to_string(), create_test_encrypted_data());
 
     assert!(keystore.wallet_exists(address));
 }
@@ -157,9 +145,7 @@ fn test_keystore_set_mnemonic() {
     let encrypted_mnemonic = create_test_encrypted_data();
     let addresses = vec!["0x1".to_string(), "0x2".to_string()];
 
-    keystore
-        .set_mnemonic(encrypted_mnemonic.clone(), addresses.clone())
-        .unwrap();
+    keystore.set_mnemonic(encrypted_mnemonic.clone(), addresses.clone()).unwrap();
 
     assert!(keystore.has_mnemonic());
     assert_eq!(keystore.mnemonic.addresses.len(), 2);
@@ -201,12 +187,8 @@ fn test_keystore_remove_mnemonic() {
 fn test_keystore_statistics() {
     let mut keystore = Keystore::new();
 
-    keystore
-        .keys
-        .insert("0x1".to_string(), create_test_encrypted_data());
-    keystore
-        .keys
-        .insert("0x2".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("0x1".to_string(), create_test_encrypted_data());
+    keystore.keys.insert("0x2".to_string(), create_test_encrypted_data());
     keystore.mnemonic.mnemonic_phrase_encryption = Some(create_test_encrypted_data());
     keystore.mnemonic.addresses = vec!["0x1".to_string()];
 
@@ -226,10 +208,7 @@ fn test_keystore_version() {
     // Version is set properly when saving
     let mut ks = Keystore::new();
     ks.version = "test-version".to_string();
-    assert!(
-        !ks.version.is_empty(),
-        "Version should not be empty after setting"
-    );
+    assert!(!ks.version.is_empty(), "Version should not be empty after setting");
 }
 
 #[test]
@@ -249,9 +228,7 @@ fn test_explicit_path_round_trip_does_not_use_default_config() {
     let address = "0xisolated";
 
     let mut keystore = Keystore::load_from_path(&path).unwrap();
-    keystore
-        .add_wallet(address, create_test_encrypted_data())
-        .unwrap();
+    keystore.add_wallet(address, create_test_encrypted_data()).unwrap();
     assert!(path.exists());
 
     let loaded = Keystore::load_from_path(&path).unwrap();

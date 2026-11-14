@@ -44,21 +44,11 @@ pub fn generate_falcon1024_keypair_bytes_from_seed(
 }
 
 pub fn sign_falcon512(secret_key_bytes: &[u8], message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    sign(
-        secret_key_bytes,
-        message,
-        FALCON512_PRIVATE_KEY_BYTES,
-        "FN-DSA-512",
-    )
+    sign(secret_key_bytes, message, FALCON512_PRIVATE_KEY_BYTES, "FN-DSA-512")
 }
 
 pub fn sign_falcon1024(secret_key_bytes: &[u8], message: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    sign(
-        secret_key_bytes,
-        message,
-        FALCON1024_PRIVATE_KEY_BYTES,
-        "FN-DSA-1024",
-    )
+    sign(secret_key_bytes, message, FALCON1024_PRIVATE_KEY_BYTES, "FN-DSA-1024")
 }
 
 pub fn verify_falcon512(
@@ -122,10 +112,7 @@ fn generate_keypair_bytes(
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), SignatureError> {
     let keypair = FnDsaKeyPair::generate(logn)
         .map_err(|e| SignatureError::InvalidPrivateKey(format!("{label} keygen failed: {e}")))?;
-    Ok((
-        keypair.public_key().to_vec(),
-        Zeroizing::new(keypair.private_key().to_vec()),
-    ))
+    Ok((keypair.public_key().to_vec(), Zeroizing::new(keypair.private_key().to_vec())))
 }
 
 #[cfg(not(feature = "falcon"))]
@@ -133,9 +120,7 @@ fn generate_keypair_bytes(
     _logn: u32,
     label: &str,
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), SignatureError> {
-    Err(SignatureError::InvalidPrivateKey(format!(
-        "{label} requires falcon or pqc feature"
-    )))
+    Err(SignatureError::InvalidPrivateKey(format!("{label} requires falcon or pqc feature")))
 }
 
 #[cfg(feature = "falcon")]
@@ -146,10 +131,7 @@ fn generate_keypair_bytes_from_seed(
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), SignatureError> {
     let keypair = FnDsaKeyPair::generate_deterministic(seed, logn)
         .map_err(|e| SignatureError::InvalidPrivateKey(format!("{label} keygen failed: {e}")))?;
-    Ok((
-        keypair.public_key().to_vec(),
-        Zeroizing::new(keypair.private_key().to_vec()),
-    ))
+    Ok((keypair.public_key().to_vec(), Zeroizing::new(keypair.private_key().to_vec())))
 }
 
 #[cfg(not(feature = "falcon"))]
@@ -158,9 +140,7 @@ fn generate_keypair_bytes_from_seed(
     _logn: u32,
     label: &str,
 ) -> Result<(Vec<u8>, Zeroizing<Vec<u8>>), SignatureError> {
-    Err(SignatureError::InvalidPrivateKey(format!(
-        "{label} requires falcon or pqc feature"
-    )))
+    Err(SignatureError::InvalidPrivateKey(format!("{label} requires falcon or pqc feature")))
 }
 
 #[cfg(feature = "falcon")]
@@ -190,9 +170,7 @@ fn sign(
     _expected_secret_len: usize,
     label: &str,
 ) -> Result<Vec<u8>, SignatureError> {
-    Err(SignatureError::InvalidPrivateKey(format!(
-        "{label} requires falcon or pqc feature"
-    )))
+    Err(SignatureError::InvalidPrivateKey(format!("{label} requires falcon or pqc feature")))
 }
 
 #[cfg(feature = "falcon")]
@@ -205,22 +183,13 @@ fn verify(
     label: &str,
 ) -> Result<bool, SignatureError> {
     if public_key_bytes.len() != expected_public_len {
-        return Err(SignatureError::InvalidPublicKey(format!(
-            "Invalid {label} public key length"
-        )));
+        return Err(SignatureError::InvalidPublicKey(format!("Invalid {label} public key length")));
     }
     if signature.is_empty() || signature.len() > max_signature_len {
-        return Err(SignatureError::InvalidFormat(format!(
-            "Invalid {label} signature length"
-        )));
+        return Err(SignatureError::InvalidFormat(format!("Invalid {label} signature length")));
     }
-    Ok(FnDsaSignature::verify(
-        signature,
-        public_key_bytes,
-        message,
-        &DomainSeparation::None,
-    )
-    .is_ok())
+    Ok(FnDsaSignature::verify(signature, public_key_bytes, message, &DomainSeparation::None)
+        .is_ok())
 }
 
 #[cfg(not(feature = "falcon"))]
@@ -232,9 +201,7 @@ fn verify(
     _expected_signature_len: usize,
     label: &str,
 ) -> Result<bool, SignatureError> {
-    Err(SignatureError::InvalidFormat(format!(
-        "{label} requires falcon or pqc feature"
-    )))
+    Err(SignatureError::InvalidFormat(format!("{label} requires falcon or pqc feature")))
 }
 
 #[cfg(feature = "falcon")]
@@ -266,7 +233,5 @@ fn validate_secret_public(
     _expected_secret_len: usize,
     label: &str,
 ) -> Result<(), SignatureError> {
-    Err(SignatureError::InvalidPrivateKey(format!(
-        "{label} requires falcon or pqc feature"
-    )))
+    Err(SignatureError::InvalidPrivateKey(format!("{label} requires falcon or pqc feature")))
 }

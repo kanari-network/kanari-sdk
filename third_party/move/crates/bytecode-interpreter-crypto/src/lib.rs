@@ -13,12 +13,14 @@
 //! longer need to worry about depending on diem-crypto.
 
 use anyhow::{Result, bail};
+use blake2b_simd::Params as Blake2bParams;
 use ed25519_dalek::{
     PUBLIC_KEY_LENGTH as ED25519_PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH as ED25519_SIGNATURE_LENGTH,
     Signature as Ed25519Signature, VerifyingKey as Ed25519PublicKey,
 };
+use ripemd::Ripemd160;
 use sha2::{Digest, Sha256};
-use sha3::Sha3_256;
+use sha3::{Keccak256, Sha3_256};
 use std::cmp::Ordering;
 
 /// The order of ed25519 as defined in [RFC8032](https://tools.ietf.org/html/rfc8032).
@@ -34,6 +36,22 @@ pub fn sha2_256_of(bytes: &[u8]) -> Vec<u8> {
 
 pub fn sha3_256_of(bytes: &[u8]) -> Vec<u8> {
     Sha3_256::digest(bytes).to_vec()
+}
+
+pub fn keccak256_of(bytes: &[u8]) -> Vec<u8> {
+    Keccak256::digest(bytes).to_vec()
+}
+
+pub fn blake2b256_of(bytes: &[u8]) -> Vec<u8> {
+    Blake2bParams::new().hash_length(32).hash(bytes).as_bytes().to_vec()
+}
+
+pub fn blake3_256_of(bytes: &[u8]) -> Vec<u8> {
+    blake3::hash(bytes).as_bytes().to_vec()
+}
+
+pub fn ripemd160_of(bytes: &[u8]) -> Vec<u8> {
+    <Ripemd160 as ripemd::Digest>::digest(bytes).to_vec()
 }
 
 // Ed25519

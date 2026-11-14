@@ -88,10 +88,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter {
         let mut named_address_mapping = move_stdlib_named_addresses();
         for (name, addr) in additional_mapping {
             if named_address_mapping.contains_key(&name) {
-                panic!(
-                    "Invalid init. The named address '{}' is reserved by the move-stdlib",
-                    name
-                )
+                panic!("Invalid init. The named address '{}' is reserved by the move-stdlib", name)
             }
             named_address_mapping.insert(name, addr);
         }
@@ -117,9 +114,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter {
 
                         let id = module.self_id();
                         let sender = *id.address();
-                        session
-                            .publish_module(module_bytes, sender, gas_status)
-                            .unwrap();
+                        session.publish_module(module_bytes, sender, gas_status).unwrap();
                     }
                     Ok(())
                 },
@@ -136,9 +131,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter {
             .filter(|module| !adapter.compiled_state.is_precompiled_dep(&module.self_id()))
             .collect::<Vec<_>>()
         {
-            adapter
-                .compiled_state
-                .add_and_generate_interface_file(module.clone());
+            adapter.compiled_state.add_and_generate_interface_file(module.clone());
         }
         (adapter, None)
     }
@@ -184,15 +177,10 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter {
         gas_budget: Option<u64>,
         _extra_args: Self::ExtraRunArgs,
     ) -> Result<(Option<String>, SerializedReturnValues)> {
-        let signers: Vec<_> = signers
-            .into_iter()
-            .map(|addr| self.compiled_state().resolve_address(&addr))
-            .collect();
+        let signers: Vec<_> =
+            signers.into_iter().map(|addr| self.compiled_state().resolve_address(&addr)).collect();
 
-        let args = txn_args
-            .iter()
-            .map(|arg| arg.simple_serialize().unwrap())
-            .collect::<Vec<_>>();
+        let args = txn_args.iter().map(|arg| arg.simple_serialize().unwrap()).collect::<Vec<_>>();
         // TODO rethink testing signer args
         let args = signers
             .iter()
@@ -215,10 +203,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter {
                 test_vm_config(),
             )
             .map_err(|e| {
-                anyhow!(
-                    "Function execution failed with VMError: {}",
-                    format_vm_error(&e)
-                )
+                anyhow!("Function execution failed with VMError: {}", format_vm_error(&e))
             })?;
         Ok((None, serialized_return_values))
     }
@@ -334,18 +319,14 @@ static MOVE_STDLIB_COMPILED: Lazy<Vec<CompiledModule>> = Lazy::new(|| {
             eprintln!("!!!Standard library failed to compile!!!");
             move_compiler::diagnostics::report_diagnostics(&files, warnings)
         }
-        Ok((units, _warnings)) => units
-            .into_iter()
-            .map(|annot_module| annot_module.named_module.module)
-            .collect(),
+        Ok((units, _warnings)) => {
+            units.into_iter().map(|annot_module| annot_module.named_module.module).collect()
+        }
     }
 });
 
 fn test_vm_config() -> VMConfig {
-    VMConfig {
-        enable_invariant_violation_check_in_swap_loc: false,
-        ..Default::default()
-    }
+    VMConfig { enable_invariant_violation_check_in_swap_loc: false, ..Default::default() }
 }
 
 #[tokio::main]

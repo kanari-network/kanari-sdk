@@ -12,10 +12,7 @@ static OPEN_DATABASES: Lazy<Mutex<HashMap<PathBuf, Weak<DB>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn env_u64(name: &str, default: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(default)
+    std::env::var(name).ok().and_then(|value| value.parse().ok()).unwrap_or(default)
 }
 
 fn clamp_i32(value: i32, min: i32, max: i32) -> i32 {
@@ -71,9 +68,7 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     }
 
     {
-        let mut registry = OPEN_DATABASES
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut registry = OPEN_DATABASES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         registry.retain(|_, db| db.strong_count() > 0);
         if let Some(db) = registry.get(&path).and_then(Weak::upgrade) {
             return Ok(db);
@@ -90,9 +85,7 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     // Optimize for high throughput (100k+ TPS target)
     // 1. Increase parallelism for background flushes/compactions
-    let parallelism = std::thread::available_parallelism()
-        .map(|n| n.get() as i32)
-        .unwrap_or(4);
+    let parallelism = std::thread::available_parallelism().map(|n| n.get() as i32).unwrap_or(4);
     opts.increase_parallelism(parallelism);
     opts.set_max_background_jobs(std::cmp::max(4, parallelism));
 
@@ -100,9 +93,7 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     let mut block_opts = rocksdb::BlockBasedOptions::default();
     // Keep memory sizing operator-configurable for long-running validators.
     let block_cache_mb = env_u64("KANARI_DB_BLOCK_CACHE_MB", 512);
-    block_opts.set_block_cache(&rocksdb::Cache::new_lru_cache(bytes_from_mb(
-        block_cache_mb,
-    )));
+    block_opts.set_block_cache(&rocksdb::Cache::new_lru_cache(bytes_from_mb(block_cache_mb)));
     // Bloom filter: 10 bits per key
     block_opts.set_bloom_filter(10.0, false);
     // Cache index and filter blocks in block cache to save memory/IO
@@ -116,19 +107,11 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
     let write_buffer_mb = env_u64("KANARI_DB_WRITE_BUFFER_MB", 256);
     opts.set_write_buffer_size(bytes_from_mb(write_buffer_mb));
     let max_write_buffers = env_i32_clamped("KANARI_DB_MAX_WRITE_BUFFERS", 8, 1, 64);
-    let min_write_buffers_to_merge = env_i32_clamped(
-        "KANARI_DB_MIN_WRITE_BUFFERS_TO_MERGE",
-        2,
-        1,
-        max_write_buffers,
-    );
+    let min_write_buffers_to_merge =
+        env_i32_clamped("KANARI_DB_MIN_WRITE_BUFFERS_TO_MERGE", 2, 1, max_write_buffers);
     let l0_compaction_trigger = env_i32_clamped("KANARI_DB_L0_COMPACTION_TRIGGER", 8, 1, 1024);
-    let l0_slowdown_trigger = env_i32_clamped(
-        "KANARI_DB_L0_SLOWDOWN_TRIGGER",
-        32,
-        l0_compaction_trigger,
-        4096,
-    );
+    let l0_slowdown_trigger =
+        env_i32_clamped("KANARI_DB_L0_SLOWDOWN_TRIGGER", 32, l0_compaction_trigger, 4096);
     let l0_stop_trigger =
         env_i32_clamped("KANARI_DB_L0_STOP_TRIGGER", 64, l0_slowdown_trigger, 8192);
     opts.set_max_write_buffer_number(max_write_buffers);
@@ -162,17 +145,12 @@ pub fn open_or_get_db(path_opt: Option<PathBuf>) -> Result<Arc<DB>> {
 
     // Serialize the final check/open step so two startup threads cannot race to
     // open RocksDB twice for the same directory.
-    let mut registry = OPEN_DATABASES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut registry = OPEN_DATABASES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     if let Some(db) = registry.get(&path).and_then(Weak::upgrade) {
         return Ok(db);
     }
     let db = DB::open(&opts, &path).map_err(|error| {
-        anyhow::anyhow!(
-            "Failed to open RocksDB for kanari at {}: {error:?}",
-            path.display()
-        )
+        anyhow::anyhow!("Failed to open RocksDB for kanari at {}: {error:?}", path.display())
     })?;
     let arc = Arc::new(db);
     registry.insert(path, Arc::downgrade(&arc));

@@ -49,11 +49,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         module_id: ModuleId,
         module_name: ModuleName,
     ) -> Self {
-        Self {
-            parent,
-            module_id,
-            module_name,
-        }
+        Self { parent, module_id, module_name }
     }
 
     /// Translates the given module definition from the Move compiler's expansion phase,
@@ -95,10 +91,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
 
     /// Qualifies the given symbol by the current module.
     pub fn qualified_by_module(&self, sym: Symbol) -> QualifiedSymbol {
-        QualifiedSymbol {
-            module_name: self.module_name.clone(),
-            symbol: sym,
-        }
+        QualifiedSymbol { module_name: self.module_name.clone(), symbol: sym }
     }
 
     /// Qualifies the given name by the current module.
@@ -132,10 +125,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     pub fn module_access_to_qualified(&self, access: &EA::ModuleAccess) -> QualifiedSymbol {
         let (module_name_opt, symbol) = self.module_access_to_parts(access);
         let module_name = module_name_opt.unwrap_or_else(|| self.module_name.clone());
-        QualifiedSymbol {
-            module_name,
-            symbol,
-        }
+        QualifiedSymbol { module_name, symbol }
     }
 }
 
@@ -145,17 +135,11 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         &mut self,
         attrs: &UniqueMap<T, EA::Attribute>,
     ) -> Vec<Attribute> {
-        attrs
-            .iter()
-            .map(|(_, _, attr)| self.translate_attribute(attr))
-            .collect()
+        attrs.iter().map(|(_, _, attr)| self.translate_attribute(attr)).collect()
     }
 
     pub fn translate_attribute(&mut self, attr: &EA::Attribute) -> Attribute {
-        let node_id = self
-            .parent
-            .env
-            .new_node(self.parent.to_loc(&attr.loc), Type::Tuple(vec![]));
+        let node_id = self.parent.env.new_node(self.parent.to_loc(&attr.loc), Type::Tuple(vec![]));
         match &attr.value {
             EA::Attribute_::Name(n) => {
                 let sym = self.symbol_pool().make(n.value.as_str());
@@ -166,10 +150,8 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 Attribute::Apply(node_id, sym, self.translate_attributes(vs))
             }
             EA::Attribute_::Assigned(n, v) => {
-                let value_node_id = self
-                    .parent
-                    .env
-                    .new_node(self.parent.to_loc(&v.loc), Type::Tuple(vec![]));
+                let value_node_id =
+                    self.parent.env.new_node(self.parent.to_loc(&v.loc), Type::Tuple(vec![]));
                 let v = match &v.value {
                     EA::AttributeValue_::Value(val) => {
                         let val =
@@ -200,8 +182,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                         );
                         let module_name = ModuleName::from_address_bytes_and_name(
                             addr_bytes,
-                            self.symbol_pool()
-                                .make(mident.value.module.0.value.as_str()),
+                            self.symbol_pool().make(mident.value.module.0.value.as_str()),
                         );
                         // TODO support module attributes more than via empty string
                         AttributeValue::Name(
@@ -223,8 +204,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                             );
                             let module_name = ModuleName::from_address_bytes_and_name(
                                 addr_bytes,
-                                self.symbol_pool()
-                                    .make(mident.value.module.0.value.as_str()),
+                                self.symbol_pool().make(mident.value.module.0.value.as_str()),
                             );
                             AttributeValue::Name(
                                 value_node_id,
@@ -272,10 +252,8 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         let qsym = self.qualified_by_module_from_name(&name.0);
         let name = qsym.symbol;
         let const_name = ConstantName(self.symbol_pool().string(name).to_string().into());
-        let const_idx = source_map
-            .constant_map
-            .get(&const_name)
-            .expect("constant not in source map");
+        let const_idx =
+            source_map.constant_map.get(&const_name).expect("constant not in source map");
         let move_value =
             Constant::deserialize_constant(&compiled_module.constant_pool()[*const_idx as usize])
                 .unwrap();
@@ -283,9 +261,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
         let loc = et.to_loc(&def.loc);
         let ty = et.translate_type(&def.signature);
         let value = et.translate_from_move_value(&loc, &ty, &move_value);
-        et.parent
-            .parent
-            .define_const(qsym, ConstEntry { loc, ty, value });
+        et.parent.parent.define_const(qsym, ConstEntry { loc, ty, value });
     }
 
     fn decl_ana_struct(&mut self, name: &PA::DatatypeName, def: &EA::StructDefinition) {
@@ -353,13 +329,8 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
 impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     fn def_ana_struct(&mut self, name: &PA::DatatypeName, def: &EA::StructDefinition) {
         let qsym = self.qualified_by_module_from_name(&name.0);
-        let type_params = self
-            .parent
-            .struct_table
-            .get(&qsym)
-            .expect("struct invalid")
-            .type_params
-            .clone();
+        let type_params =
+            self.parent.struct_table.get(&qsym).expect("struct invalid").type_params.clone();
         let mut et = ExpTranslator::new(self);
         let loc = et.to_loc(&name.0.loc);
         for (name, ty) in type_params {
@@ -387,11 +358,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
             }
             EA::StructFields::Native(_) => None,
         };
-        self.parent
-            .struct_table
-            .get_mut(&qsym)
-            .expect("struct invalid")
-            .fields = fields;
+        self.parent.struct_table.get_mut(&qsym).expect("struct invalid").fields = fields;
     }
 }
 
@@ -402,11 +369,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
     fn def_ana_fun(&mut self, name: &PA::FunctionName, body: &EA::FunctionBody) {
         if let EA::FunctionBody_::Defined(_) = &body.value {
             let full_name = self.qualified_by_module_from_name(&name.0);
-            let entry = self
-                .parent
-                .fun_table
-                .get(&full_name)
-                .expect("function defined");
+            let entry = self.parent.fun_table.get(&full_name).expect("function defined");
             let type_params = entry.type_params.clone();
             let params = entry.params.clone();
             let mut et = ExpTranslator::new(self);
@@ -509,9 +472,7 @@ impl<'env, 'translator> ModuleBuilder<'env, 'translator> {
                 let ConstEntry { loc, value, ty } = const_entry.clone();
                 (
                     NamedConstantId::new(name.symbol),
-                    self.parent
-                        .env
-                        .create_named_constant_data(name.symbol, loc, ty, value),
+                    self.parent.env.create_named_constant_data(name.symbol, loc, ty, value),
                 )
             })
             .collect();

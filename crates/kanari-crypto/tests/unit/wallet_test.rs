@@ -47,10 +47,7 @@ fn test_save_wallet_rejects_empty_password() {
     );
 
     assert!(result.is_err(), "Empty password should be rejected");
-    assert!(matches!(
-        result.unwrap_err(),
-        WalletError::EncryptionError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), WalletError::EncryptionError(_)));
 }
 
 #[test]
@@ -70,10 +67,9 @@ fn test_save_wallet_rejects_short_password() {
     assert!(result.is_err(), "Password < 8 chars should be rejected");
     match result.unwrap_err() {
         WalletError::EncryptionError(msg) => {
-            assert!(msg.contains(&format!(
-                "at least {} characters",
-                MIN_RECOMMENDED_PASSWORD_LENGTH
-            )));
+            assert!(
+                msg.contains(&format!("at least {} characters", MIN_RECOMMENDED_PASSWORD_LENGTH))
+            );
         }
         other => {
             panic!("Expected EncryptionError, got: {:?}", other);
@@ -92,14 +88,8 @@ fn test_save_wallet_accepts_minimum_length_password() {
 
     // This test would need proper filesystem mocking to work
     // For now, just verify the validation logic doesn't reject it
-    let result = save_wallet(
-        &address,
-        &keypair.private_key,
-        "test seed",
-        None,
-        password,
-        CurveType::K256,
-    );
+    let result =
+        save_wallet(&address, &keypair.private_key, "test seed", None, password, CurveType::K256);
 
     // May fail on filesystem operations, but shouldn't fail on validation
     if let Err(e) = result {
@@ -131,10 +121,7 @@ fn test_save_wallet_rejects_empty_private_key() {
     );
 
     assert!(result.is_err(), "Empty private key should be rejected");
-    assert!(matches!(
-        result.unwrap_err(),
-        WalletError::EncryptionError(_)
-    ));
+    assert!(matches!(result.unwrap_err(), WalletError::EncryptionError(_)));
 }
 
 // ============================================================================
@@ -174,10 +161,7 @@ fn test_wallet_sign_repairs_stale_hybrid_curve_metadata_by_address() {
         CurveType::Dilithium3,
     );
 
-    assert_eq!(
-        wallet.validated_signing_curve().unwrap(),
-        CurveType::Ed25519Dilithium3
-    );
+    assert_eq!(wallet.validated_signing_curve().unwrap(), CurveType::Ed25519Dilithium3);
     assert!(wallet.sign(b"hybrid wallet tx", "password").is_ok());
 }
 

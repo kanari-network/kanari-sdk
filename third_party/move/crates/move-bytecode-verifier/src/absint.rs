@@ -149,9 +149,7 @@ pub trait AbstractInterpreter: TransferFunctions {
                         // its pre
                         inv_map.insert(
                             *successor_block_id,
-                            BlockInvariant {
-                                pre: post_state.clone(),
-                            },
+                            BlockInvariant { pre: post_state.clone() },
                         );
                     }
                 }

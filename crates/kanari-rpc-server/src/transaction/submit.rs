@@ -7,16 +7,8 @@ use super::*;
 
 pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let is_upgrade = request.method == methods::UPGRADE_MODULE;
-    let action = if is_upgrade {
-        "upgrade_module"
-    } else {
-        "publish"
-    };
-    let failure = if is_upgrade {
-        "Module upgrade failed"
-    } else {
-        "Module publication failed"
-    };
+    let action = if is_upgrade { "upgrade_module" } else { "publish" };
+    let failure = if is_upgrade { "Module upgrade failed" } else { "Module publication failed" };
     let mut module_data: PublishModuleRequest =
         match parse_labeled_params(request.id, &request.params, "module data") {
             Ok(data) => data,
@@ -47,21 +39,13 @@ pub async fn handle_publish_module(state: &RpcServerState, request: &RpcRequest)
 
 pub async fn handle_publish_package(state: &RpcServerState, request: &RpcRequest) -> RpcResponse {
     let is_upgrade = request.method == methods::UPGRADE_PACKAGE;
-    let action = if is_upgrade {
-        "upgrade_package"
-    } else {
-        "publish_package"
-    };
+    let action = if is_upgrade { "upgrade_package" } else { "publish_package" };
     let empty = if is_upgrade {
         "Package upgrade requires at least one module"
     } else {
         "Package publish requires at least one module"
     };
-    let failure = if is_upgrade {
-        "Package upgrade failed"
-    } else {
-        "Package publication failed"
-    };
+    let failure = if is_upgrade { "Package upgrade failed" } else { "Package publication failed" };
     let mut package_data: PublishPackageRequest =
         match parse_labeled_params(request.id, &request.params, "package data") {
             Ok(data) => data,
@@ -252,10 +236,7 @@ fn submit_pending_response(
         Err(e) => RpcResponse {
             jsonrpc: "2.0".into(),
             result: None,
-            error: Some(transaction_error_with_reason(format!(
-                "{}: {}",
-                submit_error, e
-            ))),
+            error: Some(transaction_error_with_reason(format!("{}: {}", submit_error, e))),
             id: request_id,
         },
     }
@@ -266,10 +247,7 @@ async fn submit_after_immediate_execution(
     signed_tx: SignedTransaction,
     metadata: PendingTransactionMetadata,
 ) -> anyhow::Result<()> {
-    state
-        .engine
-        .submit_transactions_batch_with_metadata(vec![signed_tx], metadata)
-        .map(|_| ())
+    state.engine.submit_transactions_batch_with_metadata(vec![signed_tx], metadata).map(|_| ())
 }
 
 async fn execute_or_submit_response(
@@ -337,10 +315,7 @@ async fn execute_or_submit_response(
             }
             state.broadcast_submitted_transaction(tx_for_broadcast);
 
-            info!(
-                "{} previewed immediately & submitted pending: {}",
-                action, tx_hash_hex
-            );
+            info!("{} previewed immediately & submitted pending: {}", action, tx_hash_hex);
             respond_with_serialize(
                 request_id,
                 kanari_rpc_api::TransactionResult {
@@ -385,12 +360,7 @@ pub async fn handle_submit_object_transfer(
         Err(response) => return *response,
     };
 
-    if tx_data
-        .signature
-        .as_ref()
-        .map(|signature| signature.is_empty())
-        .unwrap_or(true)
-    {
+    if tx_data.signature.as_ref().map(|signature| signature.is_empty()).unwrap_or(true) {
         return invalid_params_response(request.id, "Missing or empty signature");
     }
 

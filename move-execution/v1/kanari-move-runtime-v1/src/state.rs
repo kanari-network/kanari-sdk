@@ -52,11 +52,7 @@ type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
 pub type PrecomputedSmtChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>, smt::SmtNodeOverlay);
-type DerivedIndexes = (
-    Vec<String>,
-    BTreeMap<AccountAddress, Vec<String>>,
-    Vec<String>,
-);
+type DerivedIndexes = (Vec<String>, BTreeMap<AccountAddress, Vec<String>>, Vec<String>);
 
 /// Owner state in the blockchain
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,12 +69,7 @@ pub struct OwnerState {
 impl OwnerState {
     /// Create a new empty owner state for the given address.
     pub fn new(address: AccountAddress) -> Self {
-        Self {
-            address,
-            nonce: 0,
-            modules: BTreeSet::new(),
-            token_balances: BTreeMap::new(),
-        }
+        Self { address, nonce: 0, modules: BTreeSet::new(), token_balances: BTreeMap::new() }
     }
 
     /// Create an owner state with a pre-set native token balance.
@@ -109,10 +100,7 @@ impl OwnerState {
 
     /// Get the balance for a specific token type.
     pub fn get_token_balance(&self, token_type: &str) -> u64 {
-        self.token_balances
-            .get(token_type)
-            .map(|b| b.value())
-            .unwrap_or(0)
+        self.token_balances.get(token_type).map(|b| b.value()).unwrap_or(0)
     }
 
     /// Get the native token balance for this owner.
@@ -238,10 +226,7 @@ impl StateManager {
             };
             if matches!(stored.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
                 owner_ids.insert(stored.owner.to_hex_literal());
-                owned_objects
-                    .entry(stored.owner)
-                    .or_default()
-                    .insert(object_id);
+                owned_objects.entry(stored.owner).or_default().insert(object_id);
             }
         }
 
@@ -303,10 +288,9 @@ impl StateManager {
 
     /// Retrieve NFT IDs for the specified collection.
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
-        self.try_get_collection_nft_ids(collection_id)
-            .unwrap_or_else(|error| {
-                Self::log_index_fallback(&format!("collection_members:{collection_id}"), error)
-            })
+        self.try_get_collection_nft_ids(collection_id).unwrap_or_else(|error| {
+            Self::log_index_fallback(&format!("collection_members:{collection_id}"), error)
+        })
     }
 
     fn log_index_fallback(index_name: &str, error: anyhow::Error) -> Vec<String> {
@@ -352,10 +336,7 @@ impl StateManager {
             return None;
         }
         let supply_bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
-        Some((
-            Self::normalize_token_type(&token_type),
-            u64::from_le_bytes(supply_bytes),
-        ))
+        Some((Self::normalize_token_type(&token_type), u64::from_le_bytes(supply_bytes)))
     }
 
     /// Create a new in-memory state manager for testing
@@ -386,9 +367,8 @@ impl StateManager {
     /// Create new state with genesis allocation and return initialization errors.
     pub fn try_new(store: Arc<PersistentStore>) -> Result<Self> {
         // Try to load total supply from DB
-        let persisted_total_supply_record = store
-            .load::<u64>(b"total_supply")
-            .context("Failed to load total_supply")?;
+        let persisted_total_supply_record =
+            store.load::<u64>(b"total_supply").context("Failed to load total_supply")?;
         let persisted_total_supply = persisted_total_supply_record.unwrap_or(0);
         let genesis_marker = store
             .load::<bool>(GENESIS_INITIALIZED_KEY)
@@ -404,9 +384,8 @@ impl StateManager {
             .load::<BTreeMap<Vec<u8>, u64>>(ACCESS_VERSIONS_KEY)
             .context("Failed to load state access versions")?
             .unwrap_or_default();
-        for (key, value) in store
-            .logical_entries()
-            .context("Failed to load per-key state access versions")?
+        for (key, value) in
+            store.logical_entries().context("Failed to load per-key state access versions")?
         {
             let Some(state_key) = key.strip_prefix(ACCESS_VERSION_PREFIX) else {
                 continue;
@@ -448,9 +427,7 @@ impl StateManager {
             genesis_marker || recovered_total_supply > 0 || legacy_zero_supply_evidence;
 
         // Initialize SMT if store is backed by RocksDB
-        let smt = store
-            .get_db()
-            .map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
+        let smt = store.get_db().map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
 
         let mut state = Self {
             store,
@@ -463,9 +440,7 @@ impl StateManager {
             access_epoch: 0,
         };
 
-        state
-            .ensure_smt_initialized()
-            .context("Failed to initialize state SMT")?;
+        state.ensure_smt_initialized().context("Failed to initialize state SMT")?;
 
         let mut metadata_migration_pending = false;
         if genesis_already_initialized && !genesis_marker {
@@ -483,9 +458,7 @@ impl StateManager {
         }
 
         if metadata_migration_pending {
-            state
-                .commit()
-                .context("Failed to persist state initialization metadata")?;
+            state.commit().context("Failed to persist state initialization metadata")?;
         }
 
         // Genesis identity is explicit. Supply is protocol state and may legitimately be zero.
@@ -529,65 +502,44 @@ impl StateManager {
             drop(genesis_guard);
         }
 
-        state
-            .migrate_runtime_state_schema()
-            .context("Failed to migrate runtime state schema")?;
+        state.migrate_runtime_state_schema().context("Failed to migrate runtime state schema")?;
 
         if state
             .repair_derived_indexes_on_startup()
             .context("Failed to rebuild derived indexes on startup")?
         {
-            state
-                .commit()
-                .context("Failed to persist rebuilt derived indexes on startup")?;
+            state.commit().context("Failed to persist rebuilt derived indexes on startup")?;
         }
 
-        let wallet_supply_index_version = state
-            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
-            .unwrap_or(0);
+        let wallet_supply_index_version =
+            state.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?.unwrap_or(0);
         if wallet_supply_index_version < WALLET_SUPPLY_INDEX_VERSION
             && state
                 .repair_legacy_native_wallet_overcount()
                 .context("Failed to repair native wallet supply on startup")?
         {
-            state
-                .commit()
-                .context("Failed to persist repaired native wallet supply on startup")?;
+            state.commit().context("Failed to persist repaired native wallet supply on startup")?;
         }
 
-        if state
-            .ensure_wallet_supply_index()
-            .context("Failed to initialize wallet supply index")?
-        {
-            state
-                .commit()
-                .context("Failed to persist wallet supply index")?;
+        if state.ensure_wallet_supply_index().context("Failed to initialize wallet supply index")? {
+            state.commit().context("Failed to persist wallet supply index")?;
         }
 
-        if state
-            .ensure_token_holders_index()
-            .context("Failed to initialize token holders index")?
-        {
-            state
-                .commit()
-                .context("Failed to persist token holders index")?;
+        if state.ensure_token_holders_index().context("Failed to initialize token holders index")? {
+            state.commit().context("Failed to persist token holders index")?;
         }
 
         if let Err(e) = state.validate_supply_invariants() {
             Self::report_supply_invariant_violation("on startup", &e)?;
         }
 
-        state
-            .ensure_smt_consistent()
-            .context("Failed to verify state SMT")?;
+        state.ensure_smt_consistent().context("Failed to verify state SMT")?;
 
         Ok(state)
     }
 
     fn migrate_runtime_state_schema(&mut self) -> Result<()> {
-        let persisted = self
-            .load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?
-            .unwrap_or(0);
+        let persisted = self.load_internal::<u32>(RUNTIME_STATE_SCHEMA_KEY)?.unwrap_or(0);
         ensure!(
             persisted <= RUNTIME_STATE_SCHEMA_VERSION,
             "State database schema {} is newer than runtime schema {}",
@@ -637,10 +589,7 @@ impl StateManager {
     }
 
     fn ensure_smt_consistent(&self) -> Result<()> {
-        ensure!(
-            self.overlay.is_empty(),
-            "Cannot verify SMT with a pending overlay"
-        );
+        ensure!(self.overlay.is_empty(), "Cannot verify SMT with a pending overlay");
         self.repair_persisted_smt().map(|_| ())
     }
 
@@ -655,10 +604,7 @@ impl StateManager {
         if smt.root_hash()? != expected {
             log::warn!("Persisted SMT is stale; rebuilding canonical state tree");
             smt.rebuild(&entries)?;
-            ensure!(
-                smt.root_hash()? == expected,
-                "SMT rebuild produced wrong root"
-            );
+            ensure!(smt.root_hash()? == expected, "SMT rebuild produced wrong root");
             return Ok(true);
         }
         Ok(false)
@@ -670,10 +616,7 @@ impl StateManager {
         let Some(smt) = &self.smt else {
             return Ok(());
         };
-        ensure!(
-            self.overlay.is_empty(),
-            "Cannot audit SMT with a pending overlay"
-        );
+        ensure!(self.overlay.is_empty(), "Cannot audit SMT with a pending overlay");
         let entries = self.canonical_persisted_entries()?;
         let mut mismatches = Vec::new();
         for (key, expected) in &entries {
@@ -698,10 +641,8 @@ impl StateManager {
         );
         let expected_root = smt::compute_sparse_root(&entries);
         let stale_known_keys = if smt.persisted_leaf_count()? > entries.len() {
-            let canonical_keys = entries
-                .iter()
-                .map(|(key, _)| key.as_slice())
-                .collect::<HashSet<_>>();
+            let canonical_keys =
+                entries.iter().map(|(key, _)| key.as_slice()).collect::<HashSet<_>>();
             let mut stale_keys = Vec::new();
             for (key, _) in self
                 .store
@@ -755,11 +696,8 @@ impl StateManager {
     pub fn smt_diagnostics(&self, audit: bool) -> Result<SmtDiagnostics> {
         let (updates, deletes) = self.smt_changes_from_overlay()?;
         let enabled = self.smt.is_some();
-        let persisted_root = self
-            .smt
-            .as_ref()
-            .map(|tree| tree.root_hash().map(hex::encode))
-            .transpose()?;
+        let persisted_root =
+            self.smt.as_ref().map(|tree| tree.root_hash().map(hex::encode)).transpose()?;
 
         let mut persisted_leaf_count = None;
         let mut consistent = None;
@@ -767,11 +705,8 @@ impl StateManager {
         let audit_performed = audit && enabled;
 
         if audit_performed {
-            persisted_leaf_count = self
-                .smt
-                .as_ref()
-                .map(|tree| tree.persisted_leaf_count())
-                .transpose()?;
+            persisted_leaf_count =
+                self.smt.as_ref().map(|tree| tree.persisted_leaf_count()).transpose()?;
             match self.validate_smt_consistency() {
                 Ok(()) => consistent = Some(true),
                 Err(error) => {
@@ -831,10 +766,7 @@ impl StateManager {
             .collect::<BTreeSet<_>>();
 
         for owner in indexed_owners {
-            let expected_ids = expected_owned_objects
-                .get(&owner)
-                .cloned()
-                .unwrap_or_default();
+            let expected_ids = expected_owned_objects.get(&owner).cloned().unwrap_or_default();
             let key = owned_objects_key(&owner);
             let current_ids = self.load_index_list(&key)?;
             if current_ids != expected_ids {
@@ -865,9 +797,8 @@ impl StateManager {
         verified_root: &[u8],
         smt_changes: Option<PrecomputedSmtChanges>,
     ) -> Result<()> {
-        let root: [u8; 32] = verified_root
-            .try_into()
-            .context("Verified state root must be 32 bytes")?;
+        let root: [u8; 32] =
+            verified_root.try_into().context("Verified state root must be 32 bytes")?;
         self.commit_with_raw_updates_and_root(updates, deletes, Some(root), smt_changes)
     }
 
@@ -1014,12 +945,7 @@ impl StateManager {
             .reads
             .iter()
             .chain(access.writes.iter())
-            .map(|key| {
-                (
-                    key.clone(),
-                    self.access_versions.get(key).copied().unwrap_or(0),
-                )
-            })
+            .map(|key| (key.clone(), self.access_versions.get(key).copied().unwrap_or(0)))
             .collect()
     }
 
@@ -1051,10 +977,8 @@ impl StateManager {
             .map(|value| !matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
             .unwrap_or(true);
         if !access.writes.is_empty() {
-            self.access_epoch = self
-                .access_epoch
-                .checked_add(1)
-                .context("State access epoch overflow")?;
+            self.access_epoch =
+                self.access_epoch.checked_add(1).context("State access epoch overflow")?;
         }
         for key in &access.writes {
             let next = self
@@ -1134,10 +1058,7 @@ impl StateManager {
                 );
             } else if key.starts_with(b"owned_objects:") {
                 let object_ids = bcs::from_bytes::<Vec<String>>(value).with_context(|| {
-                    format!(
-                        "Malformed owned-object index {:?}",
-                        String::from_utf8_lossy(key)
-                    )
+                    format!("Malformed owned-object index {:?}", String::from_utf8_lossy(key))
                 })?;
                 canonical_object_keys.extend(
                     object_ids
@@ -1243,10 +1164,8 @@ impl StateManager {
         // Object membership in the canonical root is driven by owned_objects
         // indexes. An index can drop/add an unchanged object without placing
         // that object's bytes in the overlay, so derive those leaf deltas too.
-        for (index_key, value_opt) in self
-            .overlay
-            .iter()
-            .filter(|(key, _)| key.starts_with(b"owned_objects:"))
+        for (index_key, value_opt) in
+            self.overlay.iter().filter(|(key, _)| key.starts_with(b"owned_objects:"))
         {
             let old_ids = self
                 .store
@@ -1283,10 +1202,7 @@ impl StateManager {
 
         updates.sort_by(|left, right| left.0.cmp(&right.0));
         updates.dedup_by(|left, right| left.0 == right.0);
-        let updated_keys = updates
-            .iter()
-            .map(|(key, _)| key.as_slice())
-            .collect::<HashSet<_>>();
+        let updated_keys = updates.iter().map(|(key, _)| key.as_slice()).collect::<HashSet<_>>();
         deletes.retain(|key| !updated_keys.contains(key.as_slice()));
         deletes.sort();
         deletes.dedup();
@@ -1381,9 +1297,7 @@ impl StateManager {
     }
 
     fn load_owner_state_or_default(&self, address: AccountAddress) -> Result<OwnerState> {
-        Ok(self
-            .load_owner_state(&address)?
-            .unwrap_or_else(|| OwnerState::new(address)))
+        Ok(self.load_owner_state(&address)?.unwrap_or_else(|| OwnerState::new(address)))
     }
 
     /// Load the persisted owner state for the given address.
@@ -1393,8 +1307,7 @@ impl StateManager {
 
     fn save_owner_state_without_supply_index(&mut self, owner_state: &OwnerState) -> Result<()> {
         if owner_state.is_empty() {
-            self.overlay
-                .insert(Self::owner_state_key(&owner_state.address), None);
+            self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
             self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())
         } else {
             self.save_owner_record(owner_state)?;
@@ -1409,16 +1322,9 @@ impl StateManager {
             .map(|state| state.token_balances)
             .unwrap_or_default();
         self.save_owner_state_without_supply_index(owner_state)?;
-        let old_native = old_balances
-            .get(GAS_COIN)
-            .map(|balance| balance.value())
-            .unwrap_or(0);
+        let old_native = old_balances.get(GAS_COIN).map(|balance| balance.value()).unwrap_or(0);
         let new_native = owner_state.native_balance();
-        let cached_native = self
-            .global_token_supplies
-            .get(GAS_COIN)
-            .copied()
-            .unwrap_or(0);
+        let cached_native = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
         let projected_native =
             u128::from(cached_native.saturating_sub(old_native)) + u128::from(new_native);
         let update_supply_index =
@@ -1500,12 +1406,8 @@ impl StateManager {
             return Ok(None);
         };
         let normalized_id = canonical_object_id(&stored_id).unwrap_or(stored_id.clone());
-        let uid = AccountAddress::from_hex_literal(&normalized_id)
-            .ok()
-            .map(UIDRecord::new);
-        let id = AccountAddress::from_hex_literal(&normalized_id)
-            .ok()
-            .map(IDRecord::new);
+        let uid = AccountAddress::from_hex_literal(&normalized_id).ok().map(UIDRecord::new);
+        let id = AccountAddress::from_hex_literal(&normalized_id).ok().map(IDRecord::new);
 
         Ok(Some(CreatedObject {
             owner: stored.owner,
@@ -1582,8 +1484,7 @@ impl StateManager {
 
     /// Compute a canonical root and propagate storage/index corruption to the caller.
     pub fn try_compute_state_root(&self) -> Result<Vec<u8>> {
-        self.try_compute_state_root_with_smt_changes()
-            .map(|(root, _)| root)
+        self.try_compute_state_root_with_smt_changes().map(|(root, _)| root)
     }
 
     /// Compute a canonical root and return reusable SMT overlay deltas when the

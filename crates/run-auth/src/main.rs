@@ -53,10 +53,7 @@ fn build_router(state: AppState, cors: CorsLayer, client_ip_source: ClientIpSour
         // User management
         .route("/api/v1/user/info", get(handlers::get_user_info))
         // SECURITY FIX #5: Changed from GET to POST for encrypted key retrieval (requires session validation)
-        .route(
-            "/api/v1/user/encrypted-key",
-            post(handlers::get_user_encrypted_key),
-        )
+        .route("/api/v1/user/encrypted-key", post(handlers::get_user_encrypted_key))
         // Session validation
         .route("/api/v1/session/validate", get(handlers::validate_session))
         // Two-Factor Authentication routes
@@ -95,10 +92,7 @@ fn is_trusted_https_request(
     let peer_is_trusted = peer_ip.is_loopback()
         || trusted_proxy_ips.is_some_and(|trusted| {
             trusted.split(',').any(|candidate| {
-                candidate
-                    .trim()
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip == peer_ip)
+                candidate.trim().parse::<std::net::IpAddr>().is_ok_and(|ip| ip == peer_ip)
             })
         });
     let forwarded_https = forwarded_proto
@@ -119,10 +113,7 @@ async fn enforce_https(request: Request<Body>, next: Next) -> Response {
         .map(|peer| {
             is_trusted_https_request(
                 peer.0.ip(),
-                request
-                    .headers()
-                    .get("x-forwarded-proto")
-                    .and_then(|value| value.to_str().ok()),
+                request.headers().get("x-forwarded-proto").and_then(|value| value.to_str().ok()),
                 trusted_proxy_ips.as_deref(),
             )
         })
@@ -230,9 +221,8 @@ async fn main() -> anyhow::Result<()> {
     let app = build_router(state, cors, client_ip_source);
 
     // Get port from environment or default to 3000
-    let port = std::env::var("AUTH_API_PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()?;
+    let port =
+        std::env::var("AUTH_API_PORT").unwrap_or_else(|_| "3000".to_string()).parse::<u16>()?;
 
     let bind_address = std::env::var("AUTH_BIND_ADDRESS")
         .or_else(|_| std::env::var("AUTH_HOST"))
@@ -246,11 +236,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Kanari Auth API listening on {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }
@@ -269,10 +255,7 @@ mod security_tests {
     const TEST_PASSWORD: &str = "SecurePass123!";
 
     fn unique_test_dir(name: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         std::env::temp_dir().join(format!("kanari-run-auth-{name}-{unique}"))
     }
 
@@ -303,21 +286,15 @@ mod security_tests {
         let addr = listener.local_addr().unwrap();
         let app = test_app();
         let handle = tokio::spawn(async move {
-            axum::serve(
-                listener,
-                app.into_make_service_with_connect_info::<SocketAddr>(),
-            )
-            .await
-            .unwrap();
+            axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+                .await
+                .unwrap();
         });
         (format!("http://{addr}"), handle)
     }
 
     fn unique_email(label: &str) -> String {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         format!("{label}-{unique}@example.com")
     }
 
@@ -329,9 +306,7 @@ mod security_tests {
             .header("x-forwarded-proto", "https")
             .body(body.into())
             .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
+        request.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
         request
     }
 
@@ -343,9 +318,7 @@ mod security_tests {
             .header("x-forwarded-proto", "https")
             .body(Body::empty())
             .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
+        request.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
         request
     }
 
@@ -360,20 +333,12 @@ mod security_tests {
 
     #[test]
     fn direct_http_is_rejected() {
-        assert!(!is_trusted_https_request(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            None,
-            None,
-        ));
+        assert!(!is_trusted_https_request(IpAddr::V4(Ipv4Addr::LOCALHOST), None, None,));
     }
 
     #[test]
     fn loopback_https_proxy_is_trusted() {
-        assert!(is_trusted_https_request(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            Some("https"),
-            None,
-        ));
+        assert!(is_trusted_https_request(IpAddr::V4(Ipv4Addr::LOCALHOST), Some("https"), None,));
     }
 
     #[test]
@@ -437,11 +402,7 @@ mod security_tests {
         .to_string();
         let (status, register_json) = json_response(
             app.clone()
-                .oneshot(secure_json_request(
-                    "POST",
-                    "/api/v1/register",
-                    register_body,
-                ))
+                .oneshot(secure_json_request("POST", "/api/v1/register", register_body))
                 .await
                 .unwrap(),
         )
@@ -469,11 +430,7 @@ mod security_tests {
 
         let (status, validate_json) = json_response(
             app.clone()
-                .oneshot(secure_auth_request(
-                    "GET",
-                    "/api/v1/session/validate",
-                    session_id,
-                ))
+                .oneshot(secure_auth_request("GET", "/api/v1/session/validate", session_id))
                 .await
                 .unwrap(),
         )
@@ -492,13 +449,9 @@ mod security_tests {
         assert_eq!(status, StatusCode::OK, "{logout_json}");
 
         let (status, replay_json) = json_response(
-            app.oneshot(secure_auth_request(
-                "GET",
-                "/api/v1/session/validate",
-                session_id,
-            ))
-            .await
-            .unwrap(),
+            app.oneshot(secure_auth_request("GET", "/api/v1/session/validate", session_id))
+                .await
+                .unwrap(),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{replay_json}");
@@ -515,24 +468,17 @@ mod security_tests {
         })
         .to_string();
 
-        let response = app
-            .oneshot(secure_json_request("POST", "/api/v1/register", body))
-            .await
-            .unwrap();
+        let response =
+            app.oneshot(secure_json_request("POST", "/api/v1/register", body)).await.unwrap();
         assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]
     async fn e2e_rejects_direct_http_request() {
         let app = test_app();
-        let mut request = Request::builder()
-            .method("GET")
-            .uri("/health")
-            .body(Body::empty())
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
+        let mut request =
+            Request::builder().method("GET").uri("/health").body(Body::empty()).unwrap();
+        request.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 49152))));
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
@@ -542,10 +488,7 @@ mod security_tests {
     async fn e2e_trusted_proxy_rate_limit_uses_forwarded_client_ip() {
         let app = test_app_with_config(
             ClientIpSource::XRealIp,
-            rate_limiter::RateLimitConfig {
-                max_requests: 2,
-                interval_secs: 60,
-            },
+            rate_limiter::RateLimitConfig { max_requests: 2, interval_secs: 60 },
         );
 
         for i in 0..2 {
@@ -556,9 +499,7 @@ mod security_tests {
             })
             .to_string();
             let mut request = secure_json_request("POST", "/api/v1/register", body);
-            request
-                .headers_mut()
-                .insert("x-real-ip", HeaderValue::from_static("203.0.113.10"));
+            request.headers_mut().insert("x-real-ip", HeaderValue::from_static("203.0.113.10"));
             let response = app.clone().oneshot(request).await.unwrap();
             assert_ne!(response.status(), StatusCode::TOO_MANY_REQUESTS);
         }
@@ -570,9 +511,7 @@ mod security_tests {
         })
         .to_string();
         let mut request = secure_json_request("POST", "/api/v1/register", body);
-        request
-            .headers_mut()
-            .insert("x-real-ip", HeaderValue::from_static("203.0.113.10"));
+        request.headers_mut().insert("x-real-ip", HeaderValue::from_static("203.0.113.10"));
         assert_eq!(
             app.clone().oneshot(request).await.unwrap().status(),
             StatusCode::TOO_MANY_REQUESTS
@@ -585,13 +524,8 @@ mod security_tests {
         })
         .to_string();
         let mut request = secure_json_request("POST", "/api/v1/register", body);
-        request
-            .headers_mut()
-            .insert("x-real-ip", HeaderValue::from_static("203.0.113.11"));
-        assert_eq!(
-            app.oneshot(request).await.unwrap().status(),
-            StatusCode::CREATED
-        );
+        request.headers_mut().insert("x-real-ip", HeaderValue::from_static("203.0.113.11"));
+        assert_eq!(app.oneshot(request).await.unwrap().status(), StatusCode::CREATED);
     }
 
     #[tokio::test]

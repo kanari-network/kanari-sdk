@@ -31,10 +31,7 @@ impl WalletInfo {
 
         eprintln!("Cryptography:");
         eprintln!("   Algorithm: {}", wallet.curve_type);
-        eprintln!(
-            "   Security Level: {}/5",
-            wallet.curve_type.security_level()
-        );
+        eprintln!("   Security Level: {}/5", wallet.curve_type.security_level());
 
         if wallet.curve_type.is_post_quantum() {
             if wallet.curve_type.is_hybrid() {

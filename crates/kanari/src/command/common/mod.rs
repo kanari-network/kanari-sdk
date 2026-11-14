@@ -87,9 +87,7 @@ pub fn load_wallet_for(
 ) -> Result<kanari_crypto::wallet::Wallet> {
     let password = password_opt
         .or_else(|| {
-            std::env::var("KANARI_WALLET_PASSWORD")
-                .ok()
-                .filter(|password| !password.is_empty())
+            std::env::var("KANARI_WALLET_PASSWORD").ok().filter(|password| !password.is_empty())
         })
         .map(Ok)
         .unwrap_or_else(|| rpassword::prompt_password("Wallet password: "))

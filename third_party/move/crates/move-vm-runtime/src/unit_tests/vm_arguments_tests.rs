@@ -35,11 +35,7 @@ fn make_module_with_function(
 ) -> (CompiledModule, Identifier) {
     let function_name = Identifier::new("foo").unwrap();
     let mut signatures = vec![Signature(vec![])];
-    let parameters_idx = match signatures
-        .iter()
-        .enumerate()
-        .find(|(_, s)| *s == &parameters)
-    {
+    let parameters_idx = match signatures.iter().enumerate().find(|(_, s)| *s == &parameters) {
         Some((idx, _)) => SignatureIndex(idx as TableIndex),
         None => {
             signatures.push(parameters);
@@ -114,13 +110,7 @@ fn make_module_with_function(
 
 // make a script function with a given signature for main.
 fn make_script_function(signature: Signature) -> (CompiledModule, Identifier) {
-    make_module_with_function(
-        Visibility::Public,
-        true,
-        signature,
-        Signature(vec![]),
-        vec![],
-    )
+    make_module_with_function(Visibility::Public, true, signature, Signature(vec![]), vec![])
 }
 
 struct RemoteStore {
@@ -129,9 +119,7 @@ struct RemoteStore {
 
 impl RemoteStore {
     fn new() -> Self {
-        Self {
-            modules: HashMap::new(),
-        }
+        Self { modules: HashMap::new() }
     }
 
     fn add_module(&mut self, compiled_module: CompiledModule) {
@@ -189,10 +177,8 @@ fn call_script_function_with_args_ty_args_signers(
     remote_view.add_module(module);
     let mut session = move_vm.new_session(&remote_view);
 
-    let ty_args = ty_arg_tags
-        .into_iter()
-        .map(|tag| session.load_type(&tag))
-        .collect::<VMResult<_>>()?;
+    let ty_args =
+        ty_arg_tags.into_iter().map(|tag| session.load_type(&tag)).collect::<VMResult<_>>()?;
 
     session.execute_function_bypass_visibility(
         &id,
@@ -245,21 +231,15 @@ fn deprecated_bad_signatures() -> Vec<Signature> {
             SignatureToken::U64,
         ]),
         // reference to vector in signature
-        Signature(vec![SignatureToken::Reference(Box::new(
-            SignatureToken::Vector(Box::new(SignatureToken::Struct(StructHandleIndex(0)))),
-        ))]),
+        Signature(vec![SignatureToken::Reference(Box::new(SignatureToken::Vector(Box::new(
+            SignatureToken::Struct(StructHandleIndex(0)),
+        ))))]),
         // reference to vector in signature
-        Signature(vec![SignatureToken::Reference(Box::new(
-            SignatureToken::U64,
-        ))]),
+        Signature(vec![SignatureToken::Reference(Box::new(SignatureToken::U64))]),
         // `&Signer` in signature (not `Signer`)
-        Signature(vec![SignatureToken::Reference(Box::new(
-            SignatureToken::Signer,
-        ))]),
+        Signature(vec![SignatureToken::Reference(Box::new(SignatureToken::Signer))]),
         // vector of `Signer` in signature
-        Signature(vec![SignatureToken::Vector(Box::new(
-            SignatureToken::Signer,
-        ))]),
+        Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Signer))]),
         // `Signer` ref not first arg
         Signature(vec![SignatureToken::Bool, SignatureToken::Signer]),
     ]
@@ -268,34 +248,19 @@ fn deprecated_bad_signatures() -> Vec<Signature> {
 fn good_signatures_and_arguments() -> Vec<(Signature, Vec<MoveValue>)> {
     vec![
         // U128 arg
-        (
-            Signature(vec![SignatureToken::U128]),
-            vec![MoveValue::U128(0)],
-        ),
+        (Signature(vec![SignatureToken::U128]), vec![MoveValue::U128(0)]),
         // U8 arg
         (Signature(vec![SignatureToken::U8]), vec![MoveValue::U8(0)]),
         // U16 arg
-        (
-            Signature(vec![SignatureToken::U16]),
-            vec![MoveValue::U16(0)],
-        ),
+        (Signature(vec![SignatureToken::U16]), vec![MoveValue::U16(0)]),
         // U32 arg
-        (
-            Signature(vec![SignatureToken::U32]),
-            vec![MoveValue::U32(0)],
-        ),
+        (Signature(vec![SignatureToken::U32]), vec![MoveValue::U32(0)]),
         // U256 arg
-        (
-            Signature(vec![SignatureToken::U256]),
-            vec![MoveValue::U256(U256::zero())],
-        ),
+        (Signature(vec![SignatureToken::U256]), vec![MoveValue::U256(U256::zero())]),
         // All constants
         (
             Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Bool))]),
-            vec![MoveValue::Vector(vec![
-                MoveValue::Bool(false),
-                MoveValue::Bool(true),
-            ])],
+            vec![MoveValue::Vector(vec![MoveValue::Bool(false), MoveValue::Bool(true)])],
         ),
         // All constants
         (
@@ -343,25 +308,17 @@ fn good_signatures_and_arguments() -> Vec<(Signature, Vec<MoveValue>)> {
         //
         // empty vector
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Address,
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Address))]),
             vec![MoveValue::Vector(vec![])],
         ),
         // one elem vector
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Address,
-            ))]),
-            vec![MoveValue::Vector(vec![MoveValue::Address(
-                AccountAddress::random(),
-            )])],
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Address))]),
+            vec![MoveValue::Vector(vec![MoveValue::Address(AccountAddress::random())])],
         ),
         // multiple elems vector
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Address,
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Address))]),
             vec![MoveValue::Vector(vec![
                 MoveValue::Address(AccountAddress::random()),
                 MoveValue::Address(AccountAddress::random()),
@@ -372,16 +329,16 @@ fn good_signatures_and_arguments() -> Vec<(Signature, Vec<MoveValue>)> {
         ),
         // empty vector of vector
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Vector(Box::new(SignatureToken::U8)),
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Vector(Box::new(
+                SignatureToken::U8,
+            ))))]),
             vec![MoveValue::Vector(vec![])],
         ),
         // multiple element vector of vector
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Vector(Box::new(SignatureToken::U8)),
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Vector(Box::new(
+                SignatureToken::U8,
+            ))))]),
             vec![MoveValue::Vector(vec![
                 MoveValue::vector_u8(vec![0, 1]),
                 MoveValue::vector_u8(vec![2, 3]),
@@ -394,54 +351,37 @@ fn good_signatures_and_arguments() -> Vec<(Signature, Vec<MoveValue>)> {
 fn mismatched_cases() -> Vec<(Signature, Vec<MoveValue>, StatusCode)> {
     vec![
         // Too few args
-        (
-            Signature(vec![SignatureToken::U64]),
-            vec![],
-            StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
-        ),
+        (Signature(vec![SignatureToken::U64]), vec![], StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH),
         // Too many args
         (
             Signature(vec![SignatureToken::Bool]),
-            vec![
-                MoveValue::Bool(false),
-                MoveValue::Bool(false),
-                MoveValue::Bool(false),
-            ],
+            vec![MoveValue::Bool(false), MoveValue::Bool(false), MoveValue::Bool(false)],
             StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
         ),
         // Vec<bool> passed for vec<address>
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Address,
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Address))]),
             vec![MoveValue::Vector(vec![MoveValue::Bool(true)])],
             StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
         ),
         // u128 passed for vec<address>
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Address,
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Address))]),
             vec![MoveValue::U128(12)],
             StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
         ),
         // u8 passed for vector<vector<u8>>
         (
-            Signature(vec![SignatureToken::Vector(Box::new(
-                SignatureToken::Vector(Box::new(SignatureToken::U8)),
-            ))]),
+            Signature(vec![SignatureToken::Vector(Box::new(SignatureToken::Vector(Box::new(
+                SignatureToken::U8,
+            ))))]),
             vec![MoveValue::U8(12)],
             StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
         ),
     ]
 }
 
-fn general_cases() -> Vec<(
-    Signature,
-    Vec<MoveValue>,
-    Vec<AccountAddress>,
-    Option<StatusCode>,
-)> {
+fn general_cases() -> Vec<(Signature, Vec<MoveValue>, Vec<AccountAddress>, Option<StatusCode>)> {
     vec![
         // too few signers (0)
         (
@@ -461,11 +401,7 @@ fn general_cases() -> Vec<(
         (
             Signature(vec![SignatureToken::Signer, SignatureToken::Signer]),
             vec![],
-            vec![
-                AccountAddress::random(),
-                AccountAddress::random(),
-                AccountAddress::random(),
-            ],
+            vec![AccountAddress::random(), AccountAddress::random(), AccountAddress::random()],
             Some(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH),
         ),
         // correct number of signers (2)
@@ -484,15 +420,8 @@ fn general_cases() -> Vec<(
         ),
         // signer
         (
-            Signature(vec![
-                SignatureToken::Signer,
-                SignatureToken::Bool,
-                SignatureToken::Address,
-            ]),
-            vec![
-                MoveValue::Bool(false),
-                MoveValue::Address(AccountAddress::random()),
-            ],
+            Signature(vec![SignatureToken::Signer, SignatureToken::Bool, SignatureToken::Address]),
+            vec![MoveValue::Bool(false), MoveValue::Address(AccountAddress::random())],
             vec![AccountAddress::random()],
             None,
         ),
@@ -652,9 +581,6 @@ fn call_missing_item() {
         )
         .err()
         .unwrap();
-    assert_eq!(
-        error.major_status(),
-        StatusCode::FUNCTION_RESOLUTION_FAILURE
-    );
+    assert_eq!(error.major_status(), StatusCode::FUNCTION_RESOLUTION_FAILURE);
     assert_eq!(error.status_type(), StatusType::Verification);
 }

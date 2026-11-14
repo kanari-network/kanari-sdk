@@ -25,23 +25,11 @@ pub fn modules(
 ) {
     let mut definers = BTreeMap::new();
     for (mident, m) in modules.key_cloned_iter() {
-        check_prim_definer(
-            env,
-            /* allow shadowing */ false,
-            &mut definers,
-            mident,
-            m,
-        )
+        check_prim_definer(env, /* allow shadowing */ false, &mut definers, mident, m)
     }
     if let Some(pre_compiled_lib) = pre_compiled_lib_opt {
         for (mident, m) in pre_compiled_lib.expansion.modules.key_cloned_iter() {
-            check_prim_definer(
-                env,
-                /* allow shadowing */ true,
-                &mut definers,
-                mident,
-                m,
-            )
+            check_prim_definer(env, /* allow shadowing */ true, &mut definers, mident, m)
         }
     }
     env.set_primitive_type_definers(definers)
@@ -54,9 +42,7 @@ fn check_prim_definer(
     mident: ModuleIdent,
     m: &ModuleDefinition,
 ) {
-    let defines_prim_attr = m
-        .attributes
-        .get_(&KnownAttribute::DefinesPrimitive(DefinesPrimitive));
+    let defines_prim_attr = m.attributes.get_(&KnownAttribute::DefinesPrimitive(DefinesPrimitive));
     let Some(sp!(attr_loc, attr_)) = defines_prim_attr else {
         return;
     };

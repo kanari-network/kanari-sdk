@@ -41,11 +41,7 @@ pub enum NativeEcdsaHash {
 impl NativeEcdsaHash {
     #[must_use]
     pub const fn from_move_selector(hash_type: u8) -> Self {
-        if hash_type == 0 {
-            Self::Keccak256
-        } else {
-            Self::Sha256
-        }
+        if hash_type == 0 { Self::Keccak256 } else { Self::Sha256 }
     }
 }
 
@@ -109,14 +105,11 @@ pub fn recover_secp256k1_public_key(
 
     let recoverable_sig = SecpRecoverableSignature::from_compact(&sig64, rec_id)
         .map_err(|_| NativeCryptoError::InvalidRecovery)?;
-    let msg32: [u8; 32] = msg_hash
-        .try_into()
-        .map_err(|_| NativeCryptoError::InvalidMessage)?;
+    let msg32: [u8; 32] = msg_hash.try_into().map_err(|_| NativeCryptoError::InvalidMessage)?;
     let message = SecpMessage::from_digest(msg32);
 
-    let public_key = recoverable_sig
-        .recover_ecdsa(message)
-        .map_err(|_| NativeCryptoError::InvalidRecovery)?;
+    let public_key =
+        recoverable_sig.recover_ecdsa(message).map_err(|_| NativeCryptoError::InvalidRecovery)?;
     Ok(public_key.serialize().to_vec())
 }
 
@@ -146,15 +139,11 @@ pub fn verify_secp256k1_schnorr_native(
     signature: &[u8],
     msg: &[u8],
 ) -> Result<bool, NativeCryptoError> {
-    let msg32: [u8; 32] = msg
-        .try_into()
-        .map_err(|_| NativeCryptoError::InvalidMessage)?;
-    let public_key: [u8; 32] = public_key
-        .try_into()
-        .map_err(|_| NativeCryptoError::InvalidXOnlyPublicKey)?;
-    let signature: [u8; 64] = signature
-        .try_into()
-        .map_err(|_| NativeCryptoError::InvalidSchnorrSignature)?;
+    let msg32: [u8; 32] = msg.try_into().map_err(|_| NativeCryptoError::InvalidMessage)?;
+    let public_key: [u8; 32] =
+        public_key.try_into().map_err(|_| NativeCryptoError::InvalidXOnlyPublicKey)?;
+    let signature: [u8; 64] =
+        signature.try_into().map_err(|_| NativeCryptoError::InvalidSchnorrSignature)?;
 
     let public_key = XOnlyPublicKey::from_byte_array(public_key)
         .map_err(|_| NativeCryptoError::InvalidXOnlyPublicKey)?;
@@ -172,9 +161,7 @@ pub fn verify_p256_sha256_native(
         .map_err(|_| NativeCryptoError::InvalidPublicKey)?;
     let signature = parse_p256_signature(signature)?;
     let msg_hash = Sha256::digest(msg);
-    Ok(verifying_key
-        .verify_prehash(msg_hash.as_slice(), &signature)
-        .is_ok())
+    Ok(verifying_key.verify_prehash(msg_hash.as_slice(), &signature).is_ok())
 }
 
 #[must_use]
@@ -250,11 +237,7 @@ fn parse_k256_signature(signature: &[u8]) -> Result<K256Signature, NativeCryptoE
         return Ok(signature);
     }
 
-    let sig_bytes = if signature.len() == 65 {
-        &signature[..64]
-    } else {
-        signature
-    };
+    let sig_bytes = if signature.len() == 65 { &signature[..64] } else { signature };
     K256Signature::try_from(sig_bytes).map_err(|_| NativeCryptoError::InvalidSignature)
 }
 
@@ -263,10 +246,6 @@ fn parse_p256_signature(signature: &[u8]) -> Result<P256Signature, NativeCryptoE
         return Ok(signature);
     }
 
-    let sig_bytes = if signature.len() == 65 {
-        &signature[..64]
-    } else {
-        signature
-    };
+    let sig_bytes = if signature.len() == 65 { &signature[..64] } else { signature };
     P256Signature::try_from(sig_bytes).map_err(|_| NativeCryptoError::InvalidSignature)
 }

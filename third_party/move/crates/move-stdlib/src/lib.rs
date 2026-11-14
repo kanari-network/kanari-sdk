@@ -107,16 +107,8 @@ pub fn build_stdlib_doc(output_path: &str) {
     build_doc(
         output_path,
         "",
-        vec![
-            path_in_crate(OVERVIEW_TEMPLATE)
-                .to_string_lossy()
-                .to_string(),
-        ],
-        Some(
-            path_in_crate(REFERENCES_TEMPLATE)
-                .to_string_lossy()
-                .to_string(),
-        ),
+        vec![path_in_crate(OVERVIEW_TEMPLATE).to_string_lossy().to_string()],
+        Some(path_in_crate(REFERENCES_TEMPLATE).to_string_lossy().to_string()),
         move_stdlib_files().as_slice(),
         vec![],
         false,

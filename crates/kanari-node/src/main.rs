@@ -205,9 +205,7 @@ enum Commands {
 }
 
 fn runtime() -> Result<tokio::runtime::Runtime> {
-    Ok(tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?)
+    Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
 }
 
 fn validate_start_authority_config(
@@ -290,11 +288,7 @@ fn write_consensus_key_files(
 
     write_json_pretty_atomically(&public_keys_path, &public_keys)?;
 
-    tracing::info!(
-        "Generated {} consensus key(s) in {}",
-        node_count,
-        output_dir.display()
-    );
+    tracing::info!("Generated {} consensus key(s) in {}", node_count, output_dir.display());
     Ok(())
 }
 
@@ -304,18 +298,12 @@ fn encrypt_existing_consensus_key(
     force: bool,
 ) -> Result<()> {
     if output.exists() && !force {
-        anyhow::bail!(
-            "{} already exists; pass --force to overwrite it",
-            output.display()
-        );
+        anyhow::bail!("{} already exists; pass --force to overwrite it", output.display());
     }
     let private_seed = Zeroizing::new(std::fs::read_to_string(input)?);
     let private_seed = Zeroizing::new(private_seed.trim().to_string());
-    let _decoded = Zeroizing::new(decode_hex_exact(
-        "consensus private key seed",
-        &private_seed,
-        32,
-    )?);
+    let _decoded =
+        Zeroizing::new(decode_hex_exact("consensus private key seed", &private_seed, 32)?);
     let password =
         Zeroizing::new(std::env::var("KANARI_CONSENSUS_KEY_PASSWORD").map_err(|_| {
             anyhow::anyhow!("KANARI_CONSENSUS_KEY_PASSWORD is required to encrypt a consensus key")
@@ -331,31 +319,17 @@ fn encrypt_existing_consensus_key(
 
 fn main() -> Result<()> {
     // Initialize tracing subscriber first so all commands have log output
-    tracing_subscriber::fmt()
-        .with_ansi(true)
-        .with_level(true)
-        .with_target(true)
-        .compact()
-        .init();
+    tracing_subscriber::fmt().with_ansi(true).with_level(true).with_target(true).compact().init();
 
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::ConsensusKeygen {
-            node_count,
-            output_dir,
-            force,
-        } => write_consensus_key_files(node_count, &output_dir, force),
-        Commands::ConsensusKeyEncrypt {
-            input,
-            output,
-            force,
-        } => {
+        Commands::ConsensusKeygen { node_count, output_dir, force } => {
+            write_consensus_key_files(node_count, &output_dir, force)
+        }
+        Commands::ConsensusKeyEncrypt { input, output, force } => {
             encrypt_existing_consensus_key(&input, &output, force)?;
-            write_cli_line(format_args!(
-                "Encrypted consensus key written to {}",
-                output.display()
-            ))
+            write_cli_line(format_args!("Encrypted consensus key written to {}", output.display()))
         }
         Commands::Start {
             network,
@@ -377,24 +351,13 @@ fn main() -> Result<()> {
                 .as_deref()
                 .map(|id| format!("Kanari Node {}", id))
                 .unwrap_or_else(|| "Kanari Node".to_string());
-            print_boot_banner(
-                &node_label,
-                &network,
-                p2p_port,
-                rpc_port,
-                &rpc_host,
-                &data_dir_path,
-            );
+            print_boot_banner(&node_label, &network, p2p_port, rpc_port, &rpc_host, &data_dir_path);
             let mut engine = create_engine_with_genesis(&data_dir, &network, genesis.as_deref())?;
             info!("Engine initialized. Configuring authority and consensus keys");
 
             let id = authority_id.invariant("validated authority_id must exist");
             let auths = authorities.invariant("validated authorities must exist");
-            tracing::info!(
-                "Configuring Authority ID: {} with {} authorities",
-                id,
-                auths.len()
-            );
+            tracing::info!("Configuring Authority ID: {} with {} authorities", id, auths.len());
             engine.set_authorities(id, auths);
             configure_consensus_signing_key(
                 &mut engine,
@@ -414,24 +377,12 @@ fn main() -> Result<()> {
                 bootstrap,
             ))
         }
-        Commands::GenesisExport {
-            network,
-            data_dir,
-            output,
-        } => {
+        Commands::GenesisExport { network, data_dir, output } => {
             let engine = create_engine(&data_dir, &network)?;
             engine.write_genesis_manifest(&output, network.as_str())?;
-            write_cli_line(format_args!(
-                "Genesis manifest written to {}",
-                output.display()
-            ))
+            write_cli_line(format_args!("Genesis manifest written to {}", output.display()))
         }
-        Commands::SnapshotExport {
-            network,
-            data_dir,
-            output,
-            allow_state_root_migration,
-        } => {
+        Commands::SnapshotExport { network, data_dir, output, allow_state_root_migration } => {
             let engine = create_engine_required(&data_dir, &network)?;
             let snapshot = engine.export_state_snapshot_with_options(
                 &output,
@@ -445,12 +396,7 @@ fn main() -> Result<()> {
                 snapshot.state_root
             ))
         }
-        Commands::SnapshotImport {
-            network,
-            snapshot,
-            data_dir,
-            expected_checkpoint_hash,
-        } => {
+        Commands::SnapshotImport { network, snapshot, data_dir, expected_checkpoint_hash } => {
             let imported = match expected_checkpoint_hash.as_deref() {
                 Some(expected) => kanari_core::BlockchainEngine::import_state_snapshot(
                     &snapshot,
@@ -506,12 +452,7 @@ fn main() -> Result<()> {
                 summary.included_files
             ))
         }
-        Commands::ValidatorBackupImport {
-            network,
-            backup,
-            data_dir,
-            recovery_dir,
-        } => {
+        Commands::ValidatorBackupImport { network, backup, data_dir, recovery_dir } => {
             let summary =
                 import_validator_backup(&backup, network.as_str(), &data_dir, &recovery_dir)?;
             write_cli_line(format_args!(

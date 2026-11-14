@@ -44,11 +44,7 @@ pub(super) fn resolve_syntax_attributes(
 
     let syntax_method_prekinds = resolve_syntax_method_prekind(context.env, attr)?;
 
-    if !context.env.check_feature(
-        context.current_package,
-        FeatureGate::SyntaxMethods,
-        attr_loc,
-    ) {
+    if !context.env.check_feature(context.current_package, FeatureGate::SyntaxMethods, attr_loc) {
         return None;
     }
 
@@ -97,12 +93,7 @@ pub(super) fn resolve_syntax_attributes(
             assert!(context.env.has_errors());
             continue;
         };
-        if !valid_return_type(
-            context,
-            &kind,
-            param_ty.loc,
-            &function.signature.return_type,
-        ) {
+        if !valid_return_type(context, &kind, param_ty.loc, &function.signature.return_type) {
             assert!(context.env.has_errors());
             continue;
         } else {
@@ -134,16 +125,9 @@ fn prev_syntax_defn_error(
         SyntaxMethodKind_::Index => format!("'{}'", SyntaxAttribute::INDEX),
         SyntaxMethodKind_::IndexMut => format!("mutable '{}'", SyntaxAttribute::INDEX),
     };
-    let msg = format!(
-        "Redefined {} 'syntax' method for '{}'",
-        kind_string, type_name
-    );
+    let msg = format!("Redefined {} 'syntax' method for '{}'", kind_string, type_name);
     let prev_msg = "This syntax method was previously defined here.";
-    context.env.add_diag(diag!(
-        Declarations::InvalidAttribute,
-        (sloc, msg),
-        (prev.loc, prev_msg)
-    ));
+    context.env.add_diag(diag!(Declarations::InvalidAttribute, (sloc, msg), (prev.loc, prev_msg)));
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -245,9 +229,7 @@ fn determine_valid_kind(
         }
         SyntaxMethodPrekind_::For => {
             let msg = "'for' syntax attributes are not currently supported";
-            context
-                .env
-                .add_diag(diag!(Declarations::InvalidAttribute, (sloc, msg),));
+            context.env.add_diag(diag!(Declarations::InvalidAttribute, (sloc, msg),));
             return None;
         }
         // SyntaxMethodPrekind_::For => match mut_opt {
@@ -257,9 +239,7 @@ fn determine_valid_kind(
         // },
         SyntaxMethodPrekind_::Assign => {
             let msg = "'assign' syntax attributes are not currently supported";
-            context
-                .env
-                .add_diag(diag!(Declarations::InvalidAttribute, (sloc, msg),));
+            context.env.add_diag(diag!(Declarations::InvalidAttribute, (sloc, msg),));
             return None;
         } // SyntaxMethodPrekind_::Assign => match mut_opt {
           //     Some((loc, true)) => SK::Assign,
@@ -479,9 +459,7 @@ fn get_first_type(
             "Invalid attribute. {} is only valid if the function takes at least one parameter",
             SyntaxAttribute::SYNTAX
         );
-        context
-            .env
-            .add_diag(diag!(Declarations::InvalidAttribute, (*attr_loc, msg)));
+        context.env.add_diag(diag!(Declarations::InvalidAttribute, (*attr_loc, msg)));
         None
     }
 }

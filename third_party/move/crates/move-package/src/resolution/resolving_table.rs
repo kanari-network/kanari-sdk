@@ -39,10 +39,7 @@ impl Default for ResolvingTable {
 impl ResolvingTable {
     /// A fresh `ResolvingTable` with no bindings.
     pub fn new() -> ResolvingTable {
-        ResolvingTable {
-            assignments: Vec::new(),
-            redirection: BTreeMap::new(),
-        }
+        ResolvingTable { assignments: Vec::new(), redirection: BTreeMap::new() }
     }
 
     /// Iterates over the bindings in this table that are within `pkg`'s scope.

@@ -204,12 +204,12 @@ pub trait TypingVisitorContext {
                 self.visit_exp(e1);
                 self.visit_exp(e2);
             }
-            E::Pack(_, _, _, fields) => fields
-                .iter_mut()
-                .for_each(|(_, _, (_, (_, e)))| self.visit_exp(e)),
-            E::PackVariant(_, _, _, _, fields) => fields
-                .iter_mut()
-                .for_each(|(_, _, (_, (_, e)))| self.visit_exp(e)),
+            E::Pack(_, _, _, fields) => {
+                fields.iter_mut().for_each(|(_, _, (_, (_, e)))| self.visit_exp(e))
+            }
+            E::PackVariant(_, _, _, _, fields) => {
+                fields.iter_mut().for_each(|(_, _, (_, (_, e)))| self.visit_exp(e))
+            }
             E::ExpList(list) => {
                 for l in list {
                     match l {

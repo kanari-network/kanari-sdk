@@ -340,6 +340,7 @@ Returns the collection id stored in an <code><a href="collection.md#0x2_collecti
 
 ## Function `collection_creator`
 
+Returns the creator address of the collection.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_collection_creator">collection_creator</a>(c: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>): <b>address</b>
@@ -364,6 +365,7 @@ Returns the collection id stored in an <code><a href="collection.md#0x2_collecti
 
 ## Function `max_supply`
 
+Returns the maximum supply of the collection.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_max_supply">max_supply</a>(c: &<a href="collection.md#0x2_collection_Collection">collection::Collection</a>): u64
@@ -430,6 +432,7 @@ Taking the shared object by address is what makes it durable.
 
 ## Function `remaining`
 
+Returns the number of remaining (unminted) NFTs.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_remaining">remaining</a>(cap: &<a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>): u64
@@ -454,6 +457,7 @@ Taking the shared object by address is what makes it durable.
 
 ## Function `issued`
 
+Returns the number of issued NFTs.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_issued">issued</a>(cap: &<a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>): u64
@@ -587,6 +591,7 @@ Transfer helpers using <code><a href="transfer.md#0x2_transfer_public_transfer">
 
 ## Function `transfer_cap`
 
+Transfers collection capability to a new address.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="collection.md#0x2_collection_transfer_cap">transfer_cap</a>(cap: <a href="collection.md#0x2_collection_NftCap">collection::NftCap</a>, recipient: <b>address</b>, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)

@@ -55,9 +55,7 @@ fn write_output(path: &Path, buf: &[u8]) {
     let mut f = fs::File::create(path)
         .with_context(|| format!("Unable to open output file {:?}", path))
         .unwrap();
-    f.write_all(buf)
-        .with_context(|| format!("Unable to write to output file {:?}", path))
-        .unwrap();
+    f.write_all(buf).with_context(|| format!("Unable to write to output file {:?}", path)).unwrap();
 }
 
 fn main() {
@@ -67,14 +65,9 @@ fn main() {
     let mvir_extension = MOVE_IR_EXTENSION;
     let mv_extension = MOVE_COMPILED_EXTENSION;
     let source_map_extension = SOURCE_MAP_EXTENSION;
-    let extension = source_path
-        .extension()
-        .expect("Missing file extension for input source file");
+    let extension = source_path.extension().expect("Missing file extension for input source file");
     if extension != mvir_extension {
-        println!(
-            "Bad source file extension {:?}; expected {}",
-            extension, mvir_extension
-        );
+        println!("Bad source file extension {:?}; expected {}", extension, mvir_extension);
         std::process::exit(1);
     }
 
@@ -119,15 +112,10 @@ fn main() {
     if args.output_source_maps {
         let source_map_bytes =
             bcs::to_bytes(&source_map).expect("Unable to serialize source maps for module");
-        write_output(
-            &source_path.with_extension(source_map_extension),
-            &source_map_bytes,
-        );
+        write_output(&source_path.with_extension(source_map_extension), &source_map_bytes);
     }
 
     let mut module = vec![];
-    compiled_module
-        .serialize(&mut module)
-        .expect("Unable to serialize module");
+    compiled_module.serialize(&mut module).expect("Unable to serialize module");
     write_output(&source_path.with_extension(mv_extension), &module);
 }

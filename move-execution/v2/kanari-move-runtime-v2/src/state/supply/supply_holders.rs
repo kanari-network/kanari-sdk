@@ -25,13 +25,7 @@ impl StateManager {
     ) -> u64 {
         balances
             .get(token_type)
-            .or_else(|| {
-                if normalized != token_type {
-                    balances.get(normalized)
-                } else {
-                    None
-                }
-            })
+            .or_else(|| if normalized != token_type { balances.get(normalized) } else { None })
             .map(|b| b.value())
             .unwrap_or(0)
     }
@@ -50,9 +44,7 @@ impl StateManager {
     /// Whether the holders index is built. Read paths use this to decide
     /// between the index and a full scan.
     pub fn token_holder_index_ready(&self) -> Result<bool> {
-        Ok(self
-            .load_internal::<u32>(Self::TOKEN_HOLDERS_INDEX_VERSION_KEY)?
-            .unwrap_or(0)
+        Ok(self.load_internal::<u32>(Self::TOKEN_HOLDERS_INDEX_VERSION_KEY)?.unwrap_or(0)
             == Self::TOKEN_HOLDERS_INDEX_VERSION)
     }
 

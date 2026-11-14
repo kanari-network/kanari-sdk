@@ -38,9 +38,7 @@ pub fn execute_production_path(
 ) -> Result<(CheckpointProductionInfo, f64, f64)> {
     let chunk_size = production_chunk_size(signed_txs.len());
     let mut chunks = signed_txs.chunks(chunk_size);
-    let first_chunk = chunks
-        .next()
-        .context("No transactions supplied to production benchmark")?;
+    let first_chunk = chunks.next().context("No transactions supplied to production benchmark")?;
     let mut submit_secs = submit_chunk(engine, first_chunk)?;
     let mut produce_secs = 0.0;
     let mut aggregate: Option<CheckpointProductionInfo> = None;
@@ -77,9 +75,8 @@ pub fn execute_owned_fast_path(
 ) -> Result<(CheckpointProductionInfo, f64, f64)> {
     let chunk_size = production_chunk_size(signed_txs.len());
     let mut chunks = signed_txs.chunks(chunk_size);
-    let first_chunk = chunks
-        .next()
-        .context("No transactions supplied to owned-fastpath benchmark")?;
+    let first_chunk =
+        chunks.next().context("No transactions supplied to owned-fastpath benchmark")?;
     let mut submit_secs = submit_chunk(engine, first_chunk)?;
     let mut produce_secs = 0.0;
     let mut aggregate: Option<CheckpointProductionInfo> = None;

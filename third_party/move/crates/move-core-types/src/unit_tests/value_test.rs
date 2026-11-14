@@ -27,10 +27,7 @@ fn struct_deserialization() {
 
     // test each deserialization scheme
     let runtime_value = R::MoveStruct(values);
-    assert_eq!(
-        serde_json::to_value(runtime_value).unwrap(),
-        json!([7, true])
-    );
+    assert_eq!(serde_json::to_value(runtime_value).unwrap(), json!([7, true]));
 
     let typed_value = A::MoveStruct::new(struct_type, field_values);
     assert_eq!(
@@ -59,10 +56,7 @@ fn struct_formatted_display() {
 
     // test each deserialization scheme
     let runtime_value = R::MoveStruct(values);
-    assert_eq!(
-        serde_json::to_value(runtime_value).unwrap(),
-        json!([7, true])
-    );
+    assert_eq!(serde_json::to_value(runtime_value).unwrap(), json!([7, true]));
 
     let typed_value = A::MoveStruct::new(struct_type, field_values);
     assert_eq!(
@@ -88,24 +82,14 @@ fn struct_one_field_equiv_value() {
         R::MoveValue::U8(13),
         R::MoveValue::U8(99),
     ]);
-    let s1 = R::MoveValue::Struct(R::MoveStruct(vec![val.clone()]))
-        .simple_serialize()
-        .unwrap();
+    let s1 = R::MoveValue::Struct(R::MoveStruct(vec![val.clone()])).simple_serialize().unwrap();
     let s2 = val.simple_serialize().unwrap();
     assert_eq!(s1, s2);
 
     let utf8_str = "çå∞≠¢õß∂ƒ∫";
-    let vec_u8 = R::MoveValue::Vector(
-        utf8_str
-            .as_bytes()
-            .iter()
-            .map(|c| R::MoveValue::U8(*c))
-            .collect(),
-    );
-    assert_eq!(
-        bcs::to_bytes(utf8_str).unwrap(),
-        vec_u8.simple_serialize().unwrap()
-    )
+    let vec_u8 =
+        R::MoveValue::Vector(utf8_str.as_bytes().iter().map(|c| R::MoveValue::U8(*c)).collect());
+    assert_eq!(bcs::to_bytes(utf8_str).unwrap(), vec_u8.simple_serialize().unwrap())
 }
 
 #[test]

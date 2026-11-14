@@ -34,11 +34,7 @@ pub struct IndexerConfig {
 
 impl Default for IndexerConfig {
     fn default() -> Self {
-        Self {
-            db_path: PathBuf::from("kanari_indexer.db"),
-            in_memory: false,
-            batch_size: 100,
-        }
+        Self { db_path: PathBuf::from("kanari_indexer.db"), in_memory: false, batch_size: 100 }
     }
 }
 
@@ -50,13 +46,7 @@ pub struct Indexer {
 
 impl Indexer {
     fn extract_native_transfer(transaction: &Transaction) -> Option<(String, u64)> {
-        let Transaction::ExecuteFunction {
-            module,
-            function,
-            args,
-            ..
-        } = transaction
-        else {
+        let Transaction::ExecuteFunction { module, function, args, .. } = transaction else {
             return None;
         };
 
@@ -68,9 +58,7 @@ impl Indexer {
         }
 
         let amount = bcs::from_bytes::<u64>(&args[1]).ok()?;
-        let recipient = KanariAddress::try_from(args[2].as_slice())
-            .ok()?
-            .to_hex_literal();
+        let recipient = KanariAddress::try_from(args[2].as_slice()).ok()?.to_hex_literal();
         Some((recipient, amount))
     }
 
@@ -100,9 +88,7 @@ impl Indexer {
             return None;
         }
 
-        let token_type = KanariAddress::try_from(&event_data[0..32])
-            .ok()?
-            .to_hex_literal();
+        let token_type = KanariAddress::try_from(&event_data[0..32]).ok()?.to_hex_literal();
         let amount = u64::from_le_bytes(event_data[32..40].try_into().ok()?);
         let action_byte = event_data[40];
 
@@ -117,26 +103,19 @@ impl Indexer {
         let (sender, recipient, owner) = match action_byte {
             1 => {
                 // Minted: recipient only (no sender, owner)
-                let recipient = KanariAddress::try_from(&event_data[41..73])
-                    .ok()?
-                    .to_hex_literal();
+                let recipient = KanariAddress::try_from(&event_data[41..73]).ok()?.to_hex_literal();
                 (None, Some(recipient), None)
             }
             2 => {
                 // Burned: owner only
-                let owner = KanariAddress::try_from(&event_data[41..73])
-                    .ok()?
-                    .to_hex_literal();
+                let owner = KanariAddress::try_from(&event_data[41..73]).ok()?.to_hex_literal();
                 (None, None, Some(owner))
             }
             3 => {
                 // Transferred: sender + recipient
-                let sender = KanariAddress::try_from(&event_data[41..73])
-                    .ok()?
-                    .to_hex_literal();
-                let recipient = KanariAddress::try_from(&event_data[73..105])
-                    .ok()?
-                    .to_hex_literal();
+                let sender = KanariAddress::try_from(&event_data[41..73]).ok()?.to_hex_literal();
+                let recipient =
+                    KanariAddress::try_from(&event_data[73..105]).ok()?.to_hex_literal();
                 (Some(sender), Some(recipient), None)
             }
             _ => (None, None, None),
@@ -158,11 +137,7 @@ impl Indexer {
             if event_data.len() < timestamp_offset + 8 {
                 return None;
             }
-            u64::from_le_bytes(
-                event_data[timestamp_offset..timestamp_offset + 8]
-                    .try_into()
-                    .ok()?,
-            )
+            u64::from_le_bytes(event_data[timestamp_offset..timestamp_offset + 8].try_into().ok()?)
         } else {
             0
         };
@@ -198,15 +173,9 @@ impl Indexer {
             return None;
         }
 
-        let object_id = KanariAddress::try_from(&event_data[0..32])
-            .ok()?
-            .to_hex_literal();
-        let creator = KanariAddress::try_from(&event_data[32..64])
-            .ok()?
-            .to_hex_literal();
-        let collection_id = KanariAddress::try_from(&event_data[64..96])
-            .ok()?
-            .to_hex_literal();
+        let object_id = KanariAddress::try_from(&event_data[0..32]).ok()?.to_hex_literal();
+        let creator = KanariAddress::try_from(&event_data[32..64]).ok()?.to_hex_literal();
+        let collection_id = KanariAddress::try_from(&event_data[64..96]).ok()?.to_hex_literal();
 
         Some(IndexedKrc721Event {
             id: 0,
@@ -235,10 +204,9 @@ impl Indexer {
             if let Some(parsed) =
                 Self::parse_krc_1155_event(&event.event_data, tx_hash, block_height)
             {
-                self.db.upsert_krc_1155_event(&parsed).context(format!(
-                    "Failed to insert KRC-1155 event for tx {:?}",
-                    tx_hash
-                ))?;
+                self.db
+                    .upsert_krc_1155_event(&parsed)
+                    .context(format!("Failed to insert KRC-1155 event for tx {:?}", tx_hash))?;
                 count += 1;
             }
         }
@@ -260,10 +228,9 @@ impl Indexer {
             if let Some(parsed) =
                 Self::parse_krc_721_mint_event(&event.event_data, tx_hash, block_height)
             {
-                self.db.upsert_krc_721_event(&parsed).context(format!(
-                    "Failed to insert KRC-721 event for tx {:?}",
-                    tx_hash
-                ))?;
+                self.db
+                    .upsert_krc_721_event(&parsed)
+                    .context(format!("Failed to insert KRC-721 event for tx {:?}", tx_hash))?;
                 count += 1;
             }
         }
@@ -307,10 +274,7 @@ impl Indexer {
         if !block.transactions.is_empty() {
             self.db
                 .insert_transactions(height, &block.transactions)
-                .context(format!(
-                    "Failed to insert transactions for block {}",
-                    height
-                ))?;
+                .context(format!("Failed to insert transactions for block {}", height))?;
 
             // Index coins from transactions
             for signed_tx in &block.transactions {
@@ -479,10 +443,7 @@ mod tests {
 
     #[test]
     fn test_create_indexer_in_memory() {
-        let config = IndexerConfig {
-            in_memory: true,
-            ..Default::default()
-        };
+        let config = IndexerConfig { in_memory: true, ..Default::default() };
 
         let indexer = Indexer::new(config).unwrap();
         assert_eq!(indexer.db().get_latest_height().unwrap(), 0);
@@ -490,10 +451,7 @@ mod tests {
 
     #[test]
     fn test_index_statistics() {
-        let config = IndexerConfig {
-            in_memory: true,
-            ..Default::default()
-        };
+        let config = IndexerConfig { in_memory: true, ..Default::default() };
 
         let indexer = Indexer::new(config).unwrap();
         let stats = indexer.get_statistics().unwrap();

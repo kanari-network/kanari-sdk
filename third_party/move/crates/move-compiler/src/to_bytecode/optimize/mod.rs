@@ -40,11 +40,7 @@ pub(crate) fn code(
         }
 
         // reset the count if something has changed
-        if optimization(f, loop_heads, locals, blocks) {
-            count = 0
-        } else {
-            count += 1
-        }
+        if optimization(f, loop_heads, locals, blocks) { count = 0 } else { count += 1 }
     }
 }
 

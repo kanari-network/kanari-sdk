@@ -58,10 +58,7 @@ pub struct U256CastError {
 
 impl U256CastError {
     pub fn new<T: std::convert::Into<U256>>(val: T, kind: U256CastErrorKind) -> Self {
-        Self {
-            kind,
-            val: val.into(),
-        }
+        Self { kind, val: val.into() }
     }
 }
 
@@ -127,9 +124,7 @@ impl<'de> Deserialize<'de> for U256 {
     where
         D: Deserializer<'de>,
     {
-        Ok(U256::from_le_bytes(
-            &(<[u8; U256_NUM_BYTES]>::deserialize(deserializer)?),
-        ))
+        Ok(U256::from_le_bytes(&(<[u8; U256_NUM_BYTES]>::deserialize(deserializer)?)))
     }
 }
 
@@ -609,11 +604,7 @@ impl UniformSampler for UniformU256 {
             U256::zero()
         };
 
-        Ok(UniformU256 {
-            low,
-            range,
-            z: ints_to_reject,
-        })
+        Ok(UniformU256 { low, range, z: ints_to_reject })
     }
 
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Self::X {

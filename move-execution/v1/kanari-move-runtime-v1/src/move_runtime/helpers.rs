@@ -150,9 +150,7 @@ impl super::MoveRuntime {
     ) -> anyhow::Result<()> {
         use kanari_system_natives::object::LoadedObjectsExt;
 
-        let loaded_ext = session
-            .get_native_extensions()
-            .get_mut::<LoadedObjectsExt>();
+        let loaded_ext = session.get_native_extensions().get_mut::<LoadedObjectsExt>();
         for arg in args {
             if arg.is_empty() || arg.len() > 32 {
                 continue;

@@ -24,11 +24,8 @@ fn run(
     ty_arg_tags: Vec<TypeTag>,
     args: Vec<MoveValue>,
 ) -> VMResult<()> {
-    let ty_params = ty_params
-        .iter()
-        .map(|var| format!("{}: copy + drop", var))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let ty_params =
+        ty_params.iter().map(|var| format!("{}: copy + drop", var)).collect::<Vec<_>>().join(", ");
     let params = params
         .iter()
         .enumerate()
@@ -62,15 +59,10 @@ fn run(
 
     let fun_name = Identifier::new("foo").unwrap();
 
-    let ty_args: Vec<_> = ty_arg_tags
-        .into_iter()
-        .map(|tag| sess.load_type(&tag))
-        .collect::<VMResult<_>>()?;
+    let ty_args: Vec<_> =
+        ty_arg_tags.into_iter().map(|tag| sess.load_type(&tag)).collect::<VMResult<_>>()?;
 
-    let args: Vec<_> = args
-        .into_iter()
-        .map(|val| val.simple_serialize().unwrap())
-        .collect();
+    let args: Vec<_> = args.into_iter().map(|val| val.simple_serialize().unwrap()).collect();
 
     sess.execute_function_bypass_visibility(
         &module_id,
@@ -94,12 +86,7 @@ fn expect_err_generic(
     args: Vec<MoveValue>,
     expected_status: StatusCode,
 ) {
-    assert!(
-        run(ty_params, params, ty_args, args)
-            .unwrap_err()
-            .major_status()
-            == expected_status
-    );
+    assert!(run(ty_params, params, ty_args, args).unwrap_err().major_status() == expected_status);
 }
 
 fn expect_ok(params: &[&str], args: Vec<MoveValue>) {
@@ -122,11 +109,7 @@ fn expected_0_args_got_0() {
 
 #[test]
 fn expected_0_args_got_1() {
-    expect_err(
-        &[],
-        vec![MoveValue::U64(0)],
-        StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
-    )
+    expect_err(&[], vec![MoveValue::U64(0)], StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
 }
 
 #[test]
@@ -136,22 +119,14 @@ fn expected_1_arg_got_0() {
 
 #[test]
 fn expected_2_arg_got_1() {
-    expect_err(
-        &["u64", "bool"],
-        vec![MoveValue::U64(0)],
-        StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
-    )
+    expect_err(&["u64", "bool"], vec![MoveValue::U64(0)], StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH)
 }
 
 #[test]
 fn expected_2_arg_got_3() {
     expect_err(
         &["u64", "bool"],
-        vec![
-            MoveValue::U64(0),
-            MoveValue::Bool(true),
-            MoveValue::Bool(false),
-        ],
+        vec![MoveValue::U64(0), MoveValue::Bool(true), MoveValue::Bool(false)],
         StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
     )
 }
@@ -164,10 +139,7 @@ fn expected_u64_got_u64() {
 #[test]
 #[allow(non_snake_case)]
 fn expected_Foo_got_Foo() {
-    expect_ok(
-        &["Foo"],
-        vec![MoveValue::Struct(MoveStruct::new(vec![MoveValue::U64(0)]))],
-    )
+    expect_ok(&["Foo"], vec![MoveValue::Struct(MoveStruct::new(vec![MoveValue::U64(0)]))])
 }
 
 #[test]
@@ -177,19 +149,12 @@ fn expected_signer_ref_got_signer() {
 
 #[test]
 fn expected_u64_signer_ref_got_u64_signer() {
-    expect_ok(
-        &["u64", "&signer"],
-        vec![MoveValue::U64(0), MoveValue::Signer(TEST_ADDR)],
-    )
+    expect_ok(&["u64", "&signer"], vec![MoveValue::U64(0), MoveValue::Signer(TEST_ADDR)])
 }
 
 #[test]
 fn expected_u64_got_bool() {
-    expect_err(
-        &["u64"],
-        vec![MoveValue::Bool(false)],
-        StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT,
-    )
+    expect_err(&["u64"], vec![MoveValue::Bool(false)], StatusCode::FAILED_TO_DESERIALIZE_ARGUMENT)
 }
 
 #[test]
@@ -243,21 +208,14 @@ fn expected_T__Bar_T_got_bool__Bar_bool() {
         &["T"],
         &["Bar<T>"],
         vec![TypeTag::Bool],
-        vec![MoveValue::Struct(MoveStruct::new(vec![MoveValue::Bool(
-            false,
-        )]))],
+        vec![MoveValue::Struct(MoveStruct::new(vec![MoveValue::Bool(false)]))],
     )
 }
 
 #[test]
 #[allow(non_snake_case)]
 fn expected_T__T_got_bool__bool() {
-    expect_ok_generic(
-        &["T"],
-        &["T"],
-        vec![TypeTag::Bool],
-        vec![MoveValue::Bool(false)],
-    )
+    expect_ok_generic(&["T"], &["T"], vec![TypeTag::Bool], vec![MoveValue::Bool(false)])
 }
 
 #[test]

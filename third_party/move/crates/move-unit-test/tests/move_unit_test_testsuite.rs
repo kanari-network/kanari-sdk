@@ -45,18 +45,13 @@ fn run_test_impl(path: &Path) -> anyhow::Result<()> {
             .into_iter()
             .map(|path| path.replace('\\', "/"))
             .collect(),
-        named_address_values: move_stdlib::move_stdlib_named_addresses()
-            .into_iter()
-            .collect(),
+        named_address_values: move_stdlib::move_stdlib_named_addresses().into_iter().collect(),
         report_stacktrace_on_abort: true,
 
         ..UnitTestingConfig::default_with_bound(None)
     };
 
-    let regex = RegexBuilder::new(r"(┌─ ).+/([^/]+)$")
-        .multi_line(true)
-        .build()
-        .unwrap();
+    let regex = RegexBuilder::new(r"(┌─ ).+/([^/]+)$").multi_line(true).build().unwrap();
 
     for ((buffer, _), exp_path) in run_test_with_modifiers(unit_test_config, path)? {
         let base_output = String::from_utf8(buffer)?;

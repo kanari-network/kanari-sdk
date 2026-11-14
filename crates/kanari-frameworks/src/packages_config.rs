@@ -20,11 +20,7 @@ impl PackageConfig {
 
     /// Get dependencies for this package
     pub fn get_dependencies(&self) -> Vec<&'static str> {
-        if self.is_stdlib() {
-            Vec::new()
-        } else {
-            vec!["move-stdlib"]
-        }
+        if self.is_stdlib() { Vec::new() } else { vec!["move-stdlib"] }
     }
 }
 

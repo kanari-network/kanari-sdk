@@ -235,6 +235,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `out_of_range`
 
+Caller specified an invalid argument (http: 400)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_out_of_range">out_of_range</a>(r: u64): u64
@@ -259,6 +260,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `invalid_state`
 
+An input or result of a computation is out of range (http: 400)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_invalid_state">invalid_state</a>(r: u64): u64
@@ -283,6 +285,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `unauthenticated`
 
+Request not authenticated due to missing, invalid, or expired auth token (http: 401)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_unauthenticated">unauthenticated</a>(r: u64): u64
@@ -307,6 +310,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `permission_denied`
 
+client does not have sufficient permission (http: 403)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_permission_denied">permission_denied</a>(r: u64): u64
@@ -331,6 +335,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `not_found`
 
+A specified resource is not found (http: 404)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_not_found">not_found</a>(r: u64): u64
@@ -355,6 +360,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `aborted`
 
+Concurrency conflict, such as read-modify-write conflict (http: 409)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_aborted">aborted</a>(r: u64): u64
@@ -379,6 +385,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `already_exists`
 
+The resource that a client tried to create already exists (http: 409)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_already_exists">already_exists</a>(r: u64): u64
@@ -403,6 +410,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `resource_exhausted`
 
+Out of gas or other forms of quota (http: 429)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_resource_exhausted">resource_exhausted</a>(r: u64): u64
@@ -427,6 +435,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `internal`
 
+Internal error (http: 500)
 
 
 <pre><code><b>public</b> <b>fun</b> <b>internal</b>(r: u64): u64
@@ -451,6 +460,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `not_implemented`
 
+Feature not implemented (http: 501)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_not_implemented">not_implemented</a>(r: u64): u64
@@ -475,6 +485,7 @@ Functions to construct a canonical error code of the given category.
 
 ## Function `unavailable`
 
+The service is currently unavailable. Indicates that a retry could solve the issue (http: 503)
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="error.md#0x1_error_unavailable">unavailable</a>(r: u64): u64

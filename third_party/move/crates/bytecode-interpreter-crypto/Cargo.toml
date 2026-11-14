@@ -10,7 +10,10 @@ license = "Apache-2.0"
 
 # external dependencies
 anyhow.workspace = true
+blake2b_simd.workspace = true
+blake3.workspace = true
 curve25519-dalek.workspace = true
 ed25519-dalek.workspace = true
+ripemd.workspace = true
 sha2.workspace = true
 sha3.workspace = true

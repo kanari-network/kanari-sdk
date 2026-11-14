@@ -18,19 +18,15 @@ pub struct MetadataGen {
 impl MetadataGen {
     // Return a `Strategy` that builds Metadata vectors based on the given size.
     pub fn strategy(blob_size: impl Into<SizeRange>) -> impl Strategy<Value = Self> {
-        btree_set(vec(any::<u8>(), 0..=20), blob_size).prop_map(|blobs| Self {
-            blobs: blobs.into_iter().collect(),
-        })
+        btree_set(vec(any::<u8>(), 0..=20), blob_size)
+            .prop_map(|blobs| Self { blobs: blobs.into_iter().collect() })
     }
 
     // Return the metadata
     pub fn metadata(self) -> Vec<Metadata> {
         let mut metadata = vec![];
         for blob in self.blobs {
-            metadata.push(Metadata {
-                key: blob.clone(),
-                value: blob,
-            })
+            metadata.push(Metadata { key: blob.clone(), value: blob })
         }
         metadata
     }

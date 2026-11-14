@@ -56,9 +56,8 @@ impl<'env> Context<'env> {
         pre_compiled_lib: Option<Arc<FullyCompiledProgram>>,
         modules: &UniqueMap<ModuleIdent, H::ModuleDefinition>,
     ) -> Self {
-        let all_modules = modules
-            .key_cloned_iter()
-            .chain(pre_compiled_lib.iter().flat_map(|pre_compiled| {
+        let all_modules =
+            modules.key_cloned_iter().chain(pre_compiled_lib.iter().flat_map(|pre_compiled| {
                 pre_compiled
                     .hlir
                     .modules
@@ -68,12 +67,7 @@ impl<'env> Context<'env> {
         let datatype_declared_abilities = all_modules.map(|(m, mdef)| {
             let smap = mdef.structs.ref_map(|_s, sdef| sdef.abilities.clone());
             let emap = mdef.enums.ref_map(|_e, edef| edef.abilities.clone());
-            (
-                m,
-                smap.union_with(&emap, |_x, _y, _z| {
-                    panic!("ICE should have failed in naming")
-                }),
-            )
+            (m, smap.union_with(&emap, |_x, _y, _z| panic!("ICE should have failed in naming")))
         });
 
         let datatype_declared_abilities =
@@ -110,9 +104,7 @@ impl<'env> Context<'env> {
                 },
             );
         }
-        self.named_blocks
-            .add(name, (start_label, end_label))
-            .expect("ICE reused block name");
+        self.named_blocks.add(name, (start_label, end_label)).expect("ICE reused block name");
         (start_label, end_label)
     }
 
@@ -121,17 +113,11 @@ impl<'env> Context<'env> {
     }
 
     fn named_block_start_label(&mut self, name: &BlockLabel) -> Label {
-        self.named_blocks
-            .get(name)
-            .expect("ICE named block with no entry")
-            .0
+        self.named_blocks.get(name).expect("ICE named block with no entry").0
     }
 
     fn named_block_end_label(&mut self, name: &BlockLabel) -> Label {
-        self.named_blocks
-            .get(name)
-            .expect("ICE named block with no entry")
-            .1
+        self.named_blocks.get(name).expect("ICE named block with no entry").1
     }
 
     fn clear_block_state(&mut self) {
@@ -165,9 +151,7 @@ fn modules(
     context: &mut Context,
     hmodules: UniqueMap<ModuleIdent, H::ModuleDefinition>,
 ) -> UniqueMap<ModuleIdent, G::ModuleDefinition> {
-    let modules = hmodules
-        .into_iter()
-        .map(|(mname, m)| module(context, mname, m));
+    let modules = hmodules.into_iter().map(|(mname, m)| module(context, mname, m));
     UniqueMap::maybe_from_iter(modules).unwrap()
 }
 
@@ -239,11 +223,7 @@ fn constants(
     let mut cycle_nodes = BTreeSet::new();
     for scc in sccs {
         if scc.len() > 1 {
-            let names = scc
-                .iter()
-                .map(|name| name.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
+            let names = scc.iter().map(|name| name.to_string()).collect::<Vec<_>>().join(", ");
             let mut diag = diag!(
                 BytecodeGeneration::UnfoldableConstant,
                 (
@@ -302,9 +282,7 @@ fn constants(
     for constant_name in sorted.into_iter() {
         let cdef = consts.remove(&constant_name).unwrap();
         let new_cdef = constant(context, &mut constant_values, module, constant_name, cdef);
-        out_map
-            .add(constant_name, new_cdef)
-            .expect("ICE constant name collision");
+        out_map.add(constant_name, new_cdef).expect("ICE constant name collision");
     }
 
     out_map
@@ -360,30 +338,18 @@ fn dependent_constants(constant: &H::Constant) -> BTreeSet<ConstantName> {
         use H::Statement_ as S;
         match stmt {
             S::Command(cmd) => dep_cmd(set, &cmd.value),
-            S::IfElse {
-                cond,
-                if_block,
-                else_block,
-            } => {
+            S::IfElse { cond, if_block, else_block } => {
                 dep_exp(set, cond);
                 dep_block(set, if_block);
                 dep_block(set, else_block)
             }
-            S::VariantMatch {
-                subject,
-                enum_name: _,
-                arms,
-            } => {
+            S::VariantMatch { subject, enum_name: _, arms } => {
                 dep_exp(set, subject);
                 for (_, arm) in arms {
                     dep_block(set, arm);
                 }
             }
-            S::While {
-                cond: (cond_block, cond_exp),
-                block,
-                ..
-            } => {
+            S::While { cond: (cond_block, cond_exp), block, .. } => {
                 dep_block(set, cond_block);
                 dep_exp(set, cond_exp);
                 dep_block(set, block)
@@ -412,14 +378,8 @@ fn constant(
     name: ConstantName,
     c: H::Constant,
 ) -> G::Constant {
-    let H::Constant {
-        warning_filter,
-        index,
-        attributes,
-        loc,
-        signature,
-        value: (locals, block),
-    } = c;
+    let H::Constant { warning_filter, index, attributes, loc, signature, value: (locals, block) } =
+        c;
 
     context.env.add_warning_filter_scope(warning_filter.clone());
     let final_value = constant_(
@@ -434,27 +394,15 @@ fn constant(
         block,
     );
     let value = match final_value {
-        Some(H::Exp {
-            exp: sp!(_, H::UnannotatedExp_::Value(value)),
-            ..
-        }) => {
-            constant_values
-                .add(name, value.clone())
-                .expect("ICE constant name collision");
+        Some(H::Exp { exp: sp!(_, H::UnannotatedExp_::Value(value)), .. }) => {
+            constant_values.add(name, value.clone()).expect("ICE constant name collision");
             Some(move_value_from_value(value))
         }
         _ => None,
     };
 
     context.env.pop_warning_filter_scope();
-    G::Constant {
-        warning_filter,
-        index,
-        attributes,
-        loc,
-        signature,
-        value,
-    }
+    G::Constant { warning_filter, index, attributes, loc, signature, value }
 }
 
 const CANNOT_FOLD: &str =
@@ -502,11 +450,7 @@ fn constant_(
         infinite_loop_starts: &fake_infinite_loop_starts,
     };
     cfgir::refine_inference_and_verify(context.env, &function_context, &mut cfg);
-    assert!(
-        num_previous_errors == context.env.count_diags(),
-        "{}",
-        ICE_MSG
-    );
+    assert!(num_previous_errors == context.env.count_diags(), "{}", ICE_MSG);
     cfgir::optimize(
         context.env,
         context.current_package,
@@ -517,10 +461,9 @@ fn constant_(
     );
 
     if blocks.len() != 1 {
-        context.env.add_diag(diag!(
-            BytecodeGeneration::UnfoldableConstant,
-            (full_loc, CANNOT_FOLD)
-        ));
+        context
+            .env
+            .add_diag(diag!(BytecodeGeneration::UnfoldableConstant, (full_loc, CANNOT_FOLD)));
         return None;
     }
     let mut optimized_block = blocks.remove(&start).unwrap();
@@ -529,10 +472,9 @@ fn constant_(
         let e = match cmd_ {
             C::IgnoreAndPop { exp, .. } => exp,
             _ => {
-                context.env.add_diag(diag!(
-                    BytecodeGeneration::UnfoldableConstant,
-                    (*cloc, CANNOT_FOLD)
-                ));
+                context
+                    .env
+                    .add_diag(diag!(BytecodeGeneration::UnfoldableConstant, (*cloc, CANNOT_FOLD)));
                 continue;
             }
         };
@@ -551,10 +493,9 @@ fn check_constant_value(context: &mut Context, e: &H::Exp) {
     use H::UnannotatedExp_ as E;
     match &e.exp.value {
         E::Value(_) => (),
-        _ => context.env.add_diag(diag!(
-            BytecodeGeneration::UnfoldableConstant,
-            (e.exp.loc, CANNOT_FOLD)
-        )),
+        _ => context
+            .env
+            .add_diag(diag!(BytecodeGeneration::UnfoldableConstant, (e.exp.loc, CANNOT_FOLD))),
     }
 }
 
@@ -599,16 +540,8 @@ fn function(
         body,
     } = f;
     context.env.add_warning_filter_scope(warning_filter.clone());
-    let body = function_body(
-        context,
-        module,
-        name,
-        &attributes,
-        entry,
-        visibility,
-        &signature,
-        body,
-    );
+    let body =
+        function_body(context, module, name, &attributes, entry, visibility, &signature, body);
     context.env.pop_warning_filter_scope();
     G::Function {
         warning_filter,
@@ -673,16 +606,9 @@ fn function_body(
                 );
             }
 
-            let block_info = block_info
-                .into_iter()
-                .filter(|(lbl, _info)| blocks.contains_key(lbl))
-                .collect();
-            GB::Defined {
-                locals,
-                start,
-                block_info,
-                blocks,
-            }
+            let block_info =
+                block_info.into_iter().filter(|(lbl, _info)| blocks.contains_key(lbl)).collect();
+            GB::Defined { locals, start, block_info, blocks }
         }
     };
     sp(loc, b_)
@@ -697,10 +623,7 @@ type BlockList = Vec<(Label, BasicBlock)>;
 #[growing_stack]
 fn block(context: &mut Context, stmts: H::Block) -> BlockList {
     let (start_block, blocks) = block_(context, stmts);
-    [(context.new_label(), start_block)]
-        .into_iter()
-        .chain(blocks)
-        .collect()
+    [(context.new_label(), start_block)].into_iter().chain(blocks).collect()
 }
 
 #[growing_stack]
@@ -743,10 +666,7 @@ fn finalize_blocks(
     for (lbl, _) in &blocks {
         let info = match context.loop_bounds.get(lbl) {
             None => BlockInfo::Other,
-            Some(LoopInfo {
-                is_loop_stmt,
-                loop_end,
-            }) => {
+            Some(LoopInfo { is_loop_stmt, loop_end }) => {
                 let loop_end = match loop_end {
                     G::LoopEnd::Target(end) if label_map.contains_key(end) => {
                         G::LoopEnd::Target(label_map[end])
@@ -754,10 +674,7 @@ fn finalize_blocks(
                     G::LoopEnd::Target(_) => G::LoopEnd::Unused,
                     G::LoopEnd::Unused => G::LoopEnd::Unused,
                 };
-                BlockInfo::LoopHead(LoopInfo {
-                    is_loop_stmt: *is_loop_stmt,
-                    loop_end,
-                })
+                BlockInfo::LoopHead(LoopInfo { is_loop_stmt: *is_loop_stmt, loop_end })
             }
         };
         block_info.push((label_map[lbl], info));
@@ -776,32 +693,20 @@ fn statement(
 ) -> (BasicBlock, BlockList) {
     use H::{Command_ as C, Statement_ as S};
     match stmt {
-        S::IfElse {
-            cond: test,
-            if_block,
-            else_block,
-        } => {
+        S::IfElse { cond: test, if_block, else_block } => {
             let true_label = context.new_label();
             let false_label = context.new_label();
             let phi_label = context.new_label();
 
             let test_block = VecDeque::from([sp(
                 sloc,
-                C::JumpIf {
-                    cond: *test,
-                    if_true: true_label,
-                    if_false: false_label,
-                },
+                C::JumpIf { cond: *test, if_true: true_label, if_false: false_label },
             )]);
 
-            let (true_entry_block, true_blocks) = block_(
-                context,
-                with_last(if_block, make_jump(sloc, phi_label, false)),
-            );
-            let (false_entry_block, false_blocks) = block_(
-                context,
-                with_last(else_block, make_jump(sloc, phi_label, false)),
-            );
+            let (true_entry_block, true_blocks) =
+                block_(context, with_last(if_block, make_jump(sloc, phi_label, false)));
+            let (false_entry_block, false_blocks) =
+                block_(context, with_last(else_block, make_jump(sloc, phi_label, false)));
 
             let new_blocks = [(true_label, true_entry_block)]
                 .into_iter()
@@ -814,11 +719,7 @@ fn statement(
             (test_block, new_blocks)
         }
 
-        S::VariantMatch {
-            subject,
-            enum_name,
-            arms,
-        } => {
+        S::VariantMatch { subject, enum_name, arms } => {
             let subject = *subject;
 
             let phi_label = context.new_label();
@@ -829,10 +730,8 @@ fn statement(
                 .into_iter()
                 .map(|(variant_name, arm_block)| {
                     let arm_label = context.new_label();
-                    let (arm_entry_block, arm_entry_blocks) = block_(
-                        context,
-                        with_last(arm_block, make_jump(sloc, phi_label, false)),
-                    );
+                    let (arm_entry_block, arm_entry_blocks) =
+                        block_(context, with_last(arm_block, make_jump(sloc, phi_label, false)));
                     let mut blocks = [(arm_label, arm_entry_block)]
                         .into_iter()
                         .chain(arm_entry_blocks)
@@ -844,45 +743,27 @@ fn statement(
 
             arm_blocks.push((phi_label, current_block));
 
-            let test_block = VecDeque::from([sp(
-                sloc,
-                C::VariantSwitch {
-                    subject,
-                    enum_name,
-                    arms,
-                },
-            )]);
+            let test_block =
+                VecDeque::from([sp(sloc, C::VariantSwitch { subject, enum_name, arms })]);
 
             (test_block, arm_blocks)
         }
 
         // We could turn these into loops earlier and elide this case.
-        S::While {
-            name,
-            cond: (test_block, test),
-            block: body,
-        } => {
+        S::While { name, cond: (test_block, test), block: body } => {
             let (start_label, end_label) = context.enter_named_block(name, NamedBlockType::While);
             let body_label = context.new_label();
 
             let entry_block = VecDeque::from([make_jump(sloc, start_label, false)]);
 
             let (initial_test_block, test_blocks) = {
-                let test_jump = sp(
-                    sloc,
-                    C::JumpIf {
-                        cond: *test,
-                        if_true: body_label,
-                        if_false: end_label,
-                    },
-                );
+                let test_jump =
+                    sp(sloc, C::JumpIf { cond: *test, if_true: body_label, if_false: end_label });
                 block_(context, with_last(test_block, test_jump))
             };
 
-            let (body_entry_block, body_blocks) = block_(
-                context,
-                with_last(body, make_jump(sloc, start_label, false)),
-            );
+            let (body_entry_block, body_blocks) =
+                block_(context, with_last(body, make_jump(sloc, start_label, false)));
 
             context.exit_named_block(&name);
 
@@ -896,19 +777,13 @@ fn statement(
 
             (entry_block, new_blocks)
         }
-        S::Loop {
-            name,
-            block: body,
-            has_break: _,
-        } => {
+        S::Loop { name, block: body, has_break: _ } => {
             let (start_label, end_label) = context.enter_named_block(name, NamedBlockType::Loop);
 
             let entry_block = VecDeque::from([make_jump(sloc, start_label, false)]);
 
-            let (body_entry_block, body_blocks) = block_(
-                context,
-                with_last(body, make_jump(sloc, start_label, false)),
-            );
+            let (body_entry_block, body_blocks) =
+                block_(context, with_last(body, make_jump(sloc, start_label, false)));
 
             context.exit_named_block(&name);
 
@@ -999,9 +874,7 @@ fn visit_module(
     mident: ModuleIdent,
     mdef: &G::ModuleDefinition,
 ) {
-    context
-        .env
-        .add_warning_filter_scope(mdef.warning_filter.clone());
+    context.env.add_warning_filter_scope(mdef.warning_filter.clone());
     for (name, fdef) in mdef.functions.key_cloned_iter() {
         visit_function(context, prog, mident, name, fdef)
     }
@@ -1025,13 +898,7 @@ fn visit_function(
         signature,
         body,
     } = fdef;
-    let G::FunctionBody_::Defined {
-        locals,
-        start,
-        blocks,
-        block_info,
-    } = &body.value
-    else {
+    let G::FunctionBody_::Defined { locals, start, blocks, block_info } = &body.value else {
         return;
     };
     context.env.add_warning_filter_scope(warning_filter.clone());

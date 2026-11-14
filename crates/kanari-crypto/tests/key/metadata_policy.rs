@@ -16,10 +16,7 @@ mod tests {
             assert_eq!(metadata.family, curve.family());
             assert_eq!(metadata.hybrid, curve.is_hybrid());
             assert_eq!(metadata.quantum_safe, curve.is_post_quantum());
-            assert_eq!(
-                metadata.hd_wallet_derivation,
-                curve.supports_hd_wallet_derivation()
-            );
+            assert_eq!(metadata.hd_wallet_derivation, curve.supports_hd_wallet_derivation());
             assert!(metadata.signature_size_hint.unwrap_or_default() > 0);
             assert!(metadata.public_key_size_hint.unwrap_or_default() > 0);
             assert_eq!(metadata.nist_level, curve.nist_level());
@@ -61,10 +58,7 @@ mod tests {
     fn production_defaults_are_deliberate() {
         assert_eq!(CurveType::DEFAULT_PRODUCTION, CurveType::Ed25519Dilithium3);
         assert_eq!(CurveType::DEFAULT_HOT_WALLET, CurveType::Ed25519);
-        assert_eq!(
-            CurveType::DEFAULT_COLD_STORAGE,
-            CurveType::SphincsPlusSha256Robust
-        );
+        assert_eq!(CurveType::DEFAULT_COLD_STORAGE, CurveType::SphincsPlusSha256Robust);
 
         assert!(CurveType::DEFAULT_PRODUCTION.is_recommended_for_new_accounts());
         assert!(CurveType::DEFAULT_HOT_WALLET.is_recommended_for_new_accounts());
@@ -73,27 +67,12 @@ mod tests {
 
     #[test]
     fn usage_profiles_match_operational_expectations() {
-        assert_eq!(
-            CurveType::K256.usage_profile(),
-            UsageProfile::Interoperability
-        );
-        assert_eq!(
-            CurveType::P256.usage_profile(),
-            UsageProfile::Interoperability
-        );
+        assert_eq!(CurveType::K256.usage_profile(), UsageProfile::Interoperability);
+        assert_eq!(CurveType::P256.usage_profile(), UsageProfile::Interoperability);
         assert_eq!(CurveType::Ed25519.usage_profile(), UsageProfile::HotWallet);
-        assert_eq!(
-            CurveType::Dilithium3.usage_profile(),
-            UsageProfile::GeneralPurpose
-        );
-        assert_eq!(
-            CurveType::SphincsPlusSha256Robust.usage_profile(),
-            UsageProfile::ColdStorage
-        );
-        assert_eq!(
-            CurveType::Dilithium2.usage_profile(),
-            UsageProfile::Specialized
-        );
+        assert_eq!(CurveType::Dilithium3.usage_profile(), UsageProfile::GeneralPurpose);
+        assert_eq!(CurveType::SphincsPlusSha256Robust.usage_profile(), UsageProfile::ColdStorage);
+        assert_eq!(CurveType::Dilithium2.usage_profile(), UsageProfile::Specialized);
     }
 
     #[test]

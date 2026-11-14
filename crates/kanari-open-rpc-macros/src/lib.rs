@@ -23,10 +23,7 @@ pub fn open_rpc_method(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 fn expand_open_rpc(mut module: ItemMod) -> Result<proc_macro2::TokenStream> {
     let Some((brace, items)) = module.content.take() else {
-        return Err(syn::Error::new_spanned(
-            &module,
-            "#[open_rpc] only supports inline modules",
-        ));
+        return Err(syn::Error::new_spanned(&module, "#[open_rpc] only supports inline modules"));
     };
 
     let mut generated_methods = Vec::new();
@@ -57,9 +54,7 @@ fn expand_open_rpc(mut module: ItemMod) -> Result<proc_macro2::TokenStream> {
 }
 
 fn take_open_rpc_method_attr(attrs: &mut Vec<Attribute>) -> Option<Attribute> {
-    let index = attrs
-        .iter()
-        .position(|attr| attr.path().is_ident("open_rpc_method"))?;
+    let index = attrs.iter().position(|attr| attr.path().is_ident("open_rpc_method"))?;
     Some(attrs.remove(index))
 }
 
@@ -99,10 +94,7 @@ fn parse_method_doc(attr: Attribute) -> Result<MethodDoc> {
                 tags = Some(expect_array(name_value.value, "tags")?);
             }
             other => {
-                return Err(syn::Error::new_spanned(
-                    other,
-                    "unsupported open_rpc_method property",
-                ));
+                return Err(syn::Error::new_spanned(other, "unsupported open_rpc_method property"));
             }
         }
     }
@@ -122,34 +114,24 @@ fn empty_array() -> ExprArray {
 
 fn expect_string_literal(expr: Expr, field: &str) -> Result<LitStr> {
     match expr {
-        Expr::Lit(ExprLit {
-            lit: Lit::Str(value),
-            ..
-        }) => Ok(value),
-        other => Err(syn::Error::new_spanned(
-            other,
-            format!("{field} must be a string literal"),
-        )),
+        Expr::Lit(ExprLit { lit: Lit::Str(value), .. }) => Ok(value),
+        other => Err(syn::Error::new_spanned(other, format!("{field} must be a string literal"))),
     }
 }
 
 fn expect_array(expr: Expr, field: &str) -> Result<ExprArray> {
     match expr {
         Expr::Array(array) => Ok(array),
-        other => Err(syn::Error::new_spanned(
-            other,
-            format!("{field} must be an array expression"),
-        )),
+        other => {
+            Err(syn::Error::new_spanned(other, format!("{field} must be an array expression")))
+        }
     }
 }
 
 fn expect_tuple(expr: Expr, field: &str) -> Result<ExprTuple> {
     match expr {
         Expr::Tuple(tuple) => Ok(tuple),
-        other => Err(syn::Error::new_spanned(
-            other,
-            format!("{field} must be a tuple expression"),
-        )),
+        other => Err(syn::Error::new_spanned(other, format!("{field} must be a tuple expression"))),
     }
 }
 
@@ -160,12 +142,8 @@ fn build_method_tokens(ident: &syn::Ident, doc: MethodDoc) -> Result<proc_macro2
         .map(|description| quote!(Some(#description)))
         .unwrap_or_else(|| quote!(None));
 
-    let params = doc
-        .params
-        .elems
-        .into_iter()
-        .map(build_param_tokens)
-        .collect::<Result<Vec<_>>>()?;
+    let params =
+        doc.params.elems.into_iter().map(build_param_tokens).collect::<Result<Vec<_>>>()?;
 
     let result = build_result_tokens(doc.result)?;
     let tags = doc
@@ -173,14 +151,8 @@ fn build_method_tokens(ident: &syn::Ident, doc: MethodDoc) -> Result<proc_macro2
         .elems
         .into_iter()
         .map(|expr| match expr {
-            Expr::Lit(ExprLit {
-                lit: Lit::Str(value),
-                ..
-            }) => Ok(quote!(#value)),
-            other => Err(syn::Error::new_spanned(
-                other,
-                "tag entries must be string literals",
-            )),
+            Expr::Lit(ExprLit { lit: Lit::Str(value), .. }) => Ok(quote!(#value)),
+            other => Err(syn::Error::new_spanned(other, "tag entries must be string literals")),
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -198,10 +170,7 @@ fn build_method_tokens(ident: &syn::Ident, doc: MethodDoc) -> Result<proc_macro2
 
 fn build_param_tokens(expr: Expr) -> Result<proc_macro2::TokenStream> {
     let Expr::Tuple(tuple) = expr else {
-        return Err(syn::Error::new_spanned(
-            expr,
-            "each params entry must be a tuple",
-        ));
+        return Err(syn::Error::new_spanned(expr, "each params entry must be a tuple"));
     };
 
     if tuple.elems.len() != 4 {
@@ -224,10 +193,7 @@ fn build_param_tokens(expr: Expr) -> Result<proc_macro2::TokenStream> {
 
 fn build_result_tokens(tuple: ExprTuple) -> Result<proc_macro2::TokenStream> {
     if tuple.elems.len() != 3 {
-        return Err(syn::Error::new_spanned(
-            tuple,
-            "result must be (name, description, schema)",
-        ));
+        return Err(syn::Error::new_spanned(tuple, "result must be (name, description, schema)"));
     }
 
     let mut elems = tuple.elems.into_iter();
@@ -242,13 +208,7 @@ fn build_result_tokens(tuple: ExprTuple) -> Result<proc_macro2::TokenStream> {
 
 fn expect_bool_literal(expr: Expr, field: &str) -> Result<LitBool> {
     match expr {
-        Expr::Lit(ExprLit {
-            lit: Lit::Bool(value),
-            ..
-        }) => Ok(value),
-        other => Err(syn::Error::new_spanned(
-            other,
-            format!("{field} must be a bool literal"),
-        )),
+        Expr::Lit(ExprLit { lit: Lit::Bool(value), .. }) => Ok(value),
+        other => Err(syn::Error::new_spanned(other, format!("{field} must be a bool literal"))),
     }
 }

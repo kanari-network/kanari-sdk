@@ -27,20 +27,14 @@ pub struct GasParameters {
 
 impl GasParameters {
     pub fn zeros() -> Self {
-        Self {
-            base: 0.into(),
-            per_byte: 0.into(),
-        }
+        Self { base: 0.into(), per_byte: 0.into() }
     }
 
     pub fn production() -> Self {
         // Serialize + record one event. per_byte matches the repo-wide
         // serialization rate (50 units/B); base covers dispatch + layout
         // work (~ a small hash).
-        Self {
-            base: 2_000.into(),
-            per_byte: 50.into(),
-        }
+        Self { base: 2_000.into(), per_byte: 50.into() }
     }
 }
 

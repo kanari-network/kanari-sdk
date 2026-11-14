@@ -85,17 +85,13 @@ pub fn make_native_print(
     move_std_addr: AccountAddress,
 ) -> NativeFunction {
     if silent {
-        Arc::new(
-            move |_context, ty_args, args| -> PartialVMResult<NativeResult> {
-                native_print_nop(&gas_params, ty_args, args)
-            },
-        )
+        Arc::new(move |_context, ty_args, args| -> PartialVMResult<NativeResult> {
+            native_print_nop(&gas_params, ty_args, args)
+        })
     } else {
-        Arc::new(
-            move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-                native_print(&gas_params, context, ty_args, args, move_std_addr)
-            },
-        )
+        Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+            native_print(&gas_params, context, ty_args, args, move_std_addr)
+        })
     }
 }
 
@@ -146,17 +142,13 @@ pub fn make_native_print_stack_trace(
     gas_params: PrintStackTraceGasParameters,
 ) -> NativeFunction {
     if silent {
-        Arc::new(
-            move |_context, ty_args, args| -> PartialVMResult<NativeResult> {
-                native_print_stack_trace_nop(&gas_params, ty_args, args)
-            },
-        )
+        Arc::new(move |_context, ty_args, args| -> PartialVMResult<NativeResult> {
+            native_print_stack_trace_nop(&gas_params, ty_args, args)
+        })
     } else {
-        Arc::new(
-            move |context, ty_args, args| -> PartialVMResult<NativeResult> {
-                native_print_stack_trace(&gas_params, context, ty_args, args)
-            },
-        )
+        Arc::new(move |context, ty_args, args| -> PartialVMResult<NativeResult> {
+            native_print_stack_trace(&gas_params, context, ty_args, args)
+        })
     }
 }
 
@@ -175,14 +167,8 @@ pub fn make_all(
     move_std_addr: AccountAddress,
 ) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = [
-        (
-            "print",
-            make_native_print(silent, gas_params.print, move_std_addr),
-        ),
-        (
-            "print_stack_trace",
-            make_native_print_stack_trace(silent, gas_params.print_stack_trace),
-        ),
+        ("print", make_native_print(silent, gas_params.print, move_std_addr)),
+        ("print_stack_trace", make_native_print_stack_trace(silent, gas_params.print_stack_trace)),
     ];
 
     make_module_natives(natives)
@@ -226,12 +212,10 @@ mod testing {
         let annotated_type_layout = context.type_to_fully_annotated_layout(ty)?.unwrap();
         match annotated_type_layout {
             A::MoveTypeLayout::Struct(annotated_struct_layout) => Ok(annotated_struct_layout),
-            _ => Err(
-                PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(
-                    "Could not convert Type to fully-annotated MoveTypeLayout via NativeContext"
-                        .to_string(),
-                ),
-            ),
+            _ => Err(PartialVMError::new(StatusCode::INTERNAL_TYPE_ERROR).with_message(
+                "Could not convert Type to fully-annotated MoveTypeLayout via NativeContext"
+                    .to_string(),
+            )),
         }
     }
 
@@ -283,11 +267,7 @@ mod testing {
     }
 
     fn is_non_empty_vector_u8(vec: &[A::MoveValue]) -> bool {
-        if vec.is_empty() {
-            false
-        } else {
-            matches!(vec.last().unwrap(), A::MoveValue::U8(_))
-        }
+        if vec.is_empty() { false } else { matches!(vec.last().unwrap(), A::MoveValue::U8(_)) }
     }
 
     fn is_vector_or_struct_move_value(mv: &A::MoveValue) -> bool {

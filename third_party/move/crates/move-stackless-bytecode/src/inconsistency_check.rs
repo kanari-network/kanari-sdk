@@ -60,9 +60,9 @@ impl FunctionTargetProcessor for InconsistencyCheckInstrumenter {
         };
 
         // create a clone of the data for inconsistency check
-        let new_data = data.fork(FunctionVariant::Verification(
-            VerificationFlavor::Inconsistency(Box::new(flavor)),
-        ));
+        let new_data = data.fork(FunctionVariant::Verification(VerificationFlavor::Inconsistency(
+            Box::new(flavor),
+        )));
 
         // instrumentation
         let mut builder = FunctionDataBuilder::new(fun_env, new_data);
@@ -73,11 +73,7 @@ impl FunctionTargetProcessor for InconsistencyCheckInstrumenter {
 
         // add the new variant to targets
         let new_data = builder.data;
-        targets.insert_target_data(
-            &fun_env.get_qualified_id(),
-            new_data.variant.clone(),
-            new_data,
-        );
+        targets.insert_target_data(&fun_env.get_qualified_id(), new_data.variant.clone(), new_data);
 
         // the original function data is unchanged
         data

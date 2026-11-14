@@ -275,11 +275,7 @@ impl<K: Ord + Clone, V: AbstractDomain + Clone + PartialEq> MapDomain<K, V> {
             .filter_map(|(k, v)| {
                 let mut v_new = v.clone();
                 f(&mut v_new);
-                if v != &v_new {
-                    Some((k.clone(), v_new))
-                } else {
-                    None
-                }
+                if v != &v_new { Some((k.clone(), v_new)) } else { None }
             })
             .collect_vec();
         self.extend(new_values);

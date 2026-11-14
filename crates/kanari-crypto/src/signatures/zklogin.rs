@@ -150,10 +150,7 @@ pub fn derive_zklogin_address_v2(
     preimage.extend_from_slice(&pad_zero(aud_b, MAX_AUD_BYTES));
     preimage.extend_from_slice(&pad_zero(sub_b, MAX_SUB_BYTES));
     preimage.extend_from_slice(salt);
-    debug_assert_eq!(
-        preimage.len(),
-        10 + MAX_ISS_BYTES + MAX_AUD_BYTES + MAX_SUB_BYTES + 32
-    );
+    debug_assert_eq!(preimage.len(), 10 + MAX_ISS_BYTES + MAX_AUD_BYTES + MAX_SUB_BYTES + 32);
     Ok(format!("0x{}", hex::encode(Sha256::digest(&preimage))))
 }
 
@@ -225,10 +222,7 @@ impl EphemeralKeypair {
         // ed25519-dalek 3.x `from_bytes` cannot fail for 32 bytes; the
         // small-order check happens at verify time.
         let _ = signing;
-        Ok(Self {
-            secret: zeroize::Zeroizing::new(secret),
-            public,
-        })
+        Ok(Self { secret: zeroize::Zeroizing::new(secret), public })
     }
 
     /// Deterministic construction from a 32-byte secret (tests / KDF flows).
@@ -240,10 +234,7 @@ impl EphemeralKeypair {
         }
         let signing = ed25519_dalek::SigningKey::from_bytes(&secret);
         let public = signing.verifying_key().to_bytes();
-        Ok(Self {
-            secret: zeroize::Zeroizing::new(secret),
-            public,
-        })
+        Ok(Self { secret: zeroize::Zeroizing::new(secret), public })
     }
 
     /// 32-byte ephemeral public key (goes into the nonce).
@@ -461,9 +452,7 @@ pub fn verify_jwt_with_jwks(
     // `sub` must be present and non-empty: it is half of the address
     // preimage, and an empty subject would alias every login of that issuer.
     if data.claims.sub.trim().is_empty() {
-        return Err(SignatureError::InvalidFormat(
-            "JWT sub is empty".to_string(),
-        ));
+        return Err(SignatureError::InvalidFormat("JWT sub is empty".to_string()));
     }
     verify_claims_timing(&data.claims, now_unix_secs)?;
     if let Some(expected) = expected_nonce {
@@ -645,15 +634,8 @@ mod tests {
         // Wrong epoch => different nonce => fail.
         let bad_nonce = compute_nonce(&kp.public_bytes(), 43, &randomness);
         assert!(
-            verify_jwt_with_jwks(
-                &jwt,
-                &jwks,
-                ISS_GOOGLE,
-                "client123",
-                Some(&bad_nonce),
-                1_000_000
-            )
-            .is_err()
+            verify_jwt_with_jwks(&jwt, &jwks, ISS_GOOGLE, "client123", Some(&bad_nonce), 1_000_000)
+                .is_err()
         );
         // Missing nonce fails closed when one is expected...
         let bare = mint("null");
@@ -725,10 +707,7 @@ mod tests {
         let sk = rsa::PrivateKey::from_pkcs1_der(der).unwrap();
         let scheme = SigningKey::<Sha256>::new(sk);
         let sig = scheme.sign(signing_input.as_bytes());
-        format!(
-            "{signing_input}.{}",
-            general_purpose::URL_SAFE_NO_PAD.encode(sig.to_bytes())
-        )
+        format!("{signing_input}.{}", general_purpose::URL_SAFE_NO_PAD.encode(sig.to_bytes()))
     }
 
     #[test]

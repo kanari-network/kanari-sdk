@@ -418,9 +418,7 @@ fn test_storage_returns_bogus_error_when_loading_module() {
     let fun_name = Identifier::new("bar").unwrap();
 
     for error_code in LIST_OF_ERROR_CODES {
-        let storage = BogusStorage {
-            bad_status_code: *error_code,
-        };
+        let storage = BogusStorage { bad_status_code: *error_code };
         let vm = MoveVM::new(vec![]).unwrap();
         let mut sess = vm.new_session(&storage);
 

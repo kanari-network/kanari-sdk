@@ -217,11 +217,7 @@ impl VMControlFlowGraph {
             })
             .collect();
 
-        VMControlFlowGraph {
-            blocks,
-            traversal_successors,
-            loop_heads,
-        }
+        VMControlFlowGraph { blocks, traversal_successors, loop_heads }
     }
 
     pub fn display(&self) {
@@ -325,14 +321,10 @@ impl ControlFlowGraph for VMControlFlowGraph {
     }
 
     fn is_back_edge(&self, cur: BlockId, next: BlockId) -> bool {
-        self.loop_heads
-            .get(&next)
-            .is_some_and(|back_edges| back_edges.contains(&cur))
+        self.loop_heads.get(&next).is_some_and(|back_edges| back_edges.contains(&cur))
     }
 
     fn num_back_edges(&self) -> usize {
-        self.loop_heads
-            .iter()
-            .fold(0, |acc, (_, edges)| acc + edges.len())
+        self.loop_heads.iter().fold(0, |acc, (_, edges)| acc + edges.len())
     }
 }

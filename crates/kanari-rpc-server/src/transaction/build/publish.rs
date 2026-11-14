@@ -24,10 +24,7 @@ fn select_build_gas_and_nonce(
         .get_owner_info(sender)
         .ok_or_else(|| Box::new(internal_error_response(request_id, "Owner not found")))?;
     let owned_objects = owner_info.owned_objects.ok_or_else(|| {
-        Box::new(internal_error_response(
-            request_id,
-            "Owner has no owned object list",
-        ))
+        Box::new(internal_error_response(request_id, "Owner has no owned object list"))
     })?;
     let pending_access_keys = state.engine.pending_access_keys_snapshot();
     let gas_payment = select_native_gas_payment(

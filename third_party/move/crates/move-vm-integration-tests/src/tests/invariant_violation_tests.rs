@@ -25,10 +25,7 @@ fn merge_borrow_states_infinite_loop() {
             MutableReference(Box::new(U64)),
         ]),
     ];
-    m.constant_pool = vec![Constant {
-        type_: Vector(Box::new(U8)),
-        data: vec![0],
-    }];
+    m.constant_pool = vec![Constant { type_: Vector(Box::new(U8)), data: vec![0] }];
     m.function_handles = vec![FunctionHandle {
         module: m.self_module_handle_idx,
         name: IdentifierIndex(0),
@@ -81,9 +78,7 @@ fn merge_borrow_states_infinite_loop() {
     let mut module_bytes = vec![];
     m.serialize(&mut module_bytes).unwrap();
     let meter = &mut GasStatus::new_unmetered();
-    session
-        .publish_module(module_bytes, AccountAddress::ZERO, meter)
-        .unwrap();
+    session.publish_module(module_bytes, AccountAddress::ZERO, meter).unwrap();
 
     let err = session
         .execute_entry_function(
@@ -95,8 +90,5 @@ fn merge_borrow_states_infinite_loop() {
         )
         .unwrap_err();
 
-    assert_eq!(
-        err.major_status(),
-        StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR
-    );
+    assert_eq!(err.major_status(), StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR);
 }

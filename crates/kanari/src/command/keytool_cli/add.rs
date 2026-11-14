@@ -65,15 +65,8 @@ impl AddWallet {
             let address =
                 AccountAddress::from_str(&imported.address).context("Generated invalid address")?;
 
-            save_wallet(
-                &address,
-                &imported.private_key,
-                "",
-                None,
-                &self.password,
-                curve_type,
-            )
-            .context("Failed to save imported private-key wallet")?;
+            save_wallet(&address, &imported.private_key, "", None, &self.password, curve_type)
+                .context("Failed to save imported private-key wallet")?;
 
             eprintln!("Imported wallet from private key: {}", imported.address);
             eprintln!("Private Key: {}", *imported.private_key);

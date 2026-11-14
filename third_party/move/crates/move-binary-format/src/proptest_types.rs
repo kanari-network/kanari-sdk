@@ -147,10 +147,8 @@ impl CompiledModuleStrategyGen {
         //
         // Struct generators
         //
-        let struct_handles_strat = vec(
-            StructHandleGen::strategy(self.struct_type_params.clone()),
-            1..=self.size,
-        );
+        let struct_handles_strat =
+            vec(StructHandleGen::strategy(self.struct_type_params.clone()), 1..=self.size);
         let struct_defs_strat = vec(
             StructDefinitionGen::strategy(
                 self.field_count.clone(),
@@ -165,10 +163,8 @@ impl CompiledModuleStrategyGen {
         // These signatures may or may not be used in the bytecode. One way to use these signatures
         // is the Vec* bytecode (e.g. VecEmpty), which will grab a random index from the pool.
         //
-        let random_sigs_strat = vec(
-            SignatureGen::strategy(self.tokens_per_random_sig_count),
-            self.random_sigs_count,
-        );
+        let random_sigs_strat =
+            vec(SignatureGen::strategy(self.tokens_per_random_sig_count), self.random_sigs_count);
 
         //
         // Functions generators
@@ -204,12 +200,7 @@ impl CompiledModuleStrategyGen {
         // Note that prop_test only allows a tuple of length up to 10
         (
             self_idx_strat,
-            (
-                address_pool_strat,
-                identifiers_strat,
-                constant_pool_strat,
-                metadata_strat,
-            ),
+            (address_pool_strat, identifiers_strat, constant_pool_strat, metadata_strat),
             module_handles_strat,
             (struct_handles_strat, struct_defs_strat),
             random_sigs_strat,

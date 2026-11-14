@@ -49,11 +49,7 @@ pub fn verify_module_with_config_for_test(
         "--> {}: verification time: {:.3}ms, result: {}, size: {}kb",
         name,
         (now.elapsed().as_micros() as f64) / 1000.0,
-        if let Err(e) = &result {
-            format!("{:?}", e.major_status())
-        } else {
-            "Ok".to_string()
-        },
+        if let Err(e) = &result { format!("{:?}", e.major_status()) } else { "Ok".to_string() },
         bytes.len() / 1000
     );
     // Also check whether the module actually fits into our payload size

@@ -22,17 +22,16 @@ use move_ir_types::{ast, location::*};
 // array literals.
 fn verify_string(string: &str) -> Result<()> {
     let chars: Vec<char> = string.chars().collect();
-    chars
-        .iter()
-        .enumerate()
-        .find(|(idx, _)| !is_permitted_chars(&chars, *idx))
-        .map_or(Ok(()), |(_, c)| {
+    chars.iter().enumerate().find(|(idx, _)| !is_permitted_chars(&chars, *idx)).map_or(
+        Ok(()),
+        |(_, c)| {
             bail!(
                 "Invalid character '{c}' found when reading file. \
                 For ASCII, only printable characters (tabs '\\t', lf '\\n' and crlf '\\r'+'\\n') \
                 are permitted. Unicode can be used, excluding certain control characters.",
             )
-        })
+        },
+    )
 }
 
 /// Given the raw input of a file, creates a single `ModuleDefinition` struct
@@ -57,9 +56,7 @@ fn handle_error<T>(e: syntax::ParseError<Loc, anyhow::Error>, code_str: &str) ->
         }
     };
     let message = lbl.message.clone();
-    let error = Diagnostic::error()
-        .with_message("Parser Error")
-        .with_labels(vec![lbl]);
+    let error = Diagnostic::error().with_message("Parser Error").with_labels(vec![lbl]);
     let writer = &mut StandardStream::stderr(ColorChoice::Auto);
     emit_to_write_style(writer, &Config::default(), &files, &error).unwrap();
     bail!("ParserError: {}", message)

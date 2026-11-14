@@ -55,15 +55,8 @@ fn split_and_transfer_separates_objects() -> Result<()> {
 
     // Bootstrap the production-shaped faucet, then faucet a single coin of
     // MINT_AMOUNT to the sender.
-    let faucet_create = entry(
-        &runtime,
-        &module_id,
-        "create_faucet",
-        vec![],
-        vec![],
-        vec![],
-        &mut nonce,
-    )?;
+    let faucet_create =
+        entry(&runtime, &module_id, "create_faucet", vec![], vec![], vec![], &mut nonce)?;
     let faucet = find_created(&faucet_create, |t| t.contains("::Faucet"))?;
     assert_eq!(faucet.owner, sender, "faucet must be owned by the sender");
 
@@ -87,11 +80,7 @@ fn split_and_transfer_separates_objects() -> Result<()> {
         &module_id,
         "split_and_transfer",
         vec![],
-        vec![
-            object_arg(&original_id)?,
-            bcs::to_bytes(&SEND_AMOUNT)?,
-            bcs::to_bytes(&recipient)?,
-        ],
+        vec![object_arg(&original_id)?, bcs::to_bytes(&SEND_AMOUNT)?, bcs::to_bytes(&recipient)?],
         vec![owned_input(&original_id, sender, true)],
         &mut nonce,
     )?;
@@ -117,14 +106,8 @@ fn split_and_transfer_separates_objects() -> Result<()> {
         .iter()
         .find(|(id, _, _)| *id != original_id)
         .context("a distinct coin object must be created for the recipient")?;
-    assert_eq!(
-        sent.2, SEND_AMOUNT,
-        "the recipient coin must carry the split amount"
-    );
-    assert_eq!(
-        sent.1, recipient,
-        "the split coin must be owned by the recipient"
-    );
+    assert_eq!(sent.2, SEND_AMOUNT, "the recipient coin must carry the split amount");
+    assert_eq!(sent.1, recipient, "the split coin must be owned by the recipient");
     assert_ne!(sent.0, original_id, "the two coin objects must be distinct");
 
     // A fresh runtime instance reads the persisted state: two distinct coins.
@@ -135,20 +118,14 @@ fn split_and_transfer_separates_objects() -> Result<()> {
         MODULE_NAME,
         &owned_input(&original_id, sender, false),
     )?;
-    assert_eq!(
-        stored_remainder, REMAINDER,
-        "persisted original coin must hold the remainder"
-    );
+    assert_eq!(stored_remainder, REMAINDER, "persisted original coin must hold the remainder");
     let stored_sent = view_coin_value(
         &reader,
         TESTER_ADDR,
         MODULE_NAME,
         &owned_input(&sent.0, recipient, false),
     )?;
-    assert_eq!(
-        stored_sent, SEND_AMOUNT,
-        "persisted recipient coin must carry the split amount"
-    );
+    assert_eq!(stored_sent, SEND_AMOUNT, "persisted recipient coin must carry the split amount");
 
     Ok(())
 }
@@ -171,15 +148,8 @@ fn system_pay_split_and_transfer_separates_objects() -> Result<()> {
         .publish_module(module_bytes, sender, None, None)
         .context("publish coin_split_transfer module")?;
 
-    let faucet_create = entry(
-        &runtime,
-        &module_id,
-        "create_faucet",
-        vec![],
-        vec![],
-        vec![],
-        &mut nonce,
-    )?;
+    let faucet_create =
+        entry(&runtime, &module_id, "create_faucet", vec![], vec![], vec![], &mut nonce)?;
     let faucet = find_created(&faucet_create, |t| t.contains("::Faucet"))?;
 
     let mint = entry(
@@ -194,20 +164,14 @@ fn system_pay_split_and_transfer_separates_objects() -> Result<()> {
     let minted = find_created(&mint, |t| t.contains("coin::Coin") && t.contains("MOCK"))?;
     let original_id = minted.id.clone();
 
-    let pay_module = ModuleId::new(
-        AccountAddress::from_hex_literal(SYSTEM_PAY_ADDR)?,
-        Identifier::new("pay")?,
-    );
+    let pay_module =
+        ModuleId::new(AccountAddress::from_hex_literal(SYSTEM_PAY_ADDR)?, Identifier::new("pay")?);
     let send = entry(
         &runtime,
         &pay_module,
         "split_and_transfer",
         vec![mock_type()?],
-        vec![
-            object_arg(&original_id)?,
-            bcs::to_bytes(&SEND_AMOUNT)?,
-            bcs::to_bytes(&recipient)?,
-        ],
+        vec![object_arg(&original_id)?, bcs::to_bytes(&SEND_AMOUNT)?, bcs::to_bytes(&recipient)?],
         vec![owned_input(&original_id, sender, true)],
         &mut nonce,
     )?;
@@ -243,22 +207,14 @@ fn assert_split_objects(
         .iter()
         .find(|(id, _, _)| id != original_id)
         .context("a distinct coin object must be created for the recipient")?;
-    assert_eq!(
-        sent.2, SEND_AMOUNT,
-        "the recipient coin must carry the split amount"
-    );
-    assert_eq!(
-        sent.1, recipient,
-        "the split coin must be owned by the recipient"
-    );
+    assert_eq!(sent.2, SEND_AMOUNT, "the recipient coin must carry the split amount");
+    assert_eq!(sent.1, recipient, "the split coin must be owned by the recipient");
     assert_ne!(sent.0, original_id, "the two coin objects must be distinct");
     Ok(())
 }
 
 fn mock_type() -> Result<TypeTag> {
-    Ok(TypeTag::Struct(Box::new(StructTag::from_str(
-        "0x4c::coin_split_transfer::MOCK",
-    )?)))
+    Ok(TypeTag::Struct(Box::new(StructTag::from_str("0x4c::coin_split_transfer::MOCK")?)))
 }
 
 fn view_coin_value(
@@ -364,20 +320,15 @@ fn create_test_package() -> Result<PathBuf> {
         dependency_path, TESTER_ADDR,
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
-    fs::write(
-        package_dir.join("sources").join("coin_split_transfer.move"),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join("coin_split_transfer.move"), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

@@ -33,9 +33,7 @@ pub(crate) fn coin_token_type_from_object_type(object_type: &str) -> Option<Stri
     {
         let outer = &object_type[..start];
         if is_canonical_coin_outer(outer) {
-            return Some(CoinModule::normalize_token_type(
-                &object_type[start + 1..end],
-            ));
+            return Some(CoinModule::normalize_token_type(&object_type[start + 1..end]));
         }
         return None;
     }
@@ -95,11 +93,7 @@ pub(crate) fn build_object_input(
 /// ownership check performed by [`build_object_input`].
 fn object_input_from_info(object: &kanari_rpc_api::ObjectInfo) -> ObjectInput {
     ObjectInput {
-        object_ref: ObjectRef::new(
-            object.id.clone(),
-            Some(object.version),
-            object.digest.clone(),
-        ),
+        object_ref: ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
         owner: Some(object.owner_kind.clone()),
         mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
     }

@@ -60,9 +60,8 @@ static STORAGE_WITH_MOVE_STDLIB: Lazy<InMemoryStorage> = Lazy::new(|| {
     )
     .build_and_report()
     .unwrap();
-    let compiled_modules = compiled_units
-        .into_iter()
-        .map(|annot_module| annot_module.named_module.module);
+    let compiled_modules =
+        compiled_units.into_iter().map(|annot_module| annot_module.named_module.module);
     for module in compiled_modules {
         let mut blob = vec![];
         module.serialize(&mut blob).unwrap();
@@ -85,9 +84,9 @@ fn run_vm(module: CompiledModule) -> Result<(), VMError> {
         .0
         .iter()
         .map(|sig_tok| match sig_tok {
-            SignatureToken::Address => MoveValue::Address(AccountAddress::ZERO)
-                .simple_serialize()
-                .unwrap(),
+            SignatureToken::Address => {
+                MoveValue::Address(AccountAddress::ZERO).simple_serialize().unwrap()
+            }
             SignatureToken::U64 => MoveValue::U64(0).simple_serialize().unwrap(),
             SignatureToken::Bool => MoveValue::Bool(true).simple_serialize().unwrap(),
             SignatureToken::Vector(inner_tok) if **inner_tok == SignatureToken::U8 => {
@@ -108,13 +107,7 @@ fn run_vm(module: CompiledModule) -> Result<(), VMError> {
         })
         .collect();
 
-    execute_function_in_module(
-        module,
-        entry_idx,
-        vec![],
-        main_args,
-        &*STORAGE_WITH_MOVE_STDLIB,
-    )
+    execute_function_in_module(module, entry_idx, vec![], main_args, &*STORAGE_WITH_MOVE_STDLIB)
 }
 
 /// Execute the first function in a module
@@ -141,9 +134,7 @@ fn execute_function_in_module(
         let mut changeset = ChangeSet::new();
         let mut blob = vec![];
         module.serialize(&mut blob).unwrap();
-        changeset
-            .add_module_op(module_id.clone(), Op::New(blob))
-            .unwrap();
+        changeset.add_module_op(module_id.clone(), Op::New(blob)).unwrap();
         let delta_storage = DeltaStorage::new(storage, &changeset);
         let mut sess = vm.new_session(&delta_storage);
 
@@ -170,9 +161,7 @@ fn output_error_case(module: CompiledModule, output_path: Option<String>, case_i
     match output_path {
         Some(path) => {
             let mut out = vec![];
-            module
-                .serialize(&mut out)
-                .expect("Unable to serialize module");
+            module.serialize(&mut out).expect("Unable to serialize module");
             let output_file = format!("{}/case{}_{}.module", path, tid, case_id);
             let mut f = fs::File::create(output_file)
                 .unwrap_or_else(|err| panic!("Unable to open output file {}: {}", path, err));
@@ -300,11 +289,7 @@ pub fn bytecode_generation(
                 error!("{}", e);
                 let uid = rng.random::<u64>();
                 output_error_case(module.clone(), output_path.clone(), uid, tid);
-                if EXECUTE_UNVERIFIED_MODULE {
-                    Some(module.clone())
-                } else {
-                    None
-                }
+                if EXECUTE_UNVERIFIED_MODULE { Some(module.clone()) } else { None }
             }
         };
 
@@ -345,10 +330,7 @@ pub fn run_generation(args: Args) {
     } else {
         num_cpus::get()
     };
-    assert!(
-        num_threads > 0,
-        "Number of worker threads must be greater than 0"
-    );
+    assert!(num_threads > 0, "Number of worker threads must be greater than 0");
 
     let (sender, receiver) = bounded(num_threads);
     let (stats_sender, stats_receiver) = unbounded();
@@ -442,9 +424,7 @@ pub fn abilities(
             let declared_abilities = sh.abilities;
             let declared_phantom_parameters =
                 sh.type_parameters.iter().map(|param| param.is_phantom);
-            let type_arguments = type_args
-                .iter()
-                .map(|arg| abilities(module, arg, constraints));
+            let type_arguments = type_args.iter().map(|arg| abilities(module, arg, constraints));
             AbilitySet::polymorphic_abilities(
                 declared_abilities,
                 declared_phantom_parameters,

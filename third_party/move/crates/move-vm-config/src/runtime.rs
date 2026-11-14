@@ -94,11 +94,7 @@ impl std::default::Default for VMProfilerConfig {
 #[cfg(feature = "gas-profiler")]
 impl VMProfilerConfig {
     pub fn get_default_config_if_enabled() -> Option<VMProfilerConfig> {
-        if *PROFILER_ENABLED {
-            Some(VMProfilerConfig::default())
-        } else {
-            None
-        }
+        if *PROFILER_ENABLED { Some(VMProfilerConfig::default()) } else { None }
     }
 }
 

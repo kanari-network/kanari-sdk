@@ -115,11 +115,8 @@ impl Options {
     // the program name.
     pub fn create_from_args(args: &[String]) -> anyhow::Result<Options> {
         // Clap definition of the command line interface.
-        let is_number = |s: &str| {
-            s.parse::<usize>()
-                .map(|_| ())
-                .map_err(|_| "expected number".to_string())
-        };
+        let is_number =
+            |s: &str| s.parse::<usize>().map(|_| ()).map_err(|_| "expected number".to_string());
         let cli = Command::new("mvp")
             .version("0.1.0")
             .about("The Move Prover")
@@ -618,40 +615,28 @@ impl Options {
             options.prover.mutation = true;
         }
         if matches.contains_id("mutation-add-sub") {
-            options.prover.mutation_add_sub = matches
-                .get_one::<String>("mutation-add-sub")
-                .unwrap()
-                .parse::<usize>()?;
+            options.prover.mutation_add_sub =
+                matches.get_one::<String>("mutation-add-sub").unwrap().parse::<usize>()?;
         }
         if matches.contains_id("mutation-sub-add") {
-            options.prover.mutation_sub_add = matches
-                .get_one::<String>("mutation-sub-add")
-                .unwrap()
-                .parse::<usize>()?;
+            options.prover.mutation_sub_add =
+                matches.get_one::<String>("mutation-sub-add").unwrap().parse::<usize>()?;
         }
         if matches.contains_id("mutation-mul-div") {
-            options.prover.mutation_mul_div = matches
-                .get_one::<String>("mutation-mul-div")
-                .unwrap()
-                .parse::<usize>()?;
+            options.prover.mutation_mul_div =
+                matches.get_one::<String>("mutation-mul-div").unwrap().parse::<usize>()?;
         }
         if matches.contains_id("mutation-div-mul") {
-            options.prover.mutation_div_mul = matches
-                .get_one::<String>("mutation-div-mul")
-                .unwrap()
-                .parse::<usize>()?;
+            options.prover.mutation_div_mul =
+                matches.get_one::<String>("mutation-div-mul").unwrap().parse::<usize>()?;
         }
         if matches.get_flag("docgen") {
             options.run_docgen = true;
         }
         if matches.contains_id("docgen-template") {
             options.run_docgen = true;
-            options.docgen.root_doc_templates = vec![
-                matches
-                    .get_one::<String>("docgen-template")
-                    .map(|s| s.to_string())
-                    .unwrap(),
-            ]
+            options.docgen.root_doc_templates =
+                vec![matches.get_one::<String>("docgen-template").map(|s| s.to_string()).unwrap()]
         }
         if matches.get_flag("errmapgen") {
             options.run_errmapgen = true;
@@ -740,8 +725,5 @@ impl Options {
 pub fn named_addresses_for_options(
     named_address_values: &BTreeMap<String, NumericalAddress>,
 ) -> Vec<String> {
-    named_address_values
-        .iter()
-        .map(|(name, addr)| format!("{}={}", name, addr))
-        .collect()
+    named_address_values.iter().map(|(name, addr)| format!("{}={}", name, addr)).collect()
 }

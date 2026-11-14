@@ -63,10 +63,7 @@ fn native_coin_object_ref(object_id: &str, balance: u64) -> ObjectRef {
     ObjectRef::new(
         object_id.to_string(),
         Some(1),
-        Some(format!(
-            "0x{}",
-            hex::encode(kanari_crypto::hash_data_blake3(&coin_data))
-        )),
+        Some(format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(&coin_data)))),
     )
 }
 
@@ -89,9 +86,7 @@ fn signed_transfer_from(sender: &kanari_crypto::keys::KeyPair, nonce: u64) -> Si
         nonce,
     );
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
     signed_tx
 }
 
@@ -113,17 +108,11 @@ fn signed_transfer_with_refs(
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut tx
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx {
         gas_payment.payment_objects = vec![native_coin_object_ref(gas_object_id, gas_balance)];
     }
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
     signed_tx
 }
 
@@ -145,9 +134,7 @@ fn signed_native_burn_with_gas_object(
         });
     }
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
     signed_tx
 }
 
@@ -230,9 +217,7 @@ fn fund_sender_with_coin_type(
             }
         }
     }
-    state
-        .apply_changeset_without_supply_validation(&create_coin)
-        .unwrap();
+    state.apply_changeset_without_supply_validation(&create_coin).unwrap();
 }
 
 #[test]
@@ -261,22 +246,15 @@ fn account_info_uses_ledger_native_balance_over_coin_object_amount() {
     ));
     {
         let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
-        state
-            .apply_changeset_without_supply_validation(&cs)
-            .unwrap();
+        state.apply_changeset_without_supply_validation(&cs).unwrap();
         let mut owner_state = OwnerState::with_native_balance(owner, ledger_balance_after_fee);
-        owner_state.set_token_balance(
-            GAS_COIN.to_string(),
-            BalanceRecord::new(ledger_balance_after_fee),
-        );
+        owner_state
+            .set_token_balance(GAS_COIN.to_string(), BalanceRecord::new(ledger_balance_after_fee));
         state.save_owner_state(&owner_state).unwrap();
     }
 
     let account = engine.get_owner_info("0x1111").unwrap();
-    assert_eq!(
-        account.balances.get(GAS_COIN).copied(),
-        Some(ledger_balance_after_fee)
-    );
+    assert_eq!(account.balances.get(GAS_COIN).copied(), Some(ledger_balance_after_fee));
 }
 
 #[test]
@@ -289,12 +267,7 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     let gas_coin_id = "0x1001";
     fund_sender_with_coin(&engine, &sender.address, transfer_coin_id, 3_000_000);
     fund_sender_with_coin(&engine, &sender.address, gas_coin_id, 1_000_000);
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|error| error.into_inner())
-        .commit()
-        .unwrap();
+    engine.state.write().unwrap_or_else(|error| error.into_inner()).commit().unwrap();
 
     let sender_before = engine
         .get_owner_info(&sender.address)
@@ -309,17 +282,11 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut transaction
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut transaction {
         gas_payment.payment_objects = vec![native_coin_object_ref(gas_coin_id, 1_000_000)];
     }
     let mut transaction = SignedTransaction::new(transaction);
-    transaction
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    transaction.sign(&sender.private_key, sender.curve_type).unwrap();
     let transaction_hash = transaction.transaction_hash().to_vec();
     engine.submit_transactions_batch(vec![transaction]).unwrap();
 
@@ -333,11 +300,7 @@ fn committed_native_transfer_updates_sender_and_recipient_owner_balances() {
     );
     drive_consensus_until_mempool_empty(&engine);
 
-    assert!(
-        engine
-            .try_is_transaction_committed(&transaction_hash)
-            .unwrap()
-    );
+    assert!(engine.try_is_transaction_committed(&transaction_hash).unwrap());
     let effects = {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().transaction_effects.to_vec()
@@ -371,12 +334,7 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     fund_sender_with_coin(&engine, &alice.address, coin_id, 3_000_000);
     fund_sender_with_coin(&engine, &alice.address, alice_gas, 1_000_000);
     fund_sender_with_coin(&engine, &bob.address, bob_gas, 1_000_000);
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|error| error.into_inner())
-        .commit()
-        .unwrap();
+    engine.state.write().unwrap_or_else(|error| error.into_inner()).commit().unwrap();
 
     let owned_ids = |engine: &BlockchainEngine, owner: &str| -> Vec<String> {
         engine
@@ -396,19 +354,9 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
      -> Vec<u8> {
         let (coin_ref, gas_ref, amount) = {
             let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-            let coin = state
-                .get_object(coin_id)
-                .unwrap()
-                .expect("transfer coin must exist");
-            let gas = state
-                .get_object(gas_id)
-                .unwrap()
-                .expect("gas coin must exist");
-            (
-                coin.object_ref(coin_id),
-                gas.object_ref(gas_id),
-                transaction_coin_balance(&coin.data),
-            )
+            let coin = state.get_object(coin_id).unwrap().expect("transfer coin must exist");
+            let gas = state.get_object(gas_id).unwrap().expect("gas coin must exist");
+            (coin.object_ref(coin_id), gas.object_ref(gas_id), transaction_coin_balance(&coin.data))
         };
         let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
             sender.tagged_address(),
@@ -419,11 +367,7 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
             100_000,
             1,
         );
-        if let Transaction::ExecuteFunction {
-            gas_payment: Some(gas_payment),
-            ..
-        } = &mut tx
-        {
+        if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx {
             gas_payment.payment_objects = vec![gas_ref];
         }
         let mut signed = SignedTransaction::new(tx);
@@ -439,14 +383,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     assert!(engine.try_is_transaction_committed(&leg1_hash).unwrap());
     {
         let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-        let coin = state
-            .get_object(coin_id)
-            .unwrap()
-            .expect("coin object must survive leg 1");
-        assert_eq!(
-            coin.owner,
-            AccountAddress::from_hex_literal(&bob.address).unwrap()
-        );
+        let coin = state.get_object(coin_id).unwrap().expect("coin object must survive leg 1");
+        assert_eq!(coin.owner, AccountAddress::from_hex_literal(&bob.address).unwrap());
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
     assert!(!owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
@@ -457,14 +395,8 @@ fn native_transfer_round_trip_full_balance_keeps_coin_object() {
     assert!(engine.try_is_transaction_committed(&leg2_hash).unwrap());
     {
         let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-        let coin = state
-            .get_object(coin_id)
-            .unwrap()
-            .expect("coin object must survive leg 2");
-        assert_eq!(
-            coin.owner,
-            AccountAddress::from_hex_literal(&alice.address).unwrap()
-        );
+        let coin = state.get_object(coin_id).unwrap().expect("coin object must survive leg 2");
+        assert_eq!(coin.owner, AccountAddress::from_hex_literal(&alice.address).unwrap());
         assert_eq!(transaction_coin_balance(&coin.data), 3_000_000);
     }
     assert!(owned_ids(&engine, &alice.address).contains(&coin_id_canonical));
@@ -513,15 +445,9 @@ fn backend_native_burn_uses_prepared_gas_coin_and_reduces_supply() {
         let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
         state.apply_changeset(&changeset).unwrap();
 
-        let coin = state
-            .get_object(object_id)
-            .unwrap()
-            .expect("coin must exist");
+        let coin = state.get_object(object_id).unwrap().expect("coin must exist");
         let expected_balance = starting_balance - burn_amount - changeset.gas_used;
-        assert!(
-            changeset.gas_used > 0,
-            "gas remains a resource-metering value"
-        );
+        assert!(changeset.gas_used > 0, "gas remains a resource-metering value");
         assert_eq!(transaction_coin_balance(&coin.data), expected_balance);
         assert_eq!(
             state
@@ -569,21 +495,13 @@ fn backend_native_transfer_partial_split_indexes_output_coin() {
 
     let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
     let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
-    assert_eq!(
-        state.resolve_owner_native_balance(sender_addr).unwrap(),
-        1_999_899
-    );
-    assert_eq!(
-        state.resolve_owner_native_balance(recipient_addr).unwrap(),
-        1
-    );
+    assert_eq!(state.resolve_owner_native_balance(sender_addr).unwrap(), 1_999_899);
+    assert_eq!(state.resolve_owner_native_balance(recipient_addr).unwrap(), 1);
 
     let recipient_objects = state.get_owned_objects(&recipient_addr).unwrap();
     assert_eq!(recipient_objects.len(), 1);
-    let output = state
-        .get_object(&recipient_objects[0])
-        .unwrap()
-        .expect("recipient output coin must exist");
+    let output =
+        state.get_object(&recipient_objects[0]).unwrap().expect("recipient output coin must exist");
     assert_eq!(transaction_coin_balance(&output.data), 1);
     assert_eq!(output.owner, recipient_addr);
 }
@@ -683,10 +601,7 @@ fn admission_rejects_client_faults_fail_closed() {
         1,
     );
     if let Transaction::ExecuteFunction { object_inputs, .. } = &mut many_objects_tx {
-        let filler = object_inputs
-            .first()
-            .cloned()
-            .expect("transfer carries an object input");
+        let filler = object_inputs.first().cloned().expect("transfer carries an object input");
         object_inputs.resize(MAX_TRANSACTION_OBJECTS + 1, filler);
     }
     let error =
@@ -705,12 +620,7 @@ fn version_conflict_failures_do_not_charge_gas() {
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
     fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|error| error.into_inner())
-        .commit()
-        .unwrap();
+    engine.state.write().unwrap_or_else(|error| error.into_inner()).commit().unwrap();
     let tx = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
         native_coin_object_ref("0xaaaa", 1_000_000),
@@ -726,22 +636,15 @@ fn version_conflict_failures_do_not_charge_gas() {
         "Execution failed: Gas payment version mismatch for 0xbbbb: expected 1, found 2",
         "Execution failed: Gas payment digest mismatch for 0xbbbb",
     ] {
-        let changeset = engine
-            .failed_changeset_for_error(&tx, &engine.state, message.to_string())
-            .unwrap();
+        let changeset =
+            engine.failed_changeset_for_error(&tx, &engine.state, message.to_string()).unwrap();
         assert!(!changeset.success);
         let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
-        let sender_delta = changeset
-            .owner_deltas
-            .get(&sender_addr)
-            .map(|delta| delta.balance_delta)
-            .unwrap_or(0);
+        let sender_delta =
+            changeset.owner_deltas.get(&sender_addr).map(|delta| delta.balance_delta).unwrap_or(0);
         assert_eq!(sender_delta, 0, "race failures must not charge the sender");
         assert!(
-            changeset
-                .native_gas_credits
-                .values()
-                .all(|&credit| credit == 0),
+            changeset.native_gas_credits.values().all(|&credit| credit == 0),
             "race failures must not credit gas"
         );
         assert!(
@@ -753,19 +656,12 @@ fn version_conflict_failures_do_not_charge_gas() {
             "race failures must tell the client to retry"
         );
     }
-    let changeset = engine
-        .failed_changeset_for_error(&tx, &engine.state, "boom".to_string())
-        .unwrap();
+    let changeset =
+        engine.failed_changeset_for_error(&tx, &engine.state, "boom".to_string()).unwrap();
     let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
-    let sender_delta = changeset
-        .owner_deltas
-        .get(&sender_addr)
-        .map(|delta| delta.balance_delta)
-        .unwrap_or(0);
-    assert!(
-        sender_delta < 0,
-        "genuine failures still charge the sender gas"
-    );
+    let sender_delta =
+        changeset.owner_deltas.get(&sender_addr).map(|delta| delta.balance_delta).unwrap_or(0);
+    assert!(sender_delta < 0, "genuine failures still charge the sender gas");
 }
 
 proptest! {
@@ -1101,25 +997,17 @@ fn secure_consensus_keys(
         if authority == local_authority {
             local_signing_key = Some(signing_key.clone());
         }
-        public_keys.insert(
-            authority.clone(),
-            signing_key.verifying_key().to_bytes().to_vec(),
-        );
+        public_keys.insert(authority.clone(), signing_key.verifying_key().to_bytes().to_vec());
     }
 
-    (
-        local_signing_key.expect("local authority must be in authority set"),
-        public_keys,
-    )
+    (local_signing_key.expect("local authority must be in authority set"), public_keys)
 }
 
 fn configure_single_authority_consensus(engine: &mut BlockchainEngine) {
     let authorities = vec!["0x1".to_string()];
     engine.set_authorities("0x1".to_string(), authorities.clone());
     let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
-    engine
-        .set_consensus_signing_key(local_key, public_keys)
-        .unwrap();
+    engine.set_consensus_signing_key(local_key, public_keys).unwrap();
 }
 
 fn drive_consensus_to_height(engine: &BlockchainEngine, target_height: u64) {
@@ -1192,9 +1080,7 @@ fn configured_dag_engine_produces_empty_vertex_without_checkpoint() {
     let authorities = vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()];
     engine.set_authorities("0x1".to_string(), authorities.clone());
     let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
-    engine
-        .set_consensus_signing_key(local_key, public_keys)
-        .unwrap();
+    engine.set_consensus_signing_key(local_key, public_keys).unwrap();
 
     let info = engine.produce_checkpoint().unwrap();
     assert_eq!(info.tx_count, 0);
@@ -1215,9 +1101,7 @@ fn restarted_engine_allows_empty_dag_progress_without_committing_checkpoint() {
         }
         engine.set_authorities("0x1".to_string(), authorities.clone());
         let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
-        engine
-            .set_consensus_signing_key(local_key, public_keys)
-            .unwrap();
+        engine.set_consensus_signing_key(local_key, public_keys).unwrap();
 
         let info = engine.produce_checkpoint().unwrap();
         assert_eq!(info.tx_count, 0);
@@ -1231,9 +1115,7 @@ fn restarted_engine_allows_empty_dag_progress_without_committing_checkpoint() {
     }
     restarted.set_authorities("0x1".to_string(), authorities.clone());
     let (local_key, public_keys) = secure_consensus_keys(&authorities, "0x1");
-    restarted
-        .set_consensus_signing_key(local_key, public_keys)
-        .unwrap();
+    restarted.set_consensus_signing_key(local_key, public_keys).unwrap();
 
     assert_eq!(restarted.get_stats().pending_transactions, 0);
     assert_eq!(restarted.get_stats().height, 0);
@@ -1395,15 +1277,11 @@ fn restarted_engine_preserves_replay_protection_and_multi_checkpoint_progress() 
         snapshot_preview(&restarted, 8)
     );
     assert!(
-        restarted
-            .first_canonical_state_divergence(&restarted)
-            .is_none(),
+        restarted.first_canonical_state_divergence(&restarted).is_none(),
         "self comparison should never diverge"
     );
 
-    let replay_err = restarted
-        .submit_transactions_batch(vec![tx1.clone()])
-        .unwrap_err();
+    let replay_err = restarted.submit_transactions_batch(vec![tx1.clone()]).unwrap_err();
     assert!(replay_err.to_string().contains("already executed"));
 
     let tx3_hash = tx3.transaction_hash().to_vec();
@@ -1480,12 +1358,9 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
         "exp": 2000000000u64,
         "nonce": nonce,
     });
-    let jwt = jsonwebtoken::encode(
-        &header,
-        &claims,
-        &jsonwebtoken::EncodingKey::from_rsa_der(&der),
-    )
-    .unwrap();
+    let jwt =
+        jsonwebtoken::encode(&header, &claims, &jsonwebtoken::EncodingKey::from_rsa_der(&der))
+            .unwrap();
     let jwks: JwksDocument = serde_json::from_str(&format!(
         "{{\"keys\":[{{\"kty\":\"RSA\",\"kid\":\"engine-1\",\"alg\":\"RS256\",\"n\":\"{n_b64}\",\"e\":\"{e_b64}\"}}]}}"
     ))
@@ -1516,11 +1391,7 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut tx
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx {
         gas_payment.payment_objects = vec![native_coin_object_ref("0x1001", 1_000_000)];
     }
     let tx_hash = tx.hash();
@@ -1556,27 +1427,15 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
     );
 
     // Accepted, then duplicate rejected while pending.
-    engine
-        .submit_transactions_batch(vec![signed_tx.clone()])
-        .unwrap();
-    let dup_err = engine
-        .submit_transactions_batch(vec![signed_tx.clone()])
-        .unwrap_err();
-    assert!(
-        dup_err.to_string().contains("already in pending pool"),
-        "unexpected: {dup_err:#}"
-    );
+    engine.submit_transactions_batch(vec![signed_tx.clone()]).unwrap();
+    let dup_err = engine.submit_transactions_batch(vec![signed_tx.clone()]).unwrap_err();
+    assert!(dup_err.to_string().contains("already in pending pool"), "unexpected: {dup_err:#}");
 
     // Committed, then replay rejected as executed.
     drive_consensus_to_height(&engine, 1);
     assert!(engine.try_is_transaction_committed(&tx_hash).unwrap());
-    let replay_err = engine
-        .submit_transactions_batch(vec![signed_tx])
-        .unwrap_err();
-    assert!(
-        replay_err.to_string().contains("already executed"),
-        "unexpected: {replay_err:#}"
-    );
+    let replay_err = engine.submit_transactions_batch(vec![signed_tx]).unwrap_err();
+    assert!(replay_err.to_string().contains("already executed"), "unexpected: {replay_err:#}");
 
     // Same bundle, different sender: binding enforced at admission.
     let mut evil = Transaction::new_transfer_with_object_ref_and_gas(
@@ -1588,23 +1447,15 @@ fn zklogin_sender_submits_executes_and_rejects_replay() {
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut evil
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut evil {
         gas_payment.payment_objects = vec![native_coin_object_ref("0x1001", 1_000_000)];
     }
     // Fresh bundle is unnecessary: reuse is fine, sender mismatch is fatal.
     let mut evil_signed = SignedTransaction::new(evil);
     evil_signed.signature = encode_zklogin_tx_signature(&auth).unwrap();
-    let bind_err = engine
-        .submit_transactions_batch(vec![evil_signed])
-        .unwrap_err();
+    let bind_err = engine.submit_transactions_batch(vec![evil_signed]).unwrap_err();
     assert!(
-        bind_err
-            .to_string()
-            .contains("Signature verification failed"),
+        bind_err.to_string().contains("Signature verification failed"),
         "unexpected: {bind_err:#}"
     );
 }
@@ -1646,26 +1497,15 @@ fn committed_nonce_watermark_rejects_same_or_older_nonce_replay() {
 
     engine.submit_transactions_batch(vec![tx1.clone()]).unwrap();
     drive_consensus_to_height(&engine, 1);
-    assert!(
-        engine
-            .try_is_transaction_committed(tx1.transaction_hash())
-            .unwrap()
-    );
+    assert!(engine.try_is_transaction_committed(tx1.transaction_hash()).unwrap());
 
     // Exact resend still caught by the executed-hash guard.
-    let hash_err = engine
-        .submit_transactions_batch(vec![tx1_resend])
-        .unwrap_err();
-    assert!(
-        hash_err.to_string().contains("already executed"),
-        "unexpected: {hash_err:#}"
-    );
+    let hash_err = engine.submit_transactions_batch(vec![tx1_resend]).unwrap_err();
+    assert!(hash_err.to_string().contains("already executed"), "unexpected: {hash_err:#}");
 
     // Same nonce, never-before-seen payload: previously admitted, now rejected
     // by the committed-nonce watermark.
-    let stale_err = engine
-        .submit_transactions_batch(vec![tx_stale_new_payload])
-        .unwrap_err();
+    let stale_err = engine.submit_transactions_batch(vec![tx_stale_new_payload]).unwrap_err();
     assert!(
         stale_err.to_string().contains("nonce 1 for sender")
             && stale_err.to_string().contains("is stale"),
@@ -1704,9 +1544,7 @@ fn committed_nonce_watermark_rejects_same_or_older_nonce_replay() {
         2,
     );
     fund_sender_with_coin(&restarted, &sender.address, "0xcccc", 1_000_000);
-    restarted
-        .submit_transactions_batch(vec![fresh_after_restart])
-        .unwrap();
+    restarted.submit_transactions_batch(vec![fresh_after_restart]).unwrap();
     drive_consensus_to_height(&restarted, 2);
     assert_eq!(restarted.get_stats().height, 2);
     restarted.state_read().validate_smt_consistency().unwrap();
@@ -1751,9 +1589,7 @@ fn checkpoint_commit_persists_metadata_and_transactions_before_restart() {
         fund_sender_with_coin(&engine, &sender.address, "0xbbbb", 2_000_000);
         fund_sender_with_coin(&engine, &sender.address, "0x2001", 1_000_000);
 
-        engine
-            .submit_transactions_batch(vec![tx1.clone(), tx2.clone()])
-            .unwrap();
+        engine.submit_transactions_batch(vec![tx1.clone(), tx2.clone()]).unwrap();
         drive_consensus_to_height(&engine, 1);
         assert_eq!(engine.get_stats().height, 1);
 
@@ -1771,10 +1607,7 @@ fn checkpoint_commit_persists_metadata_and_transactions_before_restart() {
             .unwrap()
             .expect("checkpoint transaction payload must be durable before restart");
         assert_eq!(
-            checkpoint_txs
-                .iter()
-                .map(|tx| tx.transaction_hash().to_vec())
-                .collect::<Vec<_>>(),
+            checkpoint_txs.iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>(),
             vec![tx1_hash.clone(), tx2_hash.clone()]
         );
         assert!(
@@ -1838,30 +1671,17 @@ fn in_memory_and_persistent_engines_materialize_same_objects_across_checkpoints(
     };
 
     let mut persistent = BlockchainEngine::new_dir(data_dir).unwrap();
-    persistent
-        .state_read()
-        .validate_smt_consistency()
-        .expect("fresh persistent engine SMT");
+    persistent.state_read().validate_smt_consistency().expect("fresh persistent engine SMT");
     configure_engine(&mut persistent);
     fund_engine(&persistent);
     // Funding is still speculative until checkpoint production, so audit only
     // after it is committed below.
-    persistent
-        .submit_transactions_batch(vec![tx1.clone()])
-        .unwrap();
+    persistent.submit_transactions_batch(vec![tx1.clone()]).unwrap();
     drive_consensus_to_height(&persistent, 1);
-    persistent
-        .state_read()
-        .validate_smt_consistency()
-        .expect("checkpoint 1 persistent SMT");
-    persistent
-        .submit_transactions_batch(vec![tx2.clone()])
-        .unwrap();
+    persistent.state_read().validate_smt_consistency().expect("checkpoint 1 persistent SMT");
+    persistent.submit_transactions_batch(vec![tx2.clone()]).unwrap();
     drive_consensus_to_height(&persistent, 2);
-    persistent
-        .state_read()
-        .validate_smt_consistency()
-        .expect("checkpoint 2 persistent SMT");
+    persistent.state_read().validate_smt_consistency().expect("checkpoint 2 persistent SMT");
 
     let mut in_memory = BlockchainEngine::new_in_memory().unwrap();
     configure_engine(&mut in_memory);
@@ -1904,9 +1724,7 @@ fn required_persistent_engine_never_falls_back_to_memory() {
     };
 
     assert!(
-        error
-            .to_string()
-            .contains("Failed to open required persistent store"),
+        error.to_string().contains("Failed to open required persistent store"),
         "unexpected error: {error}"
     );
 }
@@ -1919,10 +1737,7 @@ fn persistent_engine_refuses_fresh_genesis_when_state_exists_without_chain_metad
         let store = PersistentStore::open_with_path(Some(data_dir.clone())).unwrap();
         let owner = AccountAddress::from_hex_literal("0x123").unwrap();
         store
-            .save(
-                format!("account:{}", owner.to_hex_literal()).as_bytes(),
-                &OwnerState::new(owner),
-            )
+            .save(format!("account:{}", owner.to_hex_literal()).as_bytes(), &OwnerState::new(owner))
             .unwrap();
         store.flush().unwrap();
     }
@@ -1933,9 +1748,7 @@ fn persistent_engine_refuses_fresh_genesis_when_state_exists_without_chain_metad
     };
 
     assert!(
-        error
-            .to_string()
-            .contains("Refusing to create fresh genesis"),
+        error.to_string().contains("Refusing to create fresh genesis"),
         "unexpected error: {error}"
     );
 }
@@ -1956,20 +1769,11 @@ fn committed_transaction_history_survives_metadata_stripping() {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().hash().unwrap()
     };
-    let checkpoint = Checkpoint::new(
-        1,
-        vec![[7u8; 32]],
-        vec![tx],
-        vec![9u8; 32],
-        42,
-        genesis_hash,
-    );
+    let checkpoint = Checkpoint::new(1, vec![[7u8; 32]], vec![tx], vec![9u8; 32], 42, genesis_hash);
 
     {
         let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
-        chain
-            .add_checkpoint_with_validation(checkpoint, false)
-            .unwrap();
+        chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
         engine.persist_blockchain_snapshot(&chain).unwrap();
     }
 
@@ -1985,17 +1789,9 @@ fn committed_transaction_history_survives_metadata_stripping() {
     {
         let mut chain = engine.blockchain.write().unwrap_or_else(|e| e.into_inner());
         let parent_hash = chain.latest_checkpoint().hash().unwrap();
-        let checkpoint = Checkpoint::new(
-            2,
-            vec![[8u8; 32]],
-            vec![second],
-            vec![8u8; 32],
-            43,
-            parent_hash,
-        );
-        chain
-            .add_checkpoint_with_validation(checkpoint, false)
-            .unwrap();
+        let checkpoint =
+            Checkpoint::new(2, vec![[8u8; 32]], vec![second], vec![8u8; 32], 43, parent_hash);
+        chain.add_checkpoint_with_validation(checkpoint, false).unwrap();
         engine.persist_blockchain_snapshot(&chain).unwrap();
     }
 
@@ -2017,9 +1813,7 @@ fn committed_transaction_history_survives_metadata_stripping() {
             .is_empty()
     );
     assert!(
-        engine
-            .list_committed_transactions_from_history(10, Some(&[0xab; 32]), |_| true)
-            .is_empty()
+        engine.list_committed_transactions_from_history(10, Some(&[0xab; 32]), |_| true).is_empty()
     );
 
     let found = engine
@@ -2035,14 +1829,8 @@ fn history_pruning_keeps_permanent_replay_index() {
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 0);
     let tx_hash = tx.transaction_hash().to_vec();
-    let checkpoint = Checkpoint::new(
-        1,
-        vec![[7u8; 32]],
-        vec![tx],
-        vec![9u8; 32],
-        42,
-        vec![0u8; 32],
-    );
+    let checkpoint =
+        Checkpoint::new(1, vec![[7u8; 32]], vec![tx], vec![9u8; 32], 42, vec![0u8; 32]);
     BlockchainEngine::persist_checkpoint_transactions(&store, &checkpoint).unwrap();
 
     BlockchainEngine::prune_transaction_payloads(&store, 1).unwrap();
@@ -2073,29 +1861,16 @@ fn history_pruning_keeps_permanent_replay_index() {
 #[test]
 fn checkpoint_persistence_rejects_corrupt_recent_transaction_index() {
     let store = PersistentStore::open_in_memory().unwrap();
-    store
-        .save(
-            BlockchainEngine::recent_transaction_hashes_key(),
-            &vec![vec![1u8, 2, 3]],
-        )
-        .unwrap();
+    store.save(BlockchainEngine::recent_transaction_hashes_key(), &vec![vec![1u8, 2, 3]]).unwrap();
 
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 0);
-    let checkpoint = Checkpoint::new(
-        1,
-        vec![[7u8; 32]],
-        vec![tx],
-        vec![9u8; 32],
-        42,
-        vec![0u8; 32],
-    );
+    let checkpoint =
+        Checkpoint::new(1, vec![[7u8; 32]], vec![tx], vec![9u8; 32], 42, vec![0u8; 32]);
 
     let error = BlockchainEngine::persist_checkpoint_transactions(&store, &checkpoint).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("Recent transaction index contains invalid hash length"),
+        error.to_string().contains("Recent transaction index contains invalid hash length"),
         "unexpected error: {error}"
     );
 }
@@ -2109,18 +1884,11 @@ fn committed_transaction_check_rejects_corrupt_persistent_index() {
     };
 
     let tx_hash = [7u8; 32];
-    store
-        .save(
-            &BlockchainEngine::transaction_index_key(&tx_hash),
-            &vec![1u8, 2, 3],
-        )
-        .unwrap();
+    store.save(&BlockchainEngine::transaction_index_key(&tx_hash), &vec![1u8, 2, 3]).unwrap();
 
     let error = engine.try_is_transaction_committed(&tx_hash).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("Failed to load committed transaction index"),
+        error.to_string().contains("Failed to load committed transaction index"),
         "unexpected error: {error}"
     );
 }
@@ -2161,9 +1929,7 @@ fn batch_submit_rejects_stale_object_version() {
                 version: 2,
             },
         ));
-        state
-            .apply_changeset_without_supply_validation(&updated)
-            .unwrap();
+        state.apply_changeset_without_supply_validation(&updated).unwrap();
     }
 
     let stale_tx = signed_transfer_from(&sender, 0);
@@ -2180,10 +1946,7 @@ fn batch_submit_rejects_stale_object_version() {
         "committed pre-execution failures must charge deterministic base gas"
     );
     assert!(
-        checkpoint
-            .transactions
-            .iter()
-            .any(|tx| hex::encode(tx.transaction_hash()) == stale_hash)
+        checkpoint.transactions.iter().any(|tx| hex::encode(tx.transaction_hash()) == stale_hash)
     );
 }
 
@@ -2195,16 +1958,12 @@ fn batch_submit_accepts_shuffled_contiguous_sequences_for_same_sender() {
     let tx1 = signed_transfer_from(&sender, 1);
     let tx2 = signed_transfer_from(&sender, 2);
 
-    let hashes = engine
-        .submit_transactions_batch(vec![tx2.clone(), tx0.clone(), tx1.clone()])
-        .unwrap();
+    let hashes =
+        engine.submit_transactions_batch(vec![tx2.clone(), tx0.clone(), tx1.clone()]).unwrap();
 
     assert_eq!(hashes.len(), 3);
     let pending = engine.pending_transactions_snapshot();
-    let pending_nonces = pending
-        .iter()
-        .map(|tx| tx.transaction.nonce())
-        .collect::<Vec<_>>();
+    let pending_nonces = pending.iter().map(|tx| tx.transaction.nonce()).collect::<Vec<_>>();
     assert_eq!(pending_nonces, vec![0, 1, 2]);
 }
 
@@ -2243,12 +2002,8 @@ fn gas_application_credits_dao_ledger_without_creating_coin() {
     assert!(changeset.created_objects.is_empty());
 
     let mut state = kanari_move_runtime_v2::state::StateManager::new_in_memory();
-    state
-        .save_owner_state(&OwnerState::with_native_balance(sender, 10))
-        .unwrap();
-    state
-        .apply_changeset_without_supply_validation(&changeset)
-        .unwrap();
+    state.save_owner_state(&OwnerState::with_native_balance(sender, 10)).unwrap();
+    state.apply_changeset_without_supply_validation(&changeset).unwrap();
     assert_eq!(state.resolve_owner_native_balance(dao).unwrap(), 10);
     assert!(state.get_owned_objects(&dao).unwrap().is_empty());
 }
@@ -2259,9 +2014,7 @@ fn batch_submit_rejects_duplicate_transactions() {
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let tx = signed_transfer_from(&sender, 0);
 
-    let err = engine
-        .submit_transactions_batch(vec![tx.clone(), tx])
-        .unwrap_err();
+    let err = engine.submit_transactions_batch(vec![tx.clone(), tx]).unwrap_err();
 
     assert!(err.to_string().contains("already in pending pool"));
 }
@@ -2320,36 +2073,19 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
             100_000,
             1_000,
         );
-        if let Transaction::ExecuteFunction {
-            gas_payment: Some(gas_payment),
-            ..
-        } = &mut tx
-        {
+        if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx {
             gas_payment.payment_objects = vec![native_coin_object_ref(&gas_object_id, 1_000_000)];
         }
         let mut signed_tx = SignedTransaction::new(tx);
-        signed_tx
-            .sign(&sender.private_key, sender.curve_type)
-            .unwrap();
+        signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
         txs.push(signed_tx);
     }
 
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .commit()
-        .unwrap();
-    let base_state = engine
-        .state
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    engine.state.write().unwrap_or_else(|e| e.into_inner()).commit().unwrap();
+    let base_state = engine.state.read().unwrap_or_else(|e| e.into_inner()).clone();
     let strict_state = Arc::new(RwLock::new(base_state.clone()));
     let parallel_state = Arc::new(RwLock::new(base_state));
-    let serial_effects = engine
-        .collect_transaction_effects_strict(&txs, Some(123), true)
-        .unwrap();
+    let serial_effects = engine.collect_transaction_effects_strict(&txs, Some(123), true).unwrap();
 
     let strict_counts = engine
         .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(123), false, true)
@@ -2364,14 +2100,9 @@ fn deterministic_parallel_execution_matches_strict_serial_root() {
         .unwrap();
     let parallel_counts = (parallel_executed, parallel_failed);
 
-    let strict_root = strict_state
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .compute_state_root();
-    let parallel_root = parallel_state
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .compute_state_root();
+    let strict_root = strict_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root();
+    let parallel_root =
+        parallel_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root();
 
     assert_eq!(strict_counts, parallel_counts);
     assert_eq!(parallel_effects, serial_effects);
@@ -2412,18 +2143,12 @@ fn conflicting_speculative_wave_replays_to_strict_serial_root() {
         })
         .collect::<Vec<_>>();
 
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .commit()
-        .unwrap();
+    engine.state.write().unwrap_or_else(|e| e.into_inner()).commit().unwrap();
     let base_state = engine.state_read().clone();
     let strict_state = Arc::new(RwLock::new(base_state.clone()));
     let parallel_state = Arc::new(RwLock::new(base_state));
-    let expected_effects = engine
-        .collect_transaction_effects_strict(&txs, Some(456), false)
-        .unwrap();
+    let expected_effects =
+        engine.collect_transaction_effects_strict(&txs, Some(456), false).unwrap();
 
     let strict_counts = engine
         .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(456), false, true)
@@ -2440,14 +2165,8 @@ fn conflicting_speculative_wave_replays_to_strict_serial_root() {
     assert_eq!((executed, failed), strict_counts);
     assert_eq!(actual_effects, expected_effects);
     assert_eq!(
-        parallel_state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root(),
-        strict_state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root()
+        parallel_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root(),
+        strict_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root()
     );
 }
 
@@ -2493,23 +2212,15 @@ fn mixed_success_and_failure_speculative_wave_matches_strict_serial() {
         nonce: 0,
     };
     let mut invalid = SignedTransaction::new(invalid_tx);
-    invalid
-        .sign(&invalid_sender.private_key, invalid_sender.curve_type)
-        .unwrap();
+    invalid.sign(&invalid_sender.private_key, invalid_sender.curve_type).unwrap();
     let txs = vec![valid, invalid];
 
-    engine
-        .state
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .commit()
-        .unwrap();
+    engine.state.write().unwrap_or_else(|e| e.into_inner()).commit().unwrap();
     let base_state = engine.state_read().clone();
     let strict_state = Arc::new(RwLock::new(base_state.clone()));
     let parallel_state = Arc::new(RwLock::new(base_state));
-    let expected_effects = engine
-        .collect_transaction_effects_strict(&txs, Some(789), false)
-        .unwrap();
+    let expected_effects =
+        engine.collect_transaction_effects_strict(&txs, Some(789), false).unwrap();
 
     let strict_counts = engine
         .execute_tx_waves_parallel(txs.clone(), &strict_state, Some(789), false, true)
@@ -2525,20 +2236,10 @@ fn mixed_success_and_failure_speculative_wave_matches_strict_serial() {
 
     assert_eq!((executed, failed), strict_counts);
     assert_eq!(actual_effects, expected_effects);
-    assert!(
-        actual_effects
-            .iter()
-            .any(|effect| effect.status == "failed")
-    );
+    assert!(actual_effects.iter().any(|effect| effect.status == "failed"));
     assert_eq!(
-        parallel_state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root(),
-        strict_state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .compute_state_root()
+        parallel_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root(),
+        strict_state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root()
     );
 }
 
@@ -2570,19 +2271,10 @@ fn select_conflict_free_transactions_keeps_non_conflicting_transactions() {
 
     let selected =
         BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b.clone()]);
-    let hashes = selected
-        .into_iter()
-        .map(|tx| tx.transaction_hash().to_vec())
-        .collect::<Vec<_>>();
+    let hashes = selected.into_iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
 
     assert_eq!(hashes.len(), 2);
-    assert_eq!(
-        hashes,
-        vec![
-            tx_a.transaction_hash().to_vec(),
-            tx_b.transaction_hash().to_vec()
-        ]
-    );
+    assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec(), tx_b.transaction_hash().to_vec()]);
 }
 
 #[test]
@@ -2630,18 +2322,9 @@ fn select_conflict_free_transactions_skips_later_conflicts_but_keeps_later_indep
 
     let selected =
         BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_b, tx_c.clone()]);
-    let hashes = selected
-        .into_iter()
-        .map(|tx| tx.transaction_hash().to_vec())
-        .collect::<Vec<_>>();
+    let hashes = selected.into_iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
 
-    assert_eq!(
-        hashes,
-        vec![
-            tx_a.transaction_hash().to_vec(),
-            tx_c.transaction_hash().to_vec()
-        ]
-    );
+    assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()]);
 }
 
 #[test]
@@ -2681,10 +2364,7 @@ fn select_conflict_free_transactions_keeps_only_first_when_all_transactions_conf
 
     let selected =
         BlockchainEngine::select_conflict_free_transactions(vec![tx_a.clone(), tx_c, tx_b]);
-    let hashes = selected
-        .into_iter()
-        .map(|tx| tx.transaction_hash().to_vec())
-        .collect::<Vec<_>>();
+    let hashes = selected.into_iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
 
     assert_eq!(hashes, vec![tx_a.transaction_hash().to_vec()]);
 }
@@ -2732,14 +2412,9 @@ fn pending_conflict_free_snapshot_is_stable_regardless_of_submit_order() {
         3,
     );
 
-    let expected = vec![
-        tx_a.transaction_hash().to_vec(),
-        tx_c.transaction_hash().to_vec(),
-    ];
+    let expected = vec![tx_a.transaction_hash().to_vec(), tx_c.transaction_hash().to_vec()];
 
-    engine
-        .submit_transactions_batch(vec![tx_c, tx_b, tx_a])
-        .unwrap();
+    engine.submit_transactions_batch(vec![tx_c, tx_b, tx_a]).unwrap();
 
     let ready = engine
         .pending_conflict_free_transactions_snapshot()
@@ -2759,9 +2434,7 @@ fn owned_fast_checkpoint_commits_no_shared_pending_transactions() {
     let tx_a = signed_native_burn_with_gas_object(&sender_a, "0xa001", 1_000_000, 1);
     let tx_b = signed_native_burn_with_gas_object(&sender_b, "0xb001", 1_000_000, 2);
 
-    engine
-        .submit_transactions_batch(vec![tx_b.clone(), tx_a.clone()])
-        .unwrap();
+    engine.submit_transactions_batch(vec![tx_b.clone(), tx_a.clone()]).unwrap();
     let info = engine.produce_owned_fast_checkpoint().unwrap();
 
     assert_eq!(info.tx_count, 2);
@@ -2769,16 +2442,8 @@ fn owned_fast_checkpoint_commits_no_shared_pending_transactions() {
     assert_eq!(info.failed, 0);
     assert_eq!(engine.pending_transaction_len(), 0);
     assert_eq!(engine.get_stats().height, 1);
-    assert!(
-        engine
-            .try_is_transaction_committed(tx_a.transaction_hash())
-            .unwrap()
-    );
-    assert!(
-        engine
-            .try_is_transaction_committed(tx_b.transaction_hash())
-            .unwrap()
-    );
+    assert!(engine.try_is_transaction_committed(tx_a.transaction_hash()).unwrap());
+    assert!(engine.try_is_transaction_committed(tx_b.transaction_hash()).unwrap());
     assert_eq!(info.checkpoint.unwrap().tx_count, 2);
 }
 
@@ -2803,22 +2468,14 @@ fn owned_fast_checkpoint_leaves_shared_object_transactions_pending() {
         });
     }
     let mut shared_tx = SignedTransaction::new(shared_transaction);
-    shared_tx
-        .sign(&shared_sender.private_key, shared_sender.curve_type)
-        .unwrap();
+    shared_tx.sign(&shared_sender.private_key, shared_sender.curve_type).unwrap();
     let shared_hash = shared_tx.transaction_hash().to_vec();
 
-    engine
-        .submit_transactions_batch(vec![shared_tx.clone(), owned_tx.clone()])
-        .unwrap();
+    engine.submit_transactions_batch(vec![shared_tx.clone(), owned_tx.clone()]).unwrap();
     let info = engine.produce_owned_fast_checkpoint().unwrap();
 
     assert_eq!(info.tx_count, 1);
-    assert!(
-        engine
-            .try_is_transaction_committed(owned_tx.transaction_hash())
-            .unwrap()
-    );
+    assert!(engine.try_is_transaction_committed(owned_tx.transaction_hash()).unwrap());
     assert!(!engine.try_is_transaction_committed(&shared_hash).unwrap());
     assert_eq!(engine.pending_transaction_len(), 1);
     assert_eq!(
@@ -2893,11 +2550,7 @@ fn produce_checkpoint_skips_conflicting_transactions_from_same_wallet() {
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut tx_a
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx_a {
         gas_payment.payment_objects = vec![native_coin_object_ref(gas_a_id, 1_000_000)];
     }
 
@@ -2910,29 +2563,19 @@ fn produce_checkpoint_skips_conflicting_transactions_from_same_wallet() {
         100_000,
         1,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut tx_b
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx_b {
         gas_payment.payment_objects = vec![native_coin_object_ref(gas_b_id, 1_000_000)];
     }
 
     let mut signed_a = SignedTransaction::new(tx_a);
-    signed_a
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_a.sign(&sender.private_key, sender.curve_type).unwrap();
     let hash_a = signed_a.transaction_hash().to_vec();
 
     let mut signed_b = SignedTransaction::new(tx_b);
-    signed_b
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_b.sign(&sender.private_key, sender.curve_type).unwrap();
     let hash_b = signed_b.transaction_hash().to_vec();
 
-    engine
-        .submit_transactions_batch(vec![signed_b, signed_a])
-        .unwrap();
+    engine.submit_transactions_batch(vec![signed_b, signed_a]).unwrap();
 
     let ready_hashes = engine
         .pending_conflict_free_transactions_snapshot()
@@ -2941,11 +2584,7 @@ fn produce_checkpoint_skips_conflicting_transactions_from_same_wallet() {
         .collect::<Vec<_>>();
     assert_eq!(ready_hashes.len(), 1);
     let chosen_first = ready_hashes[0].clone();
-    let chosen_second = if chosen_first == hash_a {
-        hash_b.clone()
-    } else {
-        hash_a.clone()
-    };
+    let chosen_second = if chosen_first == hash_a { hash_b.clone() } else { hash_a.clone() };
 
     drive_consensus_to_height(&engine, 1);
     assert_eq!(engine.pending_transaction_len(), 1);
@@ -3029,10 +2668,7 @@ fn mempool_admission_caps_primary_access_lane_depth() {
         .unwrap_err();
 
     assert!(err.to_string().contains("is saturated"));
-    assert_eq!(
-        engine.pending_transaction_len() as u64,
-        MAX_PENDING_PER_PRIMARY_ACCESS_LANE
-    );
+    assert_eq!(engine.pending_transaction_len() as u64, MAX_PENDING_PER_PRIMARY_ACCESS_LANE);
 }
 
 #[test]
@@ -3083,10 +2719,7 @@ fn mempool_admission_caps_pending_per_sender() {
         .unwrap_err();
 
     assert!(err.to_string().contains("too many pending transactions"));
-    assert_eq!(
-        engine.pending_transaction_len() as u64,
-        MAX_PENDING_PER_SENDER
-    );
+    assert_eq!(engine.pending_transaction_len() as u64, MAX_PENDING_PER_SENDER);
 }
 
 #[test]
@@ -3167,15 +2800,10 @@ fn non_native_execute_function_requires_full_object_ref_metadata() {
         nonce: 0,
     };
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
 
     let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("must include (object_id, version, digest)")
-    );
+    assert!(err.to_string().contains("must include (object_id, version, digest)"));
 }
 
 #[test]
@@ -3195,13 +2823,9 @@ fn mempool_rejects_malformed_move_module_path_before_dag_admission() {
         nonce: 0,
     };
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
 
-    let err = engine
-        .submit_transactions_batch(vec![signed_tx])
-        .unwrap_err();
+    let err = engine.submit_transactions_batch(vec![signed_tx]).unwrap_err();
     assert!(err.to_string().contains("address::module"));
     assert_eq!(engine.get_stats().pending_transactions, 0);
 }
@@ -3210,13 +2834,7 @@ fn mempool_rejects_malformed_move_module_path_before_dag_admission() {
 fn gas_payment_object_must_be_native_kanari_coin() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin_type(
-        &engine,
-        &sender.address,
-        "0xaaaa",
-        1_000_000,
-        "0x2::james::JAMES",
-    );
+    fund_sender_with_coin_type(&engine, &sender.address, "0xaaaa", 1_000_000, "0x2::james::JAMES");
 
     let tx = Transaction::ExecuteFunction {
         sender: sender.tagged_address(),
@@ -3238,9 +2856,7 @@ fn gas_payment_object_must_be_native_kanari_coin() {
         nonce: 0,
     };
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
 
     let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
     assert!(err.to_string().contains("must be Coin<"));
@@ -3254,17 +2870,9 @@ fn genesis_registers_usd_with_shared_mint_authority() {
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
     // No fixed supply and no dev allocation: minting is permissionless.
     let dev = AccountAddress::from_hex_literal(KanariAddress::DEV_ADDRESS).unwrap();
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(dev, USD_COIN)
-            .unwrap_or(0),
-        0
-    );
+    assert_eq!(state.resolve_owner_token_balance(dev, USD_COIN).unwrap_or(0), 0);
     assert_eq!(state.get_token_decimals(USD_COIN).unwrap(), Some(6));
-    assert_eq!(
-        state.get_token_symbol(USD_COIN).unwrap().as_deref(),
-        Some("USD")
-    );
+    assert_eq!(state.get_token_symbol(USD_COIN).unwrap().as_deref(), Some("USD"));
     // The TreasuryCap is a shared object, so anyone can call `usd::mint`.
     let caps = state
         .query_objects(
@@ -3276,10 +2884,7 @@ fn genesis_registers_usd_with_shared_mint_authority() {
         )
         .unwrap();
     assert_eq!(caps.len(), 1);
-    assert!(matches!(
-        caps[0].1.owner_kind,
-        kanari_types::transaction::ObjectOwnerKind::Shared
-    ));
+    assert!(matches!(caps[0].1.owner_kind, kanari_types::transaction::ObjectOwnerKind::Shared));
 }
 
 /// Permissionless USD mint through the shared TreasuryCap: anyone holding
@@ -3384,9 +2989,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
         let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
         let recipient_account = AccountAddress::from_hex_literal(&recipient.address).unwrap();
         assert_eq!(
-            state
-                .resolve_owner_token_balance(recipient_account, USD_COIN)
-                .unwrap(),
+            state.resolve_owner_token_balance(recipient_account, USD_COIN).unwrap(),
             50_000_000 * (leg as u64 + 1)
         );
         assert_eq!(
@@ -3425,13 +3028,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
 fn usd_shared_cap_refs(engine: &BlockchainEngine) -> (String, u64, String) {
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
     let caps = state
-        .query_objects(
-            None,
-            None,
-            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
-            None,
-            None,
-        )
+        .query_objects(None, None, Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")), None, None)
         .unwrap();
     assert_eq!(caps.len(), 1);
     let stored = state.get_object(&caps[0].0).unwrap().unwrap();
@@ -3522,12 +3119,7 @@ fn usd_shared_cap_mint_funded_usd_gas_keeps_supply_invariant() {
         0,
     );
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(recipient_addr, USD_COIN)
-            .unwrap(),
-        1_000_000
-    );
+    assert_eq!(state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(), 1_000_000);
 }
 
 /// Regression: two shared-cap mint legs paid in USD gas must keep the invariant
@@ -3552,9 +3144,7 @@ fn usd_shared_cap_mint_twice_funded_usd_gas_keeps_supply_invariant() {
         );
         let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            state
-                .resolve_owner_token_balance(recipient_addr, USD_COIN)
-                .unwrap(),
+            state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(),
             1_000_000 * (leg as u64 + 1)
         );
     }
@@ -3584,12 +3174,7 @@ fn usd_funded_transfer_keeps_supply_invariant() {
         );
     }
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(recipient_addr, USD_COIN)
-            .unwrap(),
-        4_000_000
-    );
+    assert_eq!(state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(), 4_000_000);
 }
 
 /// Regression: three shared-cap mint legs paid in USD gas must keep the invariant
@@ -3614,9 +3199,7 @@ fn usd_funded_burn_keeps_supply_invariant() {
         );
         let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
-            state
-                .resolve_owner_token_balance(recipient_addr, USD_COIN)
-                .unwrap(),
+            state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(),
             1_000_000 * (leg as u64 + 1)
         );
     }
@@ -3661,23 +3244,12 @@ fn usd_multiple_funded_owners_keep_consistent_total_supply() {
         .sum();
     // Tracked total supply must cover all visible funded supply.
     let treasury_caps = state
-        .query_objects(
-            None,
-            None,
-            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
-            None,
-            None,
-        )
+        .query_objects(None, None, Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")), None, None)
         .unwrap();
     assert_eq!(treasury_caps.len(), 1);
     let cap = state.get_object(&treasury_caps[0].0).unwrap().unwrap();
     let tracked_total = u64::from_le_bytes(cap.data[32..40].try_into().unwrap_or([0; 8]));
-    assert!(
-        tracked_total >= total_visible,
-        "tracked={} visible={}",
-        tracked_total,
-        total_visible
-    );
+    assert!(tracked_total >= total_visible, "tracked={} visible={}", tracked_total, total_visible);
 }
 
 /// Regression: minting a large USD amount via shared cap paid in USD gas keeps the
@@ -3702,12 +3274,7 @@ fn usd_shared_cap_mint_large_amount_keeps_supply_invariant() {
         );
     }
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(recipient_addr, USD_COIN)
-            .unwrap(),
-        20_000_000
-    );
+    assert_eq!(state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(), 20_000_000);
 }
 
 /// Regression: shared-cap mint with varying USD amounts paid in USD gas keeps the
@@ -3743,18 +3310,8 @@ fn usd_mint_then_transfer_alternating_keeps_supply_invariant() {
         1,
     );
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(alice_addr, USD_COIN)
-            .unwrap(),
-        500_000
-    );
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(bob_addr, USD_COIN)
-            .unwrap(),
-        250_000
-    );
+    assert_eq!(state.resolve_owner_token_balance(alice_addr, USD_COIN).unwrap(), 500_000);
+    assert_eq!(state.resolve_owner_token_balance(bob_addr, USD_COIN).unwrap(), 250_000);
 }
 
 /// Regression: USD shared-cap mint to two distinct recipients keeps the invariant.
@@ -3787,18 +3344,8 @@ fn usd_shared_cap_mint_to_two_recipients_keeps_supply_invariant() {
         1,
     );
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(alice_addr, USD_COIN)
-            .unwrap(),
-        1_000_000
-    );
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(bob_addr, USD_COIN)
-            .unwrap(),
-        1_000_000
-    );
+    assert_eq!(state.resolve_owner_token_balance(alice_addr, USD_COIN).unwrap(), 1_000_000);
+    assert_eq!(state.resolve_owner_token_balance(bob_addr, USD_COIN).unwrap(), 1_000_000);
 }
 
 /// Regression: funding USD then using it solely as gas (no recipient credit) still
@@ -3822,12 +3369,7 @@ fn usd_funded_gas_only_keeps_supply_invariant() {
     );
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
     // Even a 1-amount mint paid in USD gas must not break the invariant.
-    assert_eq!(
-        state
-            .resolve_owner_token_balance(recipient_addr, USD_COIN)
-            .unwrap(),
-        1
-    );
+    assert_eq!(state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(), 1);
 }
 
 /// Regression: after a USD shared-cap mint paid in USD gas, the tracked TreasuryCap
@@ -3858,30 +3400,17 @@ fn usd_shared_cap_mint_total_equals_visible_supply() {
         .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
         .sum();
     let caps = state
-        .query_objects(
-            None,
-            None,
-            Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")),
-            None,
-            None,
-        )
+        .query_objects(None, None, Some(&format!("0x2::coin::TreasuryCap<{USD_COIN}>")), None, None)
         .unwrap();
     assert_eq!(caps.len(), 1);
     let cap = state.get_object(&caps[0].0).unwrap().unwrap();
     let tracked_total = u64::from_le_bytes(cap.data[32..40].try_into().unwrap_or([0; 8]));
-    assert_eq!(
-        tracked_total, visible,
-        "tracked={} visible={}",
-        tracked_total, visible
-    );
+    assert_eq!(tracked_total, visible, "tracked={} visible={}", tracked_total, visible);
 }
 
 /// Resolve a test move package directory under tests/move_packages.
 fn test_package_dir(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("move_packages")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("move_packages").join(name)
 }
 
 /// Compile a Move package and return the root module's id and serialized
@@ -3890,10 +3419,8 @@ fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default()
         .compile_package(package_dir, &mut Vec::new())
         .context("failed to compile test Move package")?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),
@@ -3951,11 +3478,7 @@ fn upgrade_module_tx(module_bytes: Vec<u8>, gas_ref: ObjectRef, nonce: u64) -> T
 fn gas_object_ref(engine: &BlockchainEngine, object_id: &str) -> ObjectRef {
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
     let stored = state.get_object(object_id).unwrap().unwrap();
-    ObjectRef::new(
-        object_id.to_string(),
-        Some(stored.version),
-        Some(stored.digest()),
-    )
+    ObjectRef::new(object_id.to_string(), Some(stored.version), Some(stored.digest()))
 }
 
 /// End-to-end: publish a new Move module through the engine, then verify the
@@ -3980,22 +3503,12 @@ fn publish_module_end_to_end() {
             false,
         )
         .unwrap();
-    assert!(
-        changeset.success,
-        "publish failed: {:?}",
-        changeset.error_message
-    );
+    assert!(changeset.success, "publish failed: {:?}", changeset.error_message);
     let mut state = engine.state.write().unwrap_or_else(|e| e.into_inner());
     state.apply_changeset(&changeset).unwrap();
 
-    let has_module_write = changeset
-        .move_writes
-        .values()
-        .any(|v| v.as_ref() == Some(&bytes));
-    assert!(
-        has_module_write,
-        "move_writes should contain the published module bytes"
-    );
+    let has_module_write = changeset.move_writes.values().any(|v| v.as_ref() == Some(&bytes));
+    assert!(has_module_write, "move_writes should contain the published module bytes");
 }
 
 /// End-to-end: publish a USD module, then upgrade it with new bytecode and verify
@@ -4024,19 +3537,9 @@ fn upgrade_module_end_to_end() {
             true,
         )
         .unwrap();
-    assert!(
-        changeset.success,
-        "publish failed: {:?}",
-        changeset.error_message
-    );
-    let has_v1 = changeset
-        .move_writes
-        .values()
-        .any(|v| v.as_ref() == Some(&bytes_v1));
-    assert!(
-        has_v1,
-        "publish move_writes should contain the module bytes"
-    );
+    assert!(changeset.success, "publish failed: {:?}", changeset.error_message);
+    let has_v1 = changeset.move_writes.values().any(|v| v.as_ref() == Some(&bytes_v1));
+    assert!(has_v1, "publish move_writes should contain the module bytes");
 
     // The publish debited gas, so re-fetch the gas object ref before upgrading.
     let gas_ref_v2 = gas_object_ref(&engine, PUBLISH_GAS_ID);
@@ -4051,27 +3554,11 @@ fn upgrade_module_end_to_end() {
             true,
         )
         .unwrap();
-    assert!(
-        changeset.success,
-        "upgrade failed: {:?}",
-        changeset.error_message
-    );
-    let has_v2 = changeset
-        .move_writes
-        .values()
-        .any(|v| v.as_ref() == Some(&bytes_v2));
-    let has_v1 = changeset
-        .move_writes
-        .values()
-        .any(|v| v.as_ref() == Some(&bytes_v1));
-    assert!(
-        has_v2,
-        "move_writes should contain the upgraded module bytes"
-    );
-    assert!(
-        !has_v1,
-        "move_writes should no longer contain the old module bytes"
-    );
+    assert!(changeset.success, "upgrade failed: {:?}", changeset.error_message);
+    let has_v2 = changeset.move_writes.values().any(|v| v.as_ref() == Some(&bytes_v2));
+    let has_v1 = changeset.move_writes.values().any(|v| v.as_ref() == Some(&bytes_v1));
+    assert!(has_v2, "move_writes should contain the upgraded module bytes");
+    assert!(!has_v1, "move_writes should no longer contain the old module bytes");
 }
 
 /// Publishing a module that already exists must be rejected without changing
@@ -4097,19 +3584,9 @@ fn publish_module_rejects_existing_module() {
             true,
         )
         .unwrap();
-    assert!(
-        changeset1.success,
-        "first publish failed: {:?}",
-        changeset1.error_message
-    );
-    let first_has_module = changeset1
-        .move_writes
-        .values()
-        .any(|v| v.as_ref() == Some(&bytes));
-    assert!(
-        first_has_module,
-        "first publish move_writes should contain the module bytes"
-    );
+    assert!(changeset1.success, "first publish failed: {:?}", changeset1.error_message);
+    let first_has_module = changeset1.move_writes.values().any(|v| v.as_ref() == Some(&bytes));
+    assert!(first_has_module, "first publish move_writes should contain the module bytes");
 
     // Re-fetch gas ref since the first publish debited gas.
     let gas_ref_v2 = gas_object_ref(&engine, PUBLISH_GAS_ID);
@@ -4126,11 +3603,7 @@ fn publish_module_rejects_existing_module() {
         .unwrap();
     assert!(!changeset2.success, "re-publish should fail");
     assert!(
-        changeset2
-            .error_message
-            .as_deref()
-            .unwrap_or("")
-            .contains("already exists"),
+        changeset2.error_message.as_deref().unwrap_or("").contains("already exists"),
         "unexpected error: {:?}",
         changeset2.error_message
     );
@@ -4147,13 +3620,7 @@ const CUSTOM_GAS_COIN: &str = "0x2::james::JAMES";
 fn custom_gas_coin_is_rejected_for_move_execution() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
-    fund_sender_with_coin_type(
-        &engine,
-        &sender.address,
-        "0xbbbb",
-        1_000_000,
-        CUSTOM_GAS_COIN,
-    );
+    fund_sender_with_coin_type(&engine, &sender.address, "0xbbbb", 1_000_000, CUSTOM_GAS_COIN);
 
     let tx = Transaction::ExecuteFunction {
         sender: sender.tagged_address(),
@@ -4176,11 +3643,7 @@ fn custom_gas_coin_is_rejected_for_move_execution() {
     };
 
     let admission_error = BlockchainEngine::validate_transaction_admission_shape(&tx).unwrap_err();
-    assert!(
-        admission_error
-            .to_string()
-            .contains("Unsupported gas coin type")
-    );
+    assert!(admission_error.to_string().contains("Unsupported gas coin type"));
 
     let error = engine
         .execute_transaction_with_runtime_internal(
@@ -4201,13 +3664,7 @@ fn native_transfer_rejects_custom_gas_coin() {
     let sender = generate_keypair(CurveType::Ed25519).unwrap();
     let recipient = generate_keypair(CurveType::Ed25519).unwrap();
     fund_sender_with_coin(&engine, &sender.address, "0xaaaa", 1_000_000);
-    fund_sender_with_coin_type(
-        &engine,
-        &sender.address,
-        "0xbbbb",
-        1_000_000,
-        CUSTOM_GAS_COIN,
-    );
+    fund_sender_with_coin_type(&engine, &sender.address, "0xbbbb", 1_000_000, CUSTOM_GAS_COIN);
 
     let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
@@ -4218,11 +3675,7 @@ fn native_transfer_rejects_custom_gas_coin() {
         100_000,
         5,
     );
-    if let Transaction::ExecuteFunction {
-        gas_payment: Some(gas_payment),
-        ..
-    } = &mut tx
-    {
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut tx {
         gas_payment.payment_objects = vec![native_coin_object_ref("0xbbbb", 1_000_000)];
         gas_payment.coin_type = Some(CUSTOM_GAS_COIN.to_string());
     }
@@ -4256,9 +3709,7 @@ fn move_transfer_allows_gas_payment_overlap_with_transfer_coin() {
         0,
     );
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
 
     let (_, changeset) = engine
         .execute_transaction_immediate(signed_tx)
@@ -4296,15 +3747,10 @@ fn non_native_execute_function_still_rejects_gas_overlap_with_mutable_input() {
         nonce: 0,
     };
     let mut signed_tx = SignedTransaction::new(tx);
-    signed_tx
-        .sign(&sender.private_key, sender.curve_type)
-        .unwrap();
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
 
     let err = engine.execute_transaction_immediate(signed_tx).unwrap_err();
-    assert!(
-        err.to_string()
-            .contains("cannot overlap with a mutable object input")
-    );
+    assert!(err.to_string().contains("cannot overlap with a mutable object input"));
 }
 
 #[test]
@@ -4398,10 +3844,7 @@ fn remove_pending_transactions_by_hashes_partial_removal_preserves_remaining_cou
     assert_eq!(removed.len(), 2);
     assert_eq!(engine.pending_transaction_len(), 2);
     assert_eq!(engine.pending_tx_count_for_primary_access(&primary_key), 2,);
-    assert_eq!(
-        engine.pending_tx_count_for_sender(&sender.tagged_address()),
-        2,
-    );
+    assert_eq!(engine.pending_tx_count_for_sender(&sender.tagged_address()), 2,);
 }
 
 #[test]

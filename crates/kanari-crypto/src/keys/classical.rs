@@ -90,9 +90,7 @@ pub fn generate_ed25519_keypair() -> Result<KeyPair, KeyError> {
         .map_err(|e| KeyError::GenerationFailed(format!("Failed to get OS randomness: {e}")))?;
 
     if seed.iter().all(|&b| b == 0) {
-        return Err(KeyError::GenerationFailed(
-            "Insufficient entropy from RNG".to_string(),
-        ));
+        return Err(KeyError::GenerationFailed("Insufficient entropy from RNG".to_string()));
     }
 
     let signing_key = Ed25519SigningKey::from_bytes(&seed);
@@ -120,9 +118,7 @@ pub(super) fn keypair_from_mnemonic(
     curve_type: CurveType,
 ) -> Result<KeyPair, KeyError> {
     if phrase.trim().is_empty() {
-        return Err(KeyError::InvalidMnemonic(
-            "Empty mnemonic phrase".to_string(),
-        ));
+        return Err(KeyError::InvalidMnemonic("Empty mnemonic phrase".to_string()));
     }
 
     let mnemonic = Mnemonic::parse_in(Language::English, phrase)

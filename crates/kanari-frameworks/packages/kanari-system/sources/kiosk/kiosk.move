@@ -111,6 +111,12 @@ module kanari_system::kiosk {
     /// sold again.
     const E_NO_POLICY: u64 = 10;
 
+    /// Overflow when recording profit (current + amount > u64::MAX).
+    const E_PROFIT_OVERFLOW: u64 = 20;
+
+    /// Maximum value of u64 (2^64 - 1).
+    const U64_MAX: u64 = 18446744073709551615;
+
     /// Maximum items one kiosk may hold.
     const MAX_ITEMS: u64 = 10_000;
 
@@ -359,13 +365,12 @@ module kanari_system::kiosk {
         transfer::public_transfer(item, recipient);
     }
 
-    /// Reserve the listing at `item_id` for whoever receives the returned cap.
+    /// Reserve the listing at `item_id` and transfer the `PurchaseCap` to the
+    /// transaction sender.
     ///
-    /// Entry functions cannot return the `PurchaseCap`, so from a CLI this
-    /// reserves the listing without handing the cap anywhere — which makes it
-    /// unusable until `unreserve_to` is called. That is a real limitation of the
-    /// entry boundary, not a shortcut: the non-entry `reserve` returns the cap
-    /// and is what a composing module should call.
+    /// Unlike the non-entry `reserve` which returns the cap, this entry function
+    /// transfers it to the caller so it can be held, transferred, or used in
+    /// `purchase_with_cap` or `unreserve`. The cap is NOT burned.
     public entry fun reserve_item<K: key, T: key + store>(
         kiosk: &mut Kiosk,
         cap: &KioskOwnerCap<K>,
@@ -377,10 +382,9 @@ module kanari_system::kiosk {
             item: item_id
         };
         let purchase_cap = reserve<K, T>(kiosk, cap, handle, ctx);
-        // Burn the cap so the listing is not left reserved against an object
-        // nobody can hold.
-        let PurchaseCap { id, kiosk: _, item: _ } = purchase_cap;
-        object::delete(id);
+        // Transfer the cap to the transaction sender so they can hold/use it.
+        // This is the entry-function pattern: return via transfer, not return value.
+        transfer::public_transfer(purchase_cap, tx_context::sender(ctx));
     }
 
     /// Put an item into the kiosk. The owner may take it back at any time until
@@ -746,11 +750,15 @@ module kanari_system::kiosk {
     /// wrapper exists for the only case where that is honestly possible: a
     /// policy with zero rules, so `confirm_request` has nothing to wait for.
     ///
-    /// **This is not a general sale path.** A type with a royalty rule cannot be
-    /// sold through here — deliberately. Resolving the request means paying
-    /// that type's rules, and those belong to the type owner, not to the
-    /// marketplace. A type with rules must be sold through `kanari_pet::trade`
-    /// or another module that knows how to discharge the hot potato.
+    /// **IMPORTANT:** This entry function ONLY works for unregulated types.
+    /// If the type has royalty rules or other transfer policies, use
+    /// `kanari_pet::trade` or another module that knows how to discharge
+    /// the TransferRequest hot potato.
+    ///
+    /// This restriction is deliberate: resolving the request means paying
+    /// the type's rules, and those belong to the type owner, not to the
+    /// marketplace. A type with rules must be sold through a module that
+    /// knows how to discharge the hot potato.
     public entry fun buy_unregulated<K: key, T: key + store, Asset: key + store>(
         kiosk: &mut Kiosk,
         policy: &mut TransferPolicy<T>,
@@ -839,6 +847,7 @@ module kanari_system::kiosk {
         amount: u64
     ) {
         let current = profit_of(kiosk, &currency);
+        assert!(current <= U64_MAX - amount, E_PROFIT_OVERFLOW);
         set_profit(kiosk, currency, current + amount);
     }
 
@@ -947,24 +956,22 @@ module kanari_system::kiosk {
         *vec_map::get(&kiosk.items, &handle.item)
     }
 
-    /// `vec_map::insert` aborts on a duplicate key, so a replace is
-    /// remove-then-insert.
+    /// `vec_map::insert` aborts on a duplicate key, so an update is
+    /// done via `get_mut` if the key exists.
     fun set_listing(kiosk: &mut Kiosk, item_id: ID, listing: Listing) {
         if (vec_map::contains(&kiosk.items, &item_id)) {
-            let (removed_key, removed) = vec_map::remove(&mut kiosk.items, &item_id);
-            let _ = removed_key;
-            let _ = removed;
-        };
-        vec_map::insert(&mut kiosk.items, item_id, listing);
+            *vec_map::get_mut(&mut kiosk.items, &item_id) = listing;
+        } else {
+            vec_map::insert(&mut kiosk.items, item_id, listing);
+        }
     }
 
     fun set_profit(kiosk: &mut Kiosk, currency: vector<u8>, amount: u64) {
         if (vec_map::contains(&kiosk.profits, &currency)) {
-            let (removed_key, removed) = vec_map::remove(&mut kiosk.profits, &currency);
-            let _ = removed_key;
-            let _ = removed;
-        };
-        vec_map::insert(&mut kiosk.profits, currency, amount);
+            *vec_map::get_mut(&mut kiosk.profits, &currency) = amount;
+        } else {
+            vec_map::insert(&mut kiosk.profits, currency, amount);
+        }
     }
 
     /// `T`'s canonical type-name bytes.

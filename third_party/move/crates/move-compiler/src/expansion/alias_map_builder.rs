@@ -107,26 +107,19 @@ fn remove_dup<K: TName, V>(map: &mut UniqueMap<K, V>, alias: &K) -> Result<(), K
 impl AliasMapBuilder {
     /// Create a new AliasMapBuilder for legacy
     pub fn legacy() -> Self {
-        Self::Legacy {
-            modules: UniqueMap::new(),
-            members: UniqueMap::new(),
-        }
+        Self::Legacy { modules: UniqueMap::new(), members: UniqueMap::new() }
     }
 
     pub fn namespaced() -> Self {
-        Self::Namespaced {
-            leading_access: UniqueMap::new(),
-            module_members: UniqueMap::new(),
-        }
+        Self::Namespaced { leading_access: UniqueMap::new(), module_members: UniqueMap::new() }
     }
 
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Legacy { modules, members } => modules.is_empty() && members.is_empty(),
-            Self::Namespaced {
-                leading_access,
-                module_members,
-            } => leading_access.is_empty() && module_members.is_empty(),
+            Self::Namespaced { leading_access, module_members } => {
+                leading_access.is_empty() && module_members.is_empty()
+            }
         }
     }
 
@@ -140,10 +133,7 @@ impl AliasMapBuilder {
     fn remove_member_alias(&mut self, alias: &Name, kind: ModuleMemberKind) -> Result<(), Loc> {
         match self {
             AliasMapBuilder::Legacy { members, .. } => remove_dup(members, alias),
-            AliasMapBuilder::Namespaced {
-                leading_access,
-                module_members,
-            } => match kind {
+            AliasMapBuilder::Namespaced { leading_access, module_members } => match kind {
                 // constants and functions are not in the leading access namespace
                 ModuleMemberKind::Constant | ModuleMemberKind::Function => {
                     remove_dup(module_members, alias)
@@ -195,14 +185,11 @@ impl AliasMapBuilder {
     ) -> Result<(), Loc> {
         let result = self.remove_member_alias(&alias, kind);
         match self {
-            AliasMapBuilder::Legacy { members, .. } => members
-                .add(alias, ((ident, member, kind), is_implicit))
-                .unwrap(),
+            AliasMapBuilder::Legacy { members, .. } => {
+                members.add(alias, ((ident, member, kind), is_implicit)).unwrap()
+            }
 
-            AliasMapBuilder::Namespaced {
-                leading_access,
-                module_members,
-            } => match kind {
+            AliasMapBuilder::Namespaced { leading_access, module_members } => match kind {
                 // constants and functions are not in the leading access namespace
                 ModuleMemberKind::Constant | ModuleMemberKind::Function => {
                     let entry = (MemberEntry::Member(ident, member), is_implicit);
@@ -314,10 +301,7 @@ impl From<(Name, MemberEntry)> for AliasEntry {
 
 impl UseFunsBuilder {
     pub fn new() -> Self {
-        Self {
-            explicit: vec![],
-            implicit: UniqueMap::new(),
-        }
+        Self { explicit: vec![], implicit: UniqueMap::new() }
     }
 }
 
@@ -370,10 +354,7 @@ impl fmt::Debug for AliasMapBuilder {
                 }
                 writeln!(f, "])")
             }
-            AliasMapBuilder::Namespaced {
-                leading_access,
-                module_members,
-            } => {
+            AliasMapBuilder::Namespaced { leading_access, module_members } => {
                 writeln!(f, "AliasMapBuilder::Legacy(\n  leading_access: [")?;
                 for (_, key, (target, is_implicit)) in leading_access {
                     writeln!(f, "    {key} => {target:?} <{is_implicit}>,")?;
@@ -390,12 +371,7 @@ impl fmt::Debug for AliasMapBuilder {
 
 impl fmt::Debug for AliasMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> std::fmt::Result {
-        let Self {
-            unused,
-            leading_access,
-            module_members,
-            previous,
-        } = self;
+        let Self { unused, leading_access, module_members, previous } = self;
         writeln!(f, "AliasMap(\n  unused: [")?;
         for entry in unused {
             writeln!(f, "    {entry:?},")?;

@@ -42,11 +42,8 @@ impl super::MoveRuntime {
                 continue;
             }
 
-            let normalized_id = if id.trim().starts_with("0x") {
-                id.clone()
-            } else {
-                format!("0x{}", id.trim())
-            };
+            let normalized_id =
+                if id.trim().starts_with("0x") { id.clone() } else { format!("0x{}", id.trim()) };
             let canonical_id = match canonical_object_id(&normalized_id) {
                 Some(id) => id,
                 None => {
@@ -59,10 +56,8 @@ impl super::MoveRuntime {
                 &canonical_id,
                 state_overlay.map(std::sync::Arc::as_ref),
             )?;
-            let next_version = existing
-                .as_ref()
-                .map(|existing| existing.version.saturating_add(1))
-                .unwrap_or(1);
+            let next_version =
+                existing.as_ref().map(|existing| existing.version.saturating_add(1)).unwrap_or(1);
             // The native transfer event carries the new ownership mode. Keep
             // the current mode only for reads/updates that do not transfer an
             // existing object; retaining it on a transfer makes the Move call
@@ -85,20 +80,17 @@ impl super::MoveRuntime {
                     version: next_version,
                 };
 
-                self.object_storage
-                    .store_object(stored_obj)
-                    .map_err(|error| {
-                        anyhow::anyhow!(
-                            "Failed to persist transferred object {} to storage: {}",
-                            canonical_id,
-                            error
-                        )
-                    })?;
+                self.object_storage.store_object(stored_obj).map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to persist transferred object {} to storage: {}",
+                        canonical_id,
+                        error
+                    )
+                })?;
                 debug!("Object {} persisted to ObjectStorage", canonical_id);
             }
 
-            cs.created_objects
-                .retain(|(existing_id, _)| existing_id != &canonical_id);
+            cs.created_objects.retain(|(existing_id, _)| existing_id != &canonical_id);
 
             if let Ok(struct_tag) = StructTag::from_str(&obj_type) {
                 if self.is_treasury_resource(&struct_tag)

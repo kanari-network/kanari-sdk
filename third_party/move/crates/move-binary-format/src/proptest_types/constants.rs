@@ -41,10 +41,7 @@ impl ConstantPoolGen {
     pub fn constant_pool(self) -> Vec<Constant> {
         let mut constants = vec![];
         for address in self.addresses {
-            constants.push(Constant {
-                type_: SignatureToken::Address,
-                data: address.to_vec(),
-            });
+            constants.push(Constant { type_: SignatureToken::Address, data: address.to_vec() });
         }
         for mut byte_array in self.byte_arrays {
             // TODO: below is a trick to make serialization easy (size being one byte)

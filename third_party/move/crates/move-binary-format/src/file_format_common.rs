@@ -236,9 +236,7 @@ pub(crate) struct BinaryData {
 /// The wrapper mirrors Vector operations but provides additional checks against overflow
 impl BinaryData {
     pub fn new() -> Self {
-        BinaryData {
-            _binary: Vec::new(),
-        }
+        BinaryData { _binary: Vec::new() }
     }
 
     pub fn as_inner(&self) -> &[u8] {
@@ -253,11 +251,7 @@ impl BinaryData {
         if self.len().checked_add(1).is_some() {
             self._binary.push(item);
         } else {
-            bail!(
-                "binary size ({}) + 1 is greater than limit ({})",
-                self.len(),
-                BINARY_SIZE_LIMIT,
-            );
+            bail!("binary size ({}) + 1 is greater than limit ({})", self.len(), BINARY_SIZE_LIMIT,);
         }
         Ok(())
     }

@@ -64,10 +64,8 @@ impl Objects {
             .await
             .context("Failed to send RPC request")?;
 
-        let rpc_response: RpcResponse = response
-            .json()
-            .await
-            .context("Failed to parse RPC response")?;
+        let rpc_response: RpcResponse =
+            response.json().await.context("Failed to parse RPC response")?;
 
         if let Some(error) = rpc_response.error {
             eprintln!("Error: {} (code: {})", error.message, error.code);

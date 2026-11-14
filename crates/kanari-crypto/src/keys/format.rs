@@ -130,9 +130,5 @@ pub(crate) fn skip_uncompressed_point_prefix(bytes: &[u8]) -> &[u8] {
         return bytes;
     }
 
-    if bytes[0] == 0x04 && bytes.len() > 1 {
-        &bytes[1..]
-    } else {
-        bytes
-    }
+    if bytes[0] == 0x04 && bytes.len() > 1 { &bytes[1..] } else { bytes }
 }

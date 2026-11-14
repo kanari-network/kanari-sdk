@@ -96,13 +96,7 @@ const STACK_PER_CALL: usize = 1024 * 1024 * 8; // 8MB
 #[proc_macro_attribute]
 pub fn growing_stack(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
-    let ItemFn {
-        attrs,
-        vis,
-        sig,
-        block,
-        ..
-    } = input_fn;
+    let ItemFn { attrs, vis, sig, block, .. } = input_fn;
 
     let output = quote! {
         #(#attrs)* #vis #sig {

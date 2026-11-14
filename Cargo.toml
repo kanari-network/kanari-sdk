@@ -165,14 +165,14 @@ falcon = { package = "falcon-rs", version = "0.3.1", features = ["std"] }       
 # ============================================================================
 zeroize = { version = "1.9.1", features = ["derive"] }                              # Secure memory zeroing
 subtle = "2.6.1"                                                                    # Constant-time operations
-rpassword = "7.5.4"                                                                 # Secure password input
+rpassword = "7.5.5"                                                                 # Secure password input
 fs2 = "0.4.3"                                                                       # File locking for key files
 
 # ============================================================================
 # Database & Persistent Storage
 # ============================================================================
 rocksdb = "0.25.0"                                                                  # High-performance embedded DB
-zstd = "0.14.3"                                                                     # Compression for storage/network
+zstd = "0.14.4"                                                                     # Compression for storage/network
 
 # ============================================================================
 # Caching & Performance Optimization
@@ -226,7 +226,7 @@ data-encoding = "2.11.1"                                                        
 # ============================================================================
 # zkLogin (OIDC JWT verification, Sui-style)
 # ============================================================================
-jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] } # JWT RS256 verify (Phase 3a)
+jsonwebtoken = { version = "12.0.0", default-features = false, features = ["rust_crypto"] } # JWT RS256 verify (Phase 3a)
 ark-r1cs-std = { version = "0.6.0" }                                                        # R1CS constraints for zkLogin signature verification (Phase 3c)
 ark-bn254 = { version = "0.6.0" }                                                           # BN254 pairing curve (Phase 3c Groth16)
 ark-groth16 = { version = "0.6.0" }                                                         # Groth16 verifier (Phase 3c)
@@ -268,7 +268,7 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 # Database
 # ============================================================================
-rusqlite = { version = "0.41.1", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.42.0", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Proc Macro Dependencies
@@ -312,6 +312,8 @@ kanari-db-common = { path = "crates/kanari-db-common" }
 kanari-open-rpc = { path = "crates/kanari-open-rpc" }
 kanari-open-rpc-macros = { path = "crates/kanari-open-rpc-macros" }
 kanari-open-rpc-spec = { path = "crates/kanari-open-rpc-spec" }
+kanari-open-rpc-spec-builder = { path = "crates/kanari-open-rpc-spec-builder" }
+kanari-indexer = { path = "crates/kanari-indexer" }
 
 # SMT Support
 smt = { path = "crates/smt" }

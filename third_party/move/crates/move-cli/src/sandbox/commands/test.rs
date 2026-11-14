@@ -65,9 +65,7 @@ fn collect_coverage(
     .name
     .to_string();
     let pkg = OnDiskCompiledPackage::from_path(
-        &build_dir
-            .join(package_name)
-            .join(CompiledPackageLayout::BuildInfo.path()),
+        &build_dir.join(package_name).join(CompiledPackageLayout::BuildInfo.path()),
     )?
     .into_compiled_package()?;
     let src_modules = pkg
@@ -102,10 +100,8 @@ fn determine_package_nest_depth(
 ) -> anyhow::Result<usize> {
     let mut depth = 0;
     for dep in resolution_graph.package_table.values() {
-        depth = std::cmp::max(
-            depth,
-            dep.package_path.strip_prefix(pkg_dir)?.components().count() + 1,
-        );
+        depth =
+            std::cmp::max(depth, dep.package_path.strip_prefix(pkg_dir)?.components().count() + 1);
     }
     Ok(depth)
 }
@@ -128,11 +124,8 @@ fn copy_deps(tmp_dir: &Path, pkg_dir: &Path) -> anyhow::Result<PathBuf> {
     // Sometimes we run a test that isn't a package for metatests so if there isn't a package we
     // don't need to nest at all. Resolution graph diagnostics are only needed for CLI commands so
     // ignore them by passing a vector as the writer.
-    let package_resolution = match (BuildConfig {
-        dev_mode: true,
-        ..Default::default()
-    })
-    .resolution_graph_for_package(pkg_dir, &mut Vec::new())
+    let package_resolution = match (BuildConfig { dev_mode: true, ..Default::default() })
+        .resolution_graph_for_package(pkg_dir, &mut Vec::new())
     {
         Ok(pkg) => pkg,
         Err(_) => return Ok(tmp_dir.to_path_buf()),
@@ -184,11 +177,7 @@ fn success_exit_status() -> ExitStatus {
 }
 
 fn successful_output(stdout: Vec<u8>) -> Output {
-    Output {
-        status: success_exit_status(),
-        stdout,
-        stderr: Vec::new(),
-    }
+    Output { status: success_exit_status(), stdout, stderr: Vec::new() }
 }
 
 fn relative_files(root: &Path) -> io::Result<Vec<PathBuf>> {
@@ -260,9 +249,7 @@ fn external_command_output(
                 files_equal(&work_dir.join(left), &work_dir.join(right))?,
                 "Files {left} and {right} differ"
             );
-            Ok(successful_output(
-                format!("Files {left} and {right} are identical\n").into_bytes(),
-            ))
+            Ok(successful_output(format!("Files {left} and {right} are identical\n").into_bytes()))
         }
         ("diff", ["-r", "-s", left, right]) => {
             let left_root = work_dir.join(left);
@@ -276,10 +263,7 @@ fn external_command_output(
             let mut stdout = String::new();
             for relative_path in left_files {
                 anyhow::ensure!(
-                    files_equal(
-                        &left_root.join(&relative_path),
-                        &right_root.join(&relative_path)
-                    )?,
+                    files_equal(&left_root.join(&relative_path), &right_root.join(&relative_path))?,
                     "Files differ: {}",
                     relative_path.display()
                 );
@@ -291,21 +275,15 @@ fn external_command_output(
             }
             Ok(successful_output(stdout.into_bytes()))
         }
-        _ => Ok(Command::new(program)
-            .args(args)
-            .current_dir(work_dir)
-            .output()?),
+        _ => Ok(Command::new(program).args(args).current_dir(work_dir).output()?),
     }
 }
 
 fn normalize_test_output(output: &str) -> String {
     let output = output.replace("\r\n", "\n");
     #[cfg(windows)]
-    let output = output
-        .replace("\\\\", "/")
-        .replace('\\', "/")
-        .replace("move.exe", "move")
-        .replace(
+    let output =
+        output.replace("\\\\", "/").replace('\\', "/").replace("move.exe", "move").replace(
             "The system cannot find the path specified. (os error 3)",
             "No such file or directory (os error 2)",
         );
@@ -336,9 +314,7 @@ pub fn run_one(
     let wks_dir = temp_dir.as_ref().map_or(exe_dir, |t| &t.1);
 
     let storage_dir = wks_dir.join(DEFAULT_STORAGE_DIR);
-    let build_output = wks_dir
-        .join(DEFAULT_BUILD_DIR)
-        .join(CompiledPackageLayout::Root.path());
+    let build_output = wks_dir.join(DEFAULT_BUILD_DIR).join(CompiledPackageLayout::Root.path());
 
     // template for preparing a cli command
     let cli_command_template = || {
@@ -353,19 +329,13 @@ pub fn run_one(
 
     if storage_dir.exists() || build_output.exists() {
         // need to clean before testing
-        cli_command_template()
-            .arg("sandbox")
-            .arg("clean")
-            .output()?;
+        cli_command_template().arg("sandbox").arg("clean").output()?;
     }
     let mut output = "".to_string();
 
     // always use the absolute path for the trace file as we may change dirs in the process
-    let trace_file = if track_cov {
-        Some(wks_dir.canonicalize()?.join(DEFAULT_TRACE_FILE))
-    } else {
-        None
-    };
+    let trace_file =
+        if track_cov { Some(wks_dir.canonicalize()?.join(DEFAULT_TRACE_FILE)) } else { None };
 
     // Disable colors in error reporting from the Move compiler
     unsafe { env::set_var(COLOR_MODE_ENV_VAR, "NONE") };
@@ -441,10 +411,7 @@ pub fn run_one(
     let run_move_clean = !read_bool_env_var(NO_MOVE_CLEAN);
     if run_move_clean {
         // run the clean command to ensure that temporary state is cleaned up
-        cli_command_template()
-            .arg("sandbox")
-            .arg("clean")
-            .output()?;
+        cli_command_template().arg("sandbox").arg("clean").output()?;
 
         // check that build and storage was deleted
         assert!(

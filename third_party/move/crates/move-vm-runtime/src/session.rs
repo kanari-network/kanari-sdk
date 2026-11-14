@@ -160,8 +160,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         sender: AccountAddress,
         gas_meter: &mut impl GasMeter,
     ) -> VMResult<()> {
-        self.runtime
-            .publish_module_bundle(modules, sender, &mut self.data_cache, gas_meter)
+        self.runtime.publish_module_bundle(modules, sender, &mut self.data_cache, gas_meter)
     }
 
     pub fn num_mutated_accounts(&self, sender: &AccountAddress) -> u64 {
@@ -185,15 +184,8 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
     /// Same like `finish`, but also extracts the native context extensions from the session.
     pub fn finish_with_extensions(
         self,
-    ) -> (
-        VMResult<(ChangeSet, Vec<Event>, NativeContextExtensions<'r>)>,
-        S,
-    ) {
-        let Session {
-            data_cache,
-            native_extensions,
-            ..
-        } = self;
+    ) -> (VMResult<(ChangeSet, Vec<Event>, NativeContextExtensions<'r>)>, S) {
+        let Session { data_cache, native_extensions, .. } = self;
         let (res, remote) = data_cache.into_effects();
         (
             res.map(|(change_set, events)| (change_set, events, native_extensions))
@@ -226,9 +218,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
         module_id: &ModuleId,
         struct_name: &IdentStr,
     ) -> VMResult<(CachedStructIndex, Arc<StructType>)> {
-        self.runtime
-            .loader()
-            .load_struct_by_name(struct_name, module_id, &self.data_cache)
+        self.runtime.loader().load_struct_by_name(struct_name, module_id, &self.data_cache)
     }
 
     pub fn load_type(&self, type_tag: &TypeTag) -> VMResult<Type> {
@@ -236,25 +226,18 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
     }
 
     pub fn get_type_layout(&self, type_tag: &TypeTag) -> VMResult<MoveTypeLayout> {
-        self.runtime
-            .loader()
-            .get_type_layout(type_tag, &self.data_cache)
+        self.runtime.loader().get_type_layout(type_tag, &self.data_cache)
     }
 
     pub fn get_fully_annotated_type_layout(
         &self,
         type_tag: &TypeTag,
     ) -> VMResult<A::MoveTypeLayout> {
-        self.runtime
-            .loader()
-            .get_fully_annotated_type_layout(type_tag, &self.data_cache)
+        self.runtime.loader().get_fully_annotated_type_layout(type_tag, &self.data_cache)
     }
 
     pub fn type_to_type_layout(&self, ty: &Type) -> VMResult<MoveTypeLayout> {
-        self.runtime
-            .loader()
-            .type_to_type_layout(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.runtime.loader().type_to_type_layout(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     pub fn type_to_fully_annotated_layout(&self, ty: &Type) -> VMResult<A::MoveTypeLayout> {
@@ -265,10 +248,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
     }
 
     pub fn get_type_tag(&self, ty: &Type) -> VMResult<TypeTag> {
-        self.runtime
-            .loader()
-            .type_to_type_tag(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.runtime.loader().type_to_type_tag(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     /// Fetch a struct type from cache, if the index is in bounds
@@ -279,10 +259,7 @@ impl<'r, 'l, S: MoveResolver> Session<'r, 'l, S> {
 
     /// Gets the abilities for this type, at it's particular instantiation
     pub fn get_type_abilities(&self, ty: &Type) -> VMResult<AbilitySet> {
-        self.runtime
-            .loader()
-            .abilities(ty)
-            .map_err(|e| e.finish(Location::Undefined))
+        self.runtime.loader().abilities(ty).map_err(|e| e.finish(Location::Undefined))
     }
 
     /// Gets the remote resolver used by the data store

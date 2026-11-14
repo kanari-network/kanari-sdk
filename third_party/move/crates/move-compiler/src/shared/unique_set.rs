@@ -101,18 +101,14 @@ impl<T: TName> UniqueSet<T> {
     pub fn from_elements(
         iter: impl IntoIterator<Item = T>,
     ) -> Result<Self, (T::Key, T::Loc, T::Loc)> {
-        Ok(Self(UniqueMap::maybe_from_iter(
-            iter.into_iter().map(|x| (x, ())),
-        )?))
+        Ok(Self(UniqueMap::maybe_from_iter(iter.into_iter().map(|x| (x, ())))?))
     }
 
     pub fn from_elements_(
         loc: T::Loc,
         iter: impl IntoIterator<Item = T::Key>,
     ) -> Result<Self, (T::Key, T::Loc, T::Loc)> {
-        Ok(Self(UniqueMap::maybe_from_iter(
-            iter.into_iter().map(|x_| (T::add_loc(loc, x_), ())),
-        )?))
+        Ok(Self(UniqueMap::maybe_from_iter(iter.into_iter().map(|x_| (T::add_loc(loc, x_), ())))?))
     }
 }
 
@@ -161,10 +157,7 @@ where
 // IntoIter
 //**************************************************************************************************
 
-pub struct IntoIter<T: TName>(
-    std::iter::Map<unique_map::IntoIter<T, ()>, fn((T, ())) -> T>,
-    usize,
-);
+pub struct IntoIter<T: TName>(std::iter::Map<unique_map::IntoIter<T, ()>, fn((T, ())) -> T>, usize);
 
 impl<T: TName> Iterator for IntoIter<T> {
     type Item = T;

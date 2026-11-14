@@ -82,10 +82,7 @@ pub fn load_session(address: &str) -> Result<ZkLoginSession> {
 pub(crate) fn load_session_in(dir: &std::path::Path, address: &str) -> Result<ZkLoginSession> {
     let path = session_path_in(dir, address)?;
     let json = std::fs::read_to_string(&path).with_context(|| {
-        format!(
-            "no session at {} (run `kanari zklogin login` first)",
-            path.display()
-        )
+        format!("no session at {} (run `kanari zklogin login` first)", path.display())
     })?;
     serde_json::from_str(&json).context("session file is corrupt")
 }
@@ -112,10 +109,8 @@ pub(crate) fn latest_session_in(dir: &std::path::Path) -> Result<Option<ZkLoginS
         let Ok(session): Result<ZkLoginSession, _> = serde_json::from_str(&json) else {
             continue;
         };
-        let newer = best
-            .as_ref()
-            .map(|b| session.obtained_at_unix > b.obtained_at_unix)
-            .unwrap_or(true);
+        let newer =
+            best.as_ref().map(|b| session.obtained_at_unix > b.obtained_at_unix).unwrap_or(true);
         if newer {
             best = Some(session);
         }
@@ -192,10 +187,7 @@ mod tests {
         assert!(session_path_in(&dir, "").is_err());
         // Only hex survives: no traversal possible, ever.
         // ("../../etc/passwd" keeps e,c from "etc" and a,d from "passwd".)
-        assert_eq!(
-            session_path_in(&dir, "../../etc/passwd").unwrap(),
-            dir.join("ecad.json")
-        );
+        assert_eq!(session_path_in(&dir, "../../etc/passwd").unwrap(), dir.join("ecad.json"));
     }
 
     #[test]

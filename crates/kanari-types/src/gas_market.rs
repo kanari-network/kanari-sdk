@@ -91,8 +91,7 @@ impl GasPriceTable {
 
     /// Whitelist check used by admission/validation.
     pub fn is_supported(&self, coin_type: &str) -> bool {
-        self.entry_for(coin_type)
-            .is_some_and(|entry| entry.price_usd_micros > 0)
+        self.entry_for(coin_type).is_some_and(|entry| entry.price_usd_micros > 0)
     }
 
     /// Pin check: the transaction's price version must not be stale.
@@ -107,10 +106,7 @@ impl GasPriceTable {
             ));
         }
         if self.version.saturating_sub(pinned) > self.max_staleness_versions {
-            return Err(format!(
-                "gas price version {pinned} is stale (table v{})",
-                self.version
-            ));
+            return Err(format!("gas price version {pinned} is stale (table v{})", self.version));
         }
         Ok(())
     }
@@ -173,11 +169,7 @@ impl GasMarketModule {
 
     /// Fully qualified Move module path for `0x2::gas_market`.
     pub fn module_path() -> String {
-        format!(
-            "{}::{}",
-            Address::KANARI_SYSTEM_ADDRESS,
-            Self::GAS_MARKET_MODULE
-        )
+        format!("{}::{}", Address::KANARI_SYSTEM_ADDRESS, Self::GAS_MARKET_MODULE)
     }
 
     /// USD fee for `gas_units`, in micro-USD.
@@ -272,11 +264,7 @@ impl GasMarketModule {
         // quoted USD value descending.
         stables.sort_by_key(|(_, balance)| std::cmp::Reverse(**balance));
         others.sort_by_key(|(coin, _)| {
-            std::cmp::Reverse(
-                table
-                    .quote_in_token(u64::MAX / 1_000_000, coin)
-                    .unwrap_or(0),
-            )
+            std::cmp::Reverse(table.quote_in_token(u64::MAX / 1_000_000, coin).unwrap_or(0))
         });
 
         for (coin, balance) in stables.into_iter().chain(others) {
@@ -337,12 +325,7 @@ pub fn quote_in_token(
     price_usd_micros: u64,
     decimals: u8,
 ) -> u64 {
-    GasMarketModule::quote_in_token(
-        gas_units,
-        usd_per_gas_unit_micros,
-        price_usd_micros,
-        decimals,
-    )
+    GasMarketModule::quote_in_token(gas_units, usd_per_gas_unit_micros, price_usd_micros, decimals)
 }
 
 pub fn format_usd_micros(micros: u64) -> String {
@@ -384,20 +367,11 @@ mod tests {
         // 100 units * $0.00002 = $0.002 = 2000 micros.
         assert_eq!(GasMarketModule::quote_usd_fee_micros(100, 20), 2000);
         // KANARI $2.00, 9 decimals: $0.002 -> 0.001 KANARI = 1_000_000 MIST.
-        assert_eq!(
-            GasMarketModule::usd_to_token_amount(2000, 2_000_000, 9),
-            1_000_000
-        );
+        assert_eq!(GasMarketModule::usd_to_token_amount(2000, 2_000_000, 9), 1_000_000);
         // USDC $1.00, 6 decimals: $0.002 -> 2000 base units.
-        assert_eq!(
-            GasMarketModule::usd_to_token_amount(2000, 1_000_000, 6),
-            2000
-        );
+        assert_eq!(GasMarketModule::usd_to_token_amount(2000, 1_000_000, 6), 2000);
         // Rounds up, never zero for non-zero fees.
-        assert_eq!(
-            GasMarketModule::usd_to_token_amount(1, 1_000_000_000_000, 9),
-            1
-        );
+        assert_eq!(GasMarketModule::usd_to_token_amount(1, 1_000_000_000_000, 9), 1);
         assert_eq!(GasMarketModule::usd_to_token_amount(0, 2_000_000, 9), 0);
     }
 
@@ -409,12 +383,7 @@ mod tests {
         assert!(!table.is_supported("0x2::usdc::USDC"));
         assert_eq!(table.usd_per_gas_unit_micros, 1);
         assert_eq!(table.quote_in_token(100, GAS_COIN).unwrap(), 50_000);
-        assert_eq!(
-            table
-                .quote_in_token(100_000, crate::usd_coin::USD_COIN)
-                .unwrap(),
-            100_000
-        );
+        assert_eq!(table.quote_in_token(100_000, crate::usd_coin::USD_COIN).unwrap(), 100_000);
 
         let custom_table = GasPriceTable {
             entries: vec![GasCoinEntry {
@@ -436,10 +405,7 @@ mod tests {
         assert!(table.check_version(None).is_ok());
         assert!(table.check_version(Some(1)).is_ok());
         assert!(table.check_version(Some(2)).is_err());
-        let stale = GasPriceTable {
-            version: 1000,
-            ..GasPriceTable::default()
-        };
+        let stale = GasPriceTable { version: 1000, ..GasPriceTable::default() };
         assert!(stale.check_version(Some(1)).is_err());
     }
 
@@ -469,10 +435,8 @@ mod tests {
     #[test]
     fn skips_unsupported_and_unaffordable_coins() {
         let table = GasPriceTable::default();
-        let balances = BTreeMap::from([
-            ("0x2::shit::COIN".to_string(), u64::MAX),
-            (GAS_COIN.to_string(), 1),
-        ]);
+        let balances =
+            BTreeMap::from([("0x2::shit::COIN".to_string(), u64::MAX), (GAS_COIN.to_string(), 1)]);
         assert!(
             GasMarketModule::select_gas_coin(&balances, 100, &table, &BTreeMap::new()).is_none()
         );

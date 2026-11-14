@@ -45,12 +45,7 @@ pub struct UnitTestingConfig {
     pub list: bool,
 
     /// Number of threads to use for running tests.
-    #[clap(
-        name = "num-threads",
-        default_value = "8",
-        short = 't',
-        long = "threads"
-    )]
+    #[clap(name = "num-threads", default_value = "8", short = 't', long = "threads")]
     pub num_threads: usize,
 
     /// Dependency files
@@ -67,11 +62,7 @@ pub struct UnitTestingConfig {
     #[clap(name = "report-statistics", short = 's', long = "statistics")]
     pub report_statistics: Option<Option<String>>,
 
-    #[clap(
-        name = "report_stacktrace_on_abort",
-        short = 'r',
-        long = "stacktrace_on_abort"
-    )]
+    #[clap(name = "report_stacktrace_on_abort", short = 'r', long = "stacktrace_on_abort")]
     pub report_stacktrace_on_abort: bool,
 
     /// Named address mapping
@@ -102,11 +93,7 @@ pub struct UnitTestingConfig {
 }
 
 fn format_module_id(module_id: &ModuleId) -> String {
-    format!(
-        "0x{}::{}",
-        module_id.address().short_str_lossless(),
-        module_id.name()
-    )
+    format!("0x{}::{}", module_id.address().short_str_lossless(), module_id.name())
 }
 
 impl UnitTestingConfig {
@@ -168,9 +155,8 @@ impl UnitTestingConfig {
     pub fn build_test_plan(&self) -> Option<TestPlan> {
         let deps = self.dep_files.clone();
 
-        let TestPlan {
-            files, module_info, ..
-        } = self.compile_to_test_plan(deps.clone(), vec![])?;
+        let TestPlan { files, module_info, .. } =
+            self.compile_to_test_plan(deps.clone(), vec![])?;
 
         let mut test_plan = self.compile_to_test_plan(self.source_files.clone(), deps)?;
         test_plan.module_info.extend(module_info);

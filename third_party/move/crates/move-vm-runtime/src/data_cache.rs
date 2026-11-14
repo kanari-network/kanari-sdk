@@ -29,10 +29,7 @@ pub struct AccountDataCache {
 
 impl AccountDataCache {
     fn new() -> Self {
-        Self {
-            data_map: BTreeMap::new(),
-            module_map: BTreeMap::new(),
-        }
+        Self { data_map: BTreeMap::new(), module_map: BTreeMap::new() }
     }
 }
 
@@ -60,12 +57,7 @@ impl<'l, S: MoveResolver> TransactionDataCache<'l, S> {
     /// Create a `TransactionDataCache` with a `RemoteCache` that provides access to data
     /// not updated in the transaction.
     pub(crate) fn new(remote: S, loader: &'l Loader) -> Self {
-        TransactionDataCache {
-            remote,
-            loader,
-            account_map: BTreeMap::new(),
-            event_data: vec![],
-        }
+        TransactionDataCache { remote, loader, account_map: BTreeMap::new(), event_data: vec![] }
     }
 
     /// Make a write set from the updated (dirty, deleted) global resources along with
@@ -165,10 +157,7 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
         addr: AccountAddress,
         ty: &Type,
     ) -> PartialVMResult<(&mut GlobalValue, Option<Option<NumBytes>>)> {
-        let account_cache = self
-            .account_map
-            .entry(addr)
-            .or_insert_with(AccountDataCache::new);
+        let account_cache = self.account_map.entry(addr).or_insert_with(AccountDataCache::new);
 
         let mut load_res = None;
         if !account_cache.data_map.contains_key(ty) {
@@ -206,10 +195,8 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
                 }
                 Err(err) => {
                     let msg = format!("Unexpected storage error: {:?}", err);
-                    return Err(
-                        PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                            .with_message(msg),
-                    );
+                    return Err(PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                        .with_message(msg));
                 }
             };
 
@@ -242,13 +229,11 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
         module_id: &ModuleId,
         struct_: &IdentStr,
     ) -> PartialVMResult<ModuleId> {
-        self.remote
-            .defining_module(module_id, struct_)
-            .map_err(|err| {
-                PartialVMError::new(StatusCode::LINKER_ERROR).with_message(format!(
-                    "Error finding defining module for {module_id}::{struct_}: {err:?}"
-                ))
-            })
+        self.remote.defining_module(module_id, struct_).map_err(|err| {
+            PartialVMError::new(StatusCode::LINKER_ERROR).with_message(format!(
+                "Error finding defining module for {module_id}::{struct_}: {err:?}"
+            ))
+        })
     }
 
     fn load_module(&self, module_id: &ModuleId) -> VMResult<Vec<u8>> {
@@ -264,24 +249,18 @@ impl<'l, S: MoveResolver> DataStore for TransactionDataCache<'l, S> {
                 .finish(Location::Undefined)),
             Err(err) => {
                 let msg = format!("Unexpected storage error: {:?}", err);
-                Err(
-                    PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                        .with_message(msg)
-                        .finish(Location::Undefined),
-                )
+                Err(PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                    .with_message(msg)
+                    .finish(Location::Undefined))
             }
         }
     }
 
     fn publish_module(&mut self, module_id: &ModuleId, blob: Vec<u8>) -> VMResult<()> {
-        let account_cache = self
-            .account_map
-            .entry(*module_id.address())
-            .or_insert_with(AccountDataCache::new);
+        let account_cache =
+            self.account_map.entry(*module_id.address()).or_insert_with(AccountDataCache::new);
 
-        account_cache
-            .module_map
-            .insert(module_id.name().to_owned(), blob);
+        account_cache.module_map.insert(module_id.name().to_owned(), blob);
 
         Ok(())
     }

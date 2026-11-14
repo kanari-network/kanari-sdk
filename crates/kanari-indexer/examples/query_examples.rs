@@ -83,10 +83,9 @@ fn main() -> Result<()> {
 
     // Example 6: Metadata Operations
     println!("6. METADATA OPERATIONS");
-    indexer.db().set_metadata(
-        "last_sync_timestamp",
-        &chrono::Utc::now().timestamp().to_string(),
-    )?;
+    indexer
+        .db()
+        .set_metadata("last_sync_timestamp", &chrono::Utc::now().timestamp().to_string())?;
     if let Some(timestamp) = indexer.db().get_metadata("last_sync_timestamp")? {
         println!("   Last sync timestamp: {}", timestamp);
     }

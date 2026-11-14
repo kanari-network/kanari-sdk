@@ -74,13 +74,7 @@ impl FunctionTargetProcessor for DebugInstrumenter {
                     builder.set_loc_from_attr(bc.get_attr_id());
                     builder.emit(bc.clone());
                     builder.emit_with(|id| {
-                        Call(
-                            id,
-                            vec![],
-                            Operation::TraceLocal(srcs[0]),
-                            vec![srcs[0]],
-                            None,
-                        )
+                        Call(id, vec![], Operation::TraceLocal(srcs[0]), vec![srcs[0]], None)
                     });
                 }
                 _ => {

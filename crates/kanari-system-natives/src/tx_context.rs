@@ -30,23 +30,13 @@ pub struct DeriveIdGasParameters {
 
 impl GasParameters {
     pub fn zeros() -> Self {
-        Self {
-            derive_id: DeriveIdGasParameters {
-                base: 0.into(),
-                per_byte: 0.into(),
-            },
-        }
+        Self { derive_id: DeriveIdGasParameters { base: 0.into(), per_byte: 0.into() } }
     }
 
     pub fn production() -> Self {
         // One Sha3-256 over (tx_hash || ids_created). per_byte charges the
         // hashed tx_hash bytes; base covers digest setup + address build.
-        Self {
-            derive_id: DeriveIdGasParameters {
-                base: 2_000.into(),
-                per_byte: 50.into(),
-            },
-        }
+        Self { derive_id: DeriveIdGasParameters { base: 2_000.into(), per_byte: 50.into() } }
     }
 }
 

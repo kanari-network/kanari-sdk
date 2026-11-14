@@ -50,23 +50,14 @@ pub fn run_instruction(
                 .any(|precondition| !precondition(&initial_state)),
         }
     } else {
-        summary
-            .preconditions
-            .iter()
-            .any(|precondition| !precondition(&initial_state))
+        summary.preconditions.iter().any(|precondition| !precondition(&initial_state))
     };
-    assert!(
-        !unsatisfied_preconditions,
-        "preconditions of instruction not satisfied"
-    );
+    assert!(!unsatisfied_preconditions, "preconditions of instruction not satisfied");
     match summary.effects {
         Effects::TyParams(instantiation, effect, instantiation_application) => {
             let (struct_idx, instantiation) = instantiation(&initial_state);
             let index = initial_state.module.add_instantiation(instantiation);
-            let struct_inst = StructDefInstantiation {
-                def: struct_idx,
-                type_parameters: index,
-            };
+            let struct_inst = StructDefInstantiation { def: struct_idx, type_parameters: index };
             let str_inst_idx = initial_state.module.add_struct_instantiation(struct_inst);
             let effects = effect(str_inst_idx);
             let instruction = instantiation_application(str_inst_idx);
@@ -81,10 +72,7 @@ pub fn run_instruction(
         Effects::TyParamsCall(instantiation, effect, instantiation_application) => {
             let (fh_idx, instantiation) = instantiation(&initial_state);
             let index = initial_state.module.add_instantiation(instantiation);
-            let func_inst = FunctionInstantiation {
-                handle: fh_idx,
-                type_parameters: index,
-            };
+            let func_inst = FunctionInstantiation { handle: fh_idx, type_parameters: index };
             let func_inst_idx = initial_state.module.add_function_instantiation(func_inst);
             let effects = effect(func_inst_idx);
             let instruction = instantiation_application(func_inst_idx);

@@ -29,10 +29,7 @@ fn compile_modules(package: &Path, output: &Path) -> Vec<PathBuf> {
     // depend on ignored package/build directories, and build scripts must not
     // mutate the source tree (especially during cross compilation).
     let install_dir = output.join("compiled-package");
-    let config = move_package::BuildConfig {
-        install_dir: Some(install_dir),
-        ..Default::default()
-    };
+    let config = move_package::BuildConfig { install_dir: Some(install_dir), ..Default::default() };
     let compiled = config
         .compile_package(package, &mut std::io::sink())
         .unwrap_or_else(|error| panic!("cannot compile {}: {error}", package.display()));
@@ -52,24 +49,16 @@ fn compile_modules(package: &Path, output: &Path) -> Vec<PathBuf> {
         paths.push(path);
     }
 
-    assert!(
-        !paths.is_empty(),
-        "Move package {} produced no root modules",
-        package.display()
-    );
+    assert!(!paths.is_empty(), "Move package {} produced no root modules", package.display());
     paths.sort();
     paths
 }
 
 fn emit_modules(out: &mut String, constant: &str, paths: &[PathBuf]) {
-    out.push_str(&format!(
-        "pub(crate) const {constant}: &[(&str, &[u8])] = &[\n"
-    ));
+    out.push_str(&format!("pub(crate) const {constant}: &[(&str, &[u8])] = &[\n"));
     for path in paths {
-        let name = path
-            .file_name()
-            .expect("compiled module path must have a file name")
-            .to_string_lossy();
+        let name =
+            path.file_name().expect("compiled module path must have a file name").to_string_lossy();
         out.push_str(&format!(
             "    ({name:?}, include_bytes!({path:?})),\n",
             name = name,
@@ -81,13 +70,7 @@ fn emit_modules(out: &mut String, constant: &str, paths: &[PathBuf]) {
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let root = manifest
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap();
+    let root = manifest.parent().unwrap().parent().unwrap().parent().unwrap();
     let frameworks = root.join("crates/kanari-frameworks/packages");
     let stdlib = frameworks.join("move-stdlib");
     let system = frameworks.join("kanari-system");
@@ -99,16 +82,8 @@ fn main() {
     let system_modules = compile_modules(&system, &output.join("kanari-system"));
 
     let mut generated = String::new();
-    emit_modules(
-        &mut generated,
-        "EMBEDDED_MOVE_STDLIB_MODULES",
-        &stdlib_modules,
-    );
-    emit_modules(
-        &mut generated,
-        "EMBEDDED_KANARI_SYSTEM_MODULES",
-        &system_modules,
-    );
+    emit_modules(&mut generated, "EMBEDDED_MOVE_STDLIB_MODULES", &stdlib_modules);
+    emit_modules(&mut generated, "EMBEDDED_KANARI_SYSTEM_MODULES", &system_modules);
     fs::write(output.join("embedded_framework_modules.rs"), generated)
         .expect("cannot write embedded framework module manifest");
 }

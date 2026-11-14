@@ -147,12 +147,7 @@ impl<'a> ModuleGenerator<'a> {
     }
 
     fn typ(&mut self, ty_param_context: &[(TypeVar, BTreeSet<Ability>)]) -> Type {
-        let typ = self.base_type(
-            &ty_param_context
-                .iter()
-                .map(|(tv, _)| tv)
-                .collect::<Vec<_>>(),
-        );
+        let typ = self.base_type(&ty_param_context.iter().map(|(tv, _)| tv).collect::<Vec<_>>());
         // TODO: Always change the base type to a reference if it's resource type. Then we can
         // allow functions to take resources.
         // if typ.is_nominal_resource { .... }
@@ -221,9 +216,7 @@ impl<'a> ModuleGenerator<'a> {
     }
 
     fn struct_fields(&mut self, ty_params: &[StructTypeParameter]) -> StructDefinitionFields {
-        let num_fields = self
-            .r#gen
-            .random_range(self.options.min_fields..self.options.max_fields);
+        let num_fields = self.r#gen.random_range(self.options.min_fields..self.options.max_fields);
         let fields: Fields<Type> = init!(num_fields, {
             (
                 Spanned::unsafe_no_loc(Field_(self.identifier().into())),
@@ -258,24 +251,15 @@ impl<'a> ModuleGenerator<'a> {
             },
         };
         let fun_name = FunctionName(self.identifier().into());
-        self.current_module
-            .functions
-            .push((fun_name, Spanned::unsafe_no_loc(fun)));
+        self.current_module.functions.push((fun_name, Spanned::unsafe_no_loc(fun)));
     }
 
     fn struct_def(&mut self, abilities: BTreeSet<Ability>) {
         let name = StructName(self.identifier().into());
         let type_parameters = self.struct_type_parameters();
         let fields = self.struct_fields(&type_parameters);
-        let strct = StructDefinition_ {
-            abilities,
-            name,
-            type_formals: type_parameters,
-            fields,
-        };
-        self.current_module
-            .structs
-            .push(Spanned::unsafe_no_loc(strct))
+        let strct = StructDefinition_ { abilities, name, type_formals: type_parameters, fields };
+        self.current_module.structs.push(Spanned::unsafe_no_loc(strct))
     }
 
     fn imports(callees: &Set<Symbol>) -> Vec<ImportDefinition> {
@@ -340,11 +324,6 @@ impl<'a> ModuleGenerator<'a> {
             functions: Vec::new(),
             constants: Vec::new(),
         };
-        Self {
-            options,
-            current_module,
-            r#gen,
-        }
-        .r#gen()
+        Self { options, current_module, r#gen }.r#gen()
     }
 }

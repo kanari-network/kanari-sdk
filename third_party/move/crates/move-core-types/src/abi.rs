@@ -66,13 +66,7 @@ impl TransactionScriptABI {
         ty_args: Vec<TypeArgumentABI>,
         args: Vec<ArgumentABI>,
     ) -> Self {
-        Self {
-            name,
-            doc,
-            code,
-            ty_args,
-            args,
-        }
+        Self { name, doc, code, ty_args, args }
     }
 
     pub fn name(&self) -> &str {
@@ -104,13 +98,7 @@ impl ScriptFunctionABI {
         ty_args: Vec<TypeArgumentABI>,
         args: Vec<ArgumentABI>,
     ) -> Self {
-        Self {
-            name,
-            module_name,
-            doc,
-            ty_args,
-            args,
-        }
+        Self { name, module_name, doc, ty_args, args }
     }
 
     pub fn name(&self) -> &str {

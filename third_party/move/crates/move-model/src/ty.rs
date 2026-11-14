@@ -225,11 +225,7 @@ impl Type {
 
     /// Skip reference type.
     pub fn skip_reference(&self) -> &Type {
-        if let Type::Reference(_, bt) = self {
-            bt
-        } else {
-            self
-        }
+        if let Type::Reference(_, bt) = self { bt } else { self }
     }
 
     /// If this is a struct type, replace the type instantiation.
@@ -255,10 +251,7 @@ impl Type {
     /// If this is a struct type, return the associated QualifiedInstId.
     pub fn get_struct_id(&self, env: &GlobalEnv) -> Option<QualifiedInstId<StructId>> {
         self.get_struct(env).map(|(se, inst)| {
-            se.module_env
-                .get_id()
-                .qualified(se.get_id())
-                .instantiate(inst.to_vec())
+            se.module_env.get_id().qualified(se.get_id()).instantiate(inst.to_vec())
         })
     }
 
@@ -273,11 +266,7 @@ impl Type {
 
     /// Instantiates type parameters in this type.
     pub fn instantiate(&self, params: &[Type]) -> Type {
-        if params.is_empty() {
-            self.clone()
-        } else {
-            self.replace(Some(params), None)
-        }
+        if params.is_empty() { self.clone() } else { self.replace(Some(params), None) }
     }
 
     /// Instantiate type parameters in the vector of types.
@@ -471,11 +460,8 @@ impl Type {
                 let qid = env.find_struct_by_tag(s).unwrap_or_else(|| {
                     panic!("Invariant violation: couldn't resolve struct {:?}", s)
                 });
-                let type_args = s
-                    .type_params
-                    .iter()
-                    .map(|arg| Self::from_type_tag(arg, env))
-                    .collect();
+                let type_args =
+                    s.type_params.iter().map(|arg| Self::from_type_tag(arg, env)).collect();
                 Struct(qid.module_id, qid.id, type_args)
             }
             TypeTag::Vector(type_param) => Vector(Box::new(Self::from_type_tag(type_param, env))),
@@ -544,9 +530,7 @@ pub enum Variance {
 impl Substitution {
     /// Creates a new substitution.
     pub fn new() -> Self {
-        Self {
-            subs: BTreeMap::new(),
-        }
+        Self { subs: BTreeMap::new() }
     }
 
     /// Binds the type variables.
@@ -608,11 +592,7 @@ impl Substitution {
         // it is put back since we need to maintain this information for later phases.
         if let Type::Reference(is_mut, bt1) = t1 {
             // Avoid creating nested references.
-            let t2 = if let Type::Reference(_, bt2) = t2 {
-                bt2.as_ref()
-            } else {
-                t2
-            };
+            let t2 = if let Type::Reference(_, bt2) = t2 { bt2.as_ref() } else { t2 };
             return Ok(Type::Reference(
                 *is_mut,
                 Box::new(self.unify(sub_variance, bt1.as_ref(), t2)?),
@@ -661,12 +641,7 @@ impl Substitution {
                 }
             }
             (Type::Tuple(ts1), Type::Tuple(ts2)) => {
-                return Ok(Type::Tuple(self.unify_vec(
-                    sub_variance,
-                    ts1,
-                    ts2,
-                    "tuples",
-                )?));
+                return Ok(Type::Tuple(self.unify_vec(sub_variance, ts1, ts2, "tuples")?));
             }
             (Type::Fun(ts1, r1), Type::Fun(ts2, r2)) => {
                 return Ok(Type::Fun(
@@ -687,18 +662,11 @@ impl Substitution {
                 return Ok(Type::Vector(Box::new(self.unify(sub_variance, e1, e2)?)));
             }
             (Type::TypeDomain(e1), Type::TypeDomain(e2)) => {
-                return Ok(Type::TypeDomain(Box::new(self.unify(
-                    sub_variance,
-                    e1,
-                    e2,
-                )?)));
+                return Ok(Type::TypeDomain(Box::new(self.unify(sub_variance, e1, e2)?)));
             }
             _ => {}
         }
-        Err(TypeUnificationError::TypeMismatch(
-            self.specialize(t1),
-            self.specialize(t2),
-        ))
+        Err(TypeUnificationError::TypeMismatch(self.specialize(t1), self.specialize(t2)))
     }
 
     /// Helper to unify two type vectors.
@@ -743,11 +711,7 @@ impl Substitution {
                 };
             }
             let is_t1_var = |t: &Type| {
-                if let Type::Var(v2) = t {
-                    v1 == v2
-                } else {
-                    false
-                }
+                if let Type::Var(v2) = t { v1 == v2 } else { false }
             };
             // Skip the cycle check if we are unifying the same two variables.
             if is_t1_var(t2) {
@@ -874,11 +838,7 @@ impl TypeUnificationAdapter {
         let types_adapted_lhs = lhs_types.map(|t| t.instantiate(&lhs_inst)).collect();
         let types_adapted_rhs = rhs_types.map(|t| t.instantiate(&rhs_inst)).collect();
 
-        Self {
-            type_vars_map,
-            types_adapted_lhs,
-            types_adapted_rhs,
-        }
+        Self { type_vars_map, types_adapted_lhs, types_adapted_rhs }
     }
 
     /// Create a TypeUnificationAdapter with the goal of unifying a pair of types.
@@ -926,12 +886,7 @@ impl TypeUnificationAdapter {
         shallow_subst: bool,
     ) -> Option<(BTreeMap<u16, Type>, BTreeMap<u16, Type>)> {
         let mut subst = Substitution::new();
-        match subst.unify_vec(
-            variance,
-            &self.types_adapted_lhs,
-            &self.types_adapted_rhs,
-            "",
-        ) {
+        match subst.unify_vec(variance, &self.types_adapted_lhs, &self.types_adapted_rhs, "") {
             Ok(_) => {
                 let mut inst_lhs = BTreeMap::new();
                 let mut inst_rhs = BTreeMap::new();
@@ -954,11 +909,7 @@ impl TypeUnificationAdapter {
                         }
                         Some(subst_ty) => subst_ty.clone(),
                     };
-                    let inst = if *is_lhs {
-                        &mut inst_lhs
-                    } else {
-                        &mut inst_rhs
-                    };
+                    let inst = if *is_lhs { &mut inst_lhs } else { &mut inst_rhs };
                     inst.insert(*param_idx, subst_ty);
                 }
 
@@ -1088,9 +1039,8 @@ impl TypeInstantiationDerivation {
     where
         I: Iterator<Item = &'a Type> + Clone,
     {
-        let initial_param_insts: Vec<_> = (0..params_arity)
-            .map(|idx| Type::TypeParameter(idx as TypeParameterIndex))
-            .collect();
+        let initial_param_insts: Vec<_> =
+            (0..params_arity).map(|idx| Type::TypeParameter(idx as TypeParameterIndex)).collect();
 
         let mut work_queue = VecDeque::new();
         work_queue.push_back(initial_param_insts);
@@ -1100,23 +1050,11 @@ impl TypeInstantiationDerivation {
                 // refine the memory usage sets with current param instantiations
                 let refined_lhs = lhs_types
                     .clone()
-                    .map(|t| {
-                        if refine_lhs {
-                            t.instantiate(&param_insts)
-                        } else {
-                            t.clone()
-                        }
-                    })
+                    .map(|t| if refine_lhs { t.instantiate(&param_insts) } else { t.clone() })
                     .collect();
                 let refined_rhs = rhs_types
                     .clone()
-                    .map(|t| {
-                        if refine_rhs {
-                            t.instantiate(&param_insts)
-                        } else {
-                            t.clone()
-                        }
-                    })
+                    .map(|t| if refine_rhs { t.instantiate(&param_insts) } else { t.clone() })
                     .collect();
 
                 // find type instantiations for the target parameter index
@@ -1183,10 +1121,7 @@ pub struct TypeDisplay<'a> {
 
 impl Type {
     pub fn display<'a>(&'a self, context: &'a TypeDisplayContext<'a>) -> TypeDisplay<'a> {
-        TypeDisplay {
-            type_: self,
-            context,
-        }
+        TypeDisplay { type_: self, context }
     }
 }
 
@@ -1246,10 +1181,8 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
                 write!(f, "{}", t.display(self.context))
             }
             TypeParameter(idx) => {
-                if let TypeDisplayContext::WithEnv {
-                    env,
-                    type_param_names: Some(names),
-                } = self.context
+                if let TypeDisplayContext::WithEnv { env, type_param_names: Some(names) } =
+                    self.context
                 {
                     let idx = *idx as usize;
                     if idx < names.len() {
@@ -1270,10 +1203,7 @@ impl<'a> fmt::Display for TypeDisplay<'a> {
 impl<'a> TypeDisplay<'a> {
     fn struct_str(&self, mid: ModuleId, sid: StructId) -> String {
         match self.context {
-            TypeDisplayContext::WithoutEnv {
-                symbol_pool,
-                reverse_struct_table,
-            } => {
+            TypeDisplayContext::WithoutEnv { symbol_pool, reverse_struct_table } => {
                 if let Some(sym) = reverse_struct_table.get(&(mid, sid)) {
                     sym.display(symbol_pool).to_string()
                 } else {

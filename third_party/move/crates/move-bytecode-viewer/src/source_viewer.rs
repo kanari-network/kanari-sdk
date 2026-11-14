@@ -29,19 +29,11 @@ impl ModuleViewer {
     pub fn new(module: CompiledModule, source_map: SourceMap, source_location: &Path) -> Self {
         let mut source_code = vec![];
         let file_contents = fs::read_to_string(source_location).unwrap();
-        assert!(
-            source_map.check(&file_contents),
-            "File contents are out of sync with source map"
-        );
+        assert!(source_map.check(&file_contents), "File contents are out of sync with source map");
         source_code.push(file_contents);
         let file_index = source_code.len() - 1;
 
-        Self {
-            file_index,
-            source_code,
-            source_map,
-            module,
-        }
+        Self { file_index, source_code, source_map, module }
     }
 }
 
@@ -68,11 +60,7 @@ impl<'a> RightScreen<BytecodeViewer<'a>> for ModuleViewer {
         let highlight = source[loc_start..loc_end].to_owned();
         let remainder = &source[loc_end..context_end];
 
-        Ok(SourceContext {
-            left: left.to_string(),
-            highlight,
-            remainder: remainder.to_string(),
-        })
+        Ok(SourceContext { left: left.to_string(), highlight, remainder: remainder.to_string() })
     }
 
     fn backing_string(&self) -> String {

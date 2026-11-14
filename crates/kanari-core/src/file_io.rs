@@ -22,9 +22,7 @@ const FILE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 const FILE_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(25);
 
 fn parent_directory(path: &Path) -> &Path {
-    path.parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
 }
 
 fn lock_path(path: &Path) -> PathBuf {
@@ -62,12 +60,8 @@ fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     }
 
     const REPLACEFILE_WRITE_THROUGH: u32 = 0x0000_0001;
-    let wide = |path: &Path| {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>()
-    };
+    let wide =
+        |path: &Path| path.as_os_str().encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     let destination = wide(destination);
     let source = wide(source);
     if unsafe {

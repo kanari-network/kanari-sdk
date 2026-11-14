@@ -58,6 +58,16 @@ for one action can never be replayed as another action.
 ## Constants
 
 
+<a name="0x2_signature_multisig_E_LENGTH_MISMATCH"></a>
+
+Keys and signatures vectors have different lengths.
+
+
+<pre><code><b>const</b> <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>: u64 = 3;
+</code></pre>
+
+
+
 <a name="0x2_signature_multisig_E_INVALID_THRESHOLD"></a>
 
 Threshold is zero, or exceeds the number of keys.
@@ -100,16 +110,6 @@ Unsupported scheme selector.
 
 
 
-<a name="0x2_signature_multisig_E_LENGTH_MISMATCH"></a>
-
-Keys and signatures vectors have different lengths.
-
-
-<pre><code><b>const</b> <a href="signature_multisig.md#0x2_signature_multisig_E_LENGTH_MISMATCH">E_LENGTH_MISMATCH</a>: u64 = 3;
-</code></pre>
-
-
-
 <a name="0x2_signature_multisig_SCHEME_ECDSA_K1"></a>
 
 
@@ -142,6 +142,7 @@ Signature scheme selectors.
 
 ## Function `scheme_ed25519`
 
+Returns the scheme selector for ed25519.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_scheme_ed25519">scheme_ed25519</a>(): u8
@@ -166,6 +167,7 @@ Signature scheme selectors.
 
 ## Function `scheme_ecdsa_k1`
 
+Returns the scheme selector for secp256k1 ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_scheme_ecdsa_k1">scheme_ecdsa_k1</a>(): u8
@@ -190,6 +192,7 @@ Signature scheme selectors.
 
 ## Function `scheme_ecdsa_r1`
 
+Returns the scheme selector for P-256 ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="signature_multisig.md#0x2_signature_multisig_scheme_ecdsa_r1">scheme_ecdsa_r1</a>(): u8

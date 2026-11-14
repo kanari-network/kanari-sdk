@@ -33,10 +33,8 @@ impl Balance {
         eprintln!("   RPC: {}\n", rpc);
 
         let client = RpcClient::new(&rpc);
-        let result = client
-            .get_owner_balances(&owner)
-            .await
-            .context("Failed to fetch owner balances")?;
+        let result =
+            client.get_owner_balances(&owner).await.context("Failed to fetch owner balances")?;
 
         {
             if let Some(balances) = result.get("balances").and_then(|b| b.as_array()) {
@@ -44,19 +42,15 @@ impl Balance {
                 eprintln!("------------------------------");
 
                 for balance in balances {
-                    let token_type = balance
-                        .get("token_type")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("UNKNOWN");
+                    let token_type =
+                        balance.get("token_type").and_then(|t| t.as_str()).unwrap_or("UNKNOWN");
 
                     let amount = balance.get("balance").and_then(|a| a.as_u64()).unwrap_or(0);
 
                     // No fallback: decimals must come from API metadata.
                     // Clamp display: corrupt decimals (>18) would make pow overflow.
-                    let decimals_opt = balance
-                        .get("decimals")
-                        .and_then(|d| d.as_u64())
-                        .filter(|d| *d <= 18);
+                    let decimals_opt =
+                        balance.get("decimals").and_then(|d| d.as_u64()).filter(|d| *d <= 18);
 
                     if self.detailed {
                         eprintln!("Token Type: {}", token_type);

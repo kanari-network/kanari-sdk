@@ -131,10 +131,7 @@ impl Publish {
 
         let client = build_blocking_client(30)?;
         let wallet = load_wallet_for(&sender_normalized, None)?;
-        eprintln!(
-            "   Wallet loaded: {} (curve: {})",
-            sender_normalized, wallet.curve_type
-        );
+        eprintln!("   Wallet loaded: {} (curve: {})", sender_normalized, wallet.curve_type);
         let sender_for_tx = get_sender_for_tx(&wallet, &sender_normalized)?;
 
         // Filter modules whose self-address matches the sender and serialize them.
@@ -162,9 +159,7 @@ impl Publish {
 
         let total_size: usize = package_modules.iter().map(|m| m.module_bytes.len()).sum();
         let total_estimate = GasEstimate::from_operation(
-            GasOperation::PublishModule {
-                module_size: total_size,
-            },
+            GasOperation::PublishModule { module_size: total_size },
             gas_price,
         );
         eprintln!(
@@ -192,11 +187,7 @@ impl Publish {
         let is_upgrade = operation == PublishOperation::Upgrade;
         let request = sign_publish_package_request_as(prepared, &wallet, is_upgrade)?;
 
-        eprintln!(
-            "     Sending {} package RPC to {}...",
-            operation.past_tense_lower(),
-            rpc
-        );
+        eprintln!("     Sending {} package RPC to {}...", operation.past_tense_lower(), rpc);
         let rpc_response = submit_blocking_rpc(
             &client,
             &rpc,
@@ -250,9 +241,7 @@ impl Publish {
         let total_function_count = 0usize;
         for m in package_modules {
             let estimate = GasEstimate::from_operation(
-                GasOperation::PublishModule {
-                    module_size: m.module_bytes.len(),
-                },
+                GasOperation::PublishModule { module_size: m.module_bytes.len() },
                 gas_price,
             );
             eprintln!("   Module: {}", m.module_name);
@@ -356,22 +345,10 @@ mod tests {
 
     #[test]
     fn publish_operation_methods() {
-        assert_eq!(
-            PublishOperation::Publish.build_method(),
-            methods::BUILD_PUBLISH_PACKAGE
-        );
-        assert_eq!(
-            PublishOperation::Upgrade.build_method(),
-            methods::BUILD_UPGRADE_PACKAGE
-        );
-        assert_eq!(
-            PublishOperation::Publish.submit_method(),
-            methods::PUBLISH_PACKAGE
-        );
-        assert_eq!(
-            PublishOperation::Upgrade.submit_method(),
-            methods::UPGRADE_PACKAGE
-        );
+        assert_eq!(PublishOperation::Publish.build_method(), methods::BUILD_PUBLISH_PACKAGE);
+        assert_eq!(PublishOperation::Upgrade.build_method(), methods::BUILD_UPGRADE_PACKAGE);
+        assert_eq!(PublishOperation::Publish.submit_method(), methods::PUBLISH_PACKAGE);
+        assert_eq!(PublishOperation::Upgrade.submit_method(), methods::UPGRADE_PACKAGE);
     }
 
     #[test]

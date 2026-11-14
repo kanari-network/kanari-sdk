@@ -92,11 +92,7 @@ impl Audit {
                 );
                 return Ok(());
             }
-            let max_sev = all_findings
-                .iter()
-                .map(|f| f.severity)
-                .max()
-                .unwrap_or(Severity::Info);
+            let max_sev = all_findings.iter().map(|f| f.severity).max().unwrap_or(Severity::Info);
             let color = severity_color(max_sev);
             eprintln!(
                 "{color}checked {files} file(s): {count} finding(s){reset} (min severity {sev})",

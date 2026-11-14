@@ -101,11 +101,7 @@ impl Blockchain {
     /// Restore the deterministic genesis checkpoint in snapshots written by
     /// older retention logic that evicted sequence zero.
     pub(crate) fn ensure_genesis_retained(&mut self) -> bool {
-        if self
-            .dag_checkpoints
-            .front()
-            .is_some_and(|checkpoint| checkpoint.sequence == 0)
-        {
+        if self.dag_checkpoints.front().is_some_and(|checkpoint| checkpoint.sequence == 0) {
             return false;
         }
 
@@ -117,10 +113,7 @@ impl Blockchain {
     }
 
     fn retained_transaction_count(&self) -> usize {
-        self.dag_checkpoints
-            .iter()
-            .map(|checkpoint| checkpoint.transactions.len())
-            .sum()
+        self.dag_checkpoints.iter().map(|checkpoint| checkpoint.transactions.len()).sum()
     }
 
     /// Records one transaction in the hash index. Callers that insert many
@@ -241,9 +234,7 @@ impl Blockchain {
     /// Returns `None` if the checkpoint has been evicted from the retained
     /// window or does not exist.
     pub fn get_checkpoint(&self, sequence: u64) -> Option<&Checkpoint> {
-        self.dag_checkpoints
-            .iter()
-            .find(|checkpoint| checkpoint.sequence == sequence)
+        self.dag_checkpoints.iter().find(|checkpoint| checkpoint.sequence == sequence)
     }
 
     /// Returns the lifetime transaction count (monotonically increasing).

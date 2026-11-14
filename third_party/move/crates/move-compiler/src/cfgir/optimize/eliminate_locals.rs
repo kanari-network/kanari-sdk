@@ -63,10 +63,7 @@ mod count {
 
     impl Context {
         pub fn new(signature: &FunctionSignature) -> Self {
-            let mut ctx = Context {
-                assigned: BTreeMap::new(),
-                used: BTreeMap::new(),
-            };
+            let mut ctx = Context { assigned: BTreeMap::new(), used: BTreeMap::new() };
             for (_, v, _) in &signature.parameters {
                 ctx.assign(v, false);
             }
@@ -101,12 +98,7 @@ mod count {
                 .into_iter()
                 .filter(|(_v, count)| count.map(|c| c == 1).unwrap_or(false))
                 .map(|(v, _count)| v)
-                .filter(|v| {
-                    used.get(v)
-                        .unwrap_or(&None)
-                        .map(|c| c == 1)
-                        .unwrap_or(false)
-                })
+                .filter(|v| used.get(v).unwrap_or(&None).map(|c| c == 1).unwrap_or(false))
                 .collect()
         }
     }
@@ -279,10 +271,7 @@ mod eliminate {
 
     impl Context {
         pub fn new(ssa_temps: BTreeSet<Var>) -> Self {
-            Context {
-                ssa_temps,
-                eliminated: BTreeMap::new(),
-            }
+            Context { ssa_temps, eliminated: BTreeMap::new() }
         }
 
         pub fn finished(&self) -> bool {
@@ -336,23 +325,12 @@ mod eliminate {
         use LValue_ as L;
         match l_ {
             l_ @ (L::Ignore | L::Unpack(_, _, _) | L::UnpackVariant(..)) => LRes::Same(sp(loc, l_)),
-            L::Var {
-                var,
-                ty,
-                unused_assignment,
-            } => {
+            L::Var { var, ty, unused_assignment } => {
                 let contained = context.ssa_temps.remove(&var);
                 if contained {
                     LRes::Elim(var)
                 } else {
-                    LRes::Same(sp(
-                        loc,
-                        L::Var {
-                            var,
-                            ty,
-                            unused_assignment,
-                        },
-                    ))
+                    LRes::Same(sp(loc, L::Var { var, ty, unused_assignment }))
                 }
             }
         }
@@ -462,14 +440,6 @@ mod eliminate {
     }
 
     fn unit(loc: Loc) -> Exp {
-        H::exp(
-            sp(loc, Type_::Unit),
-            sp(
-                loc,
-                UnannotatedExp_::Unit {
-                    case: UnitCase::Implicit,
-                },
-            ),
-        )
+        H::exp(sp(loc, Type_::Unit), sp(loc, UnannotatedExp_::Unit { case: UnitCase::Implicit }))
     }
 }

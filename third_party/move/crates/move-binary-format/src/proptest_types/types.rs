@@ -77,9 +77,8 @@ impl StDefnMaterializeState {
 
                 // Gather the abilities of the type actuals.
                 let type_args_abilities = type_args.iter().map(|ty| self.potential_abilities(ty));
-                type_args_abilities.fold(sh.abilities, |acc, ty_arg_abilities| {
-                    acc.intersect(ty_arg_abilities)
-                })
+                type_args_abilities
+                    .fold(sh.abilities, |acc, ty_arg_abilities| acc.intersect(ty_arg_abilities))
             }
         }
     }
@@ -116,11 +115,8 @@ impl StructHandleGen {
         module_len: usize,
         identifiers_len: usize,
     ) -> StructHandle {
-        let idx = prop_index_avoid(
-            self.module_idx,
-            self_module_handle_idx.into_index(),
-            module_len,
-        );
+        let idx =
+            prop_index_avoid(self.module_idx, self_module_handle_idx.into_index(), module_len);
         let type_parameters = self
             .type_parameters
             .into_iter()
@@ -156,22 +152,13 @@ impl StructDefinitionGen {
         (
             any::<PropIndex>(),
             AbilitySetGen::strategy(),
-            vec(
-                (AbilitySetGen::strategy(), any::<bool>()),
-                type_parameter_count,
-            ),
+            vec((AbilitySetGen::strategy(), any::<bool>()), type_parameter_count),
             any::<bool>(),
             option::of(vec(FieldDefinitionGen::strategy(), field_count)),
         )
-            .prop_map(
-                |(name_idx, abilities, type_parameters, is_public, field_defs)| Self {
-                    name_idx,
-                    abilities,
-                    type_parameters,
-                    is_public,
-                    field_defs,
-                },
-            )
+            .prop_map(|(name_idx, abilities, type_parameters, is_public, field_defs)| {
+                Self { name_idx, abilities, type_parameters, is_public, field_defs }
+            })
     }
 
     pub fn materialize(
@@ -191,11 +178,9 @@ impl StructDefinitionGen {
                 }
             }
         };
-        let abilities = fields
-            .iter()
-            .fold(self.abilities.materialize(), |acc, field| {
-                acc.intersect(state.potential_abilities(&field.signature.0))
-            });
+        let abilities = fields.iter().fold(self.abilities.materialize(), |acc, field| {
+            acc.intersect(state.potential_abilities(&field.signature.0))
+        });
 
         let type_parameters = self
             .type_parameters
@@ -224,13 +209,7 @@ impl StructDefinitionGen {
                 } else {
                     let field_count = fields.len();
                     let field_information = StructFieldInformation::Declared(fields);
-                    (
-                        Some(StructDefinition {
-                            struct_handle,
-                            field_information,
-                        }),
-                        field_count,
-                    )
+                    (Some(StructDefinition { struct_handle, field_information }), field_count)
                 }
             }
             None => (None, 0),
@@ -246,12 +225,8 @@ struct FieldDefinitionGen {
 
 impl FieldDefinitionGen {
     fn strategy() -> impl Strategy<Value = Self> {
-        (any::<PropIndex>(), SignatureTokenGen::atom_strategy()).prop_map(
-            |(name_idx, signature_gen)| Self {
-                name_idx,
-                signature_gen,
-            },
-        )
+        (any::<PropIndex>(), SignatureTokenGen::atom_strategy())
+            .prop_map(|(name_idx, signature_gen)| Self { name_idx, signature_gen })
     }
 
     fn materialize(self, state: &StDefnMaterializeState) -> FieldDefinition {

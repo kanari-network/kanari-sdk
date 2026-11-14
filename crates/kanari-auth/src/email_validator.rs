@@ -32,9 +32,7 @@ pub fn validate_email(email: &str) -> AuthResult<()> {
     }
 
     if email.len() > 254 {
-        return Err(AuthError::InvalidEmail(
-            "Email too long (max 254 characters)".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Email too long (max 254 characters)".to_string()));
     }
 
     // RFC 5322 compliant email regex
@@ -43,18 +41,13 @@ pub fn validate_email(email: &str) -> AuthResult<()> {
     ).map_err(|e| AuthError::ValidationError(format!("Failed to compile email regex: {}", e)))?;
 
     if !email_regex.is_match(email) {
-        return Err(AuthError::InvalidEmail(format!(
-            "Invalid email format: {}",
-            email
-        )));
+        return Err(AuthError::InvalidEmail(format!("Invalid email format: {}", email)));
     }
 
     // Additional checks
     let parts: Vec<&str> = email.split('@').collect();
     if parts.len() != 2 {
-        return Err(AuthError::InvalidEmail(
-            "Email must contain exactly one @ symbol".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Email must contain exactly one @ symbol".to_string()));
     }
 
     let local_part = parts[0];
@@ -62,35 +55,25 @@ pub fn validate_email(email: &str) -> AuthResult<()> {
 
     // Validate local part (before @)
     if local_part.is_empty() {
-        return Err(AuthError::InvalidEmail(
-            "Local part (before @) cannot be empty".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Local part (before @) cannot be empty".to_string()));
     }
 
     if local_part.len() > 64 {
-        return Err(AuthError::InvalidEmail(
-            "Local part too long (max 64 characters)".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Local part too long (max 64 characters)".to_string()));
     }
 
     // Validate domain part (after @)
     if domain_part.is_empty() {
-        return Err(AuthError::InvalidEmail(
-            "Domain part (after @) cannot be empty".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Domain part (after @) cannot be empty".to_string()));
     }
 
     if !domain_part.contains('.') {
-        return Err(AuthError::InvalidEmail(
-            "Domain must contain at least one dot".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Domain must contain at least one dot".to_string()));
     }
 
     // Check for consecutive dots
     if email.contains("..") {
-        return Err(AuthError::InvalidEmail(
-            "Email cannot contain consecutive dots".to_string(),
-        ));
+        return Err(AuthError::InvalidEmail("Email cannot contain consecutive dots".to_string()));
     }
 
     Ok(())
@@ -123,11 +106,7 @@ mod tests {
         ];
 
         for email in valid_emails {
-            assert!(
-                validate_email(email).is_ok(),
-                "Expected {} to be valid",
-                email
-            );
+            assert!(validate_email(email).is_ok(), "Expected {} to be valid", email);
         }
     }
 
@@ -146,11 +125,7 @@ mod tests {
         ];
 
         for email in invalid_emails {
-            assert!(
-                validate_email(email).is_err(),
-                "Expected {} to be invalid",
-                email
-            );
+            assert!(validate_email(email).is_err(), "Expected {} to be invalid", email);
         }
     }
 

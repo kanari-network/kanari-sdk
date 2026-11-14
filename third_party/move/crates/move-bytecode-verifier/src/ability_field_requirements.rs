@@ -29,11 +29,8 @@ fn verify_module_impl(module: &CompiledModule) -> PartialVMResult<()> {
             .fold(AbilitySet::EMPTY, |acc, required| acc | required);
         // Assume type parameters have all abilities, as the struct's abilities will be dependent on
         // them
-        let type_parameter_abilities = sh
-            .type_parameters
-            .iter()
-            .map(|_| AbilitySet::ALL)
-            .collect::<Vec<_>>();
+        let type_parameter_abilities =
+            sh.type_parameters.iter().map(|_| AbilitySet::ALL).collect::<Vec<_>>();
         for field in fields {
             let field_abilities =
                 module.abilities(&field.signature.0, &type_parameter_abilities)?;

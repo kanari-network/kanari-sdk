@@ -33,11 +33,7 @@ pub fn entry_param_name(message: &str) -> Option<String> {
     let rest = message.strip_prefix(PREFIX)?;
     let end = rest.find('\'')?;
     let name = &rest[..end];
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
+    if name.is_empty() { None } else { Some(name.to_string()) }
 }
 
 /// Entry-param check: assert the param at `line` is declared with a type
@@ -138,38 +134,26 @@ mod tests {
         // Message-only no longer filters entry diagnostics — the param type
         // decides, so `with_file` is required (see tests below). A bare
         // message must never claim a false positive (no name fallback).
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter 'ctx'",
-        ));
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter '_ctx'",
-        ));
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter 'my_ctx'",
-        ));
+        assert!(!is_kanari_false_positive("Invalid 'entry' parameter type for parameter 'ctx'",));
+        assert!(!is_kanari_false_positive("Invalid 'entry' parameter type for parameter '_ctx'",));
+        assert!(
+            !is_kanari_false_positive("Invalid 'entry' parameter type for parameter 'my_ctx'",)
+        );
         // ctx2 is a different param — not a tx-context name
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter 'ctx2'",
-        ));
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter '_ctx2'",
-        ));
+        assert!(!is_kanari_false_positive("Invalid 'entry' parameter type for parameter 'ctx2'",));
+        assert!(!is_kanari_false_positive("Invalid 'entry' parameter type for parameter '_ctx2'",));
     }
 
     #[test]
     fn invalid_object_creation() {
-        assert!(is_kanari_false_positive(
-            "Invalid object creation without a newly created UID.",
-        ));
+        assert!(is_kanari_false_positive("Invalid object creation without a newly created UID.",));
     }
 
     #[test]
     fn invalid_otw_test_fixture() {
         // `kanari move build` accepts these (they are test-only OTWs); the
         // Sui-default checker flags the drop-only rule — suppress.
-        assert!(is_kanari_false_positive(
-            "Invalid one-time witness declaration"
-        ));
+        assert!(is_kanari_false_positive("Invalid one-time witness declaration"));
     }
 
     #[test]
@@ -216,15 +200,9 @@ module m::kiosk {
     #[test]
     fn normal_errors_are_not_false_positives() {
         assert!(!is_kanari_false_positive("Unbound type 'TxContext'"));
-        assert!(!is_kanari_false_positive(
-            "Could not resolve the name 'vector'"
-        ));
-        assert!(!is_kanari_false_positive(
-            "Invalid 'entry' parameter type for parameter 'foo'"
-        ));
-        assert!(!is_kanari_false_positive(
-            "Invalid object creation for something else"
-        ));
+        assert!(!is_kanari_false_positive("Could not resolve the name 'vector'"));
+        assert!(!is_kanari_false_positive("Invalid 'entry' parameter type for parameter 'foo'"));
+        assert!(!is_kanari_false_positive("Invalid object creation for something else"));
         assert!(!is_kanari_false_positive(""));
         assert!(!is_kanari_warning("Unbound type 'TxContext'"));
     }
@@ -232,9 +210,7 @@ module m::kiosk {
     #[test]
     fn init_is_warning_not_false_positive() {
         assert!(is_kanari_warning("Invalid 'init' function declaration"));
-        assert!(!is_kanari_warning(
-            "Invalid 'entry' parameter type for parameter 'ctx'"
-        ));
+        assert!(!is_kanari_warning("Invalid 'entry' parameter type for parameter 'ctx'"));
     }
 
     #[test]
@@ -392,11 +368,8 @@ module m::n {
             ("cap", "&KioskOwnerCap<K>", false),
         ];
         for (name, ty, filtered) in cases {
-            let params_decl = if ty.starts_with('\n') {
-                format!("{name}:")
-            } else {
-                format!("{name}:{ty}")
-            };
+            let params_decl =
+                if ty.starts_with('\n') { format!("{name}:") } else { format!("{name}:{ty}") };
             let code = if ty.starts_with('\n') {
                 format!(
                     "module m::n {{\n    public entry fun f({params_decl}\n        &mut TxContext\n    ) {{}}\n}}\n"

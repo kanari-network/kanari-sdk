@@ -80,10 +80,8 @@ fn parse<'a, Tok: Token, R>(
     s: &'a str,
     f: impl FnOnce(&mut Parser<'a, Tok, std::vec::IntoIter<(Tok, &'a str)>>) -> Result<R>,
 ) -> Result<R> {
-    let tokens: Vec<_> = Tok::tokenize(s)?
-        .into_iter()
-        .filter(|(tok, _)| !tok.is_whitespace())
-        .collect();
+    let tokens: Vec<_> =
+        Tok::tokenize(s)?.into_iter().filter(|(tok, _)| !tok.is_whitespace()).collect();
     let mut parser = Parser::new(tokens);
     let res = f(&mut parser)?;
     if let Ok((_, contents)) = parser.advance_any() {
@@ -94,10 +92,7 @@ fn parse<'a, Tok: Token, R>(
 
 impl<'a, Tok: Token, I: Iterator<Item = (Tok, &'a str)>> Parser<'a, Tok, I> {
     pub fn new<T: IntoIterator<Item = (Tok, &'a str), IntoIter = I>>(v: T) -> Self {
-        Self {
-            count: 0,
-            it: v.into_iter().peekable(),
-        }
+        Self { count: 0, it: v.into_iter().peekable() }
     }
 
     pub fn advance_any(&mut self) -> Result<(Tok, &'a str)> {
@@ -272,18 +267,9 @@ impl<'a, I: Iterator<Item = (ValueToken, &'a str)>> Parser<'a, ValueToken, I> {
             ValueToken::False => ParsedValue::Bool(false),
 
             ValueToken::ByteString => {
-                let contents = contents
-                    .strip_prefix("b\"")
-                    .unwrap()
-                    .strip_suffix('\"')
-                    .unwrap();
+                let contents = contents.strip_prefix("b\"").unwrap().strip_suffix('\"').unwrap();
                 ParsedValue::Vector(
-                    contents
-                        .as_bytes()
-                        .iter()
-                        .copied()
-                        .map(ParsedValue::U8)
-                        .collect(),
+                    contents.as_bytes().iter().copied().map(ParsedValue::U8).collect(),
                 )
             }
             ValueToken::HexString => {
@@ -294,26 +280,13 @@ impl<'a, I: Iterator<Item = (ValueToken, &'a str)>> Parser<'a, ValueToken, I> {
                     .unwrap()
                     .to_ascii_lowercase();
                 ParsedValue::Vector(
-                    hex::decode(contents)
-                        .unwrap()
-                        .into_iter()
-                        .map(ParsedValue::U8)
-                        .collect(),
+                    hex::decode(contents).unwrap().into_iter().map(ParsedValue::U8).collect(),
                 )
             }
             ValueToken::Utf8String => {
-                let contents = contents
-                    .strip_prefix('\"')
-                    .unwrap()
-                    .strip_suffix('\"')
-                    .unwrap();
+                let contents = contents.strip_prefix('\"').unwrap().strip_suffix('\"').unwrap();
                 ParsedValue::Vector(
-                    contents
-                        .as_bytes()
-                        .iter()
-                        .copied()
-                        .map(ParsedValue::U8)
-                        .collect(),
+                    contents.as_bytes().iter().copied().map(ParsedValue::U8).collect(),
                 )
             }
 
@@ -357,11 +330,7 @@ pub fn parse_address_impl(tok: ValueToken, contents: &str) -> Result<ParsedAddre
     Ok(match tok {
         ValueToken::Number => {
             ParsedAddress::Numerical(NumericalAddress::parse_str(contents).map_err(|s| {
-                anyhow!(
-                    "Failed to parse numerical address '{}'. Got error: {}",
-                    contents,
-                    s
-                )
+                anyhow!("Failed to parse numerical address '{}'. Got error: {}", contents, s)
             })?)
         }
         ValueToken::Ident => ParsedAddress::Named(contents.to_owned()),
@@ -388,55 +357,37 @@ pub(crate) fn determine_num_text_and_base(s: &str) -> (&str, NumberFormat) {
 // Parse a u8 from a decimal or hex encoding
 pub fn parse_u8(s: &str) -> Result<(u8, NumberFormat), ParseIntError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        u8::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((u8::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse a u16 from a decimal or hex encoding
 pub fn parse_u16(s: &str) -> Result<(u16, NumberFormat), ParseIntError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        u16::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((u16::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse a u32 from a decimal or hex encoding
 pub fn parse_u32(s: &str) -> Result<(u32, NumberFormat), ParseIntError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        u32::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((u32::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse a u64 from a decimal or hex encoding
 pub fn parse_u64(s: &str) -> Result<(u64, NumberFormat), ParseIntError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        u64::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((u64::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse a u128 from a decimal or hex encoding
 pub fn parse_u128(s: &str) -> Result<(u128, NumberFormat), ParseIntError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        u128::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((u128::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse a u256 from a decimal or hex encoding
 pub fn parse_u256(s: &str) -> Result<(U256, NumberFormat), U256FromStrError> {
     let (txt, base) = determine_num_text_and_base(s);
-    Ok((
-        U256::from_str_radix(&txt.replace('_', ""), base as u32)?,
-        base,
-    ))
+    Ok((U256::from_str_radix(&txt.replace('_', ""), base as u32)?, base))
 }
 
 // Parse an address from a decimal or hex encoding
@@ -484,16 +435,10 @@ mod tests {
             ("0xFF", V::InferredNum(U256::from(0xFFu64))),
             ("0xF_F", V::InferredNum(U256::from(0xFFu64))),
             ("0xFF__", V::InferredNum(U256::from(0xFFu64))),
-            (
-                "0x12_34__ABCD_FF",
-                V::InferredNum(U256::from(0x1234ABCDFFu64)),
-            ),
+            ("0x12_34__ABCD_FF", V::InferredNum(U256::from(0x1234ABCDFFu64))),
             ("0u64", V::U64(0)),
             ("0x0u64", V::U64(0)),
-            (
-                "18446744073709551615",
-                V::InferredNum(U256::from(18446744073709551615u128)),
-            ),
+            ("18446744073709551615", V::InferredNum(U256::from(18446744073709551615u128))),
             ("18446744073709551615u64", V::U64(18446744073709551615)),
             ("0u128", V::U128(0)),
             ("1_0u8", V::U8(1_0)),
@@ -511,41 +456,29 @@ mod tests {
             (
                 "@0x0",
                 V::Address(ParsedAddress::Numerical(NumericalAddress::new(
-                    AccountAddress::from_hex_literal("0x0")
-                        .unwrap()
-                        .into_bytes(),
+                    AccountAddress::from_hex_literal("0x0").unwrap().into_bytes(),
                     crate::parser::NumberFormat::Hex,
                 ))),
             ),
             (
                 "@0",
                 V::Address(ParsedAddress::Numerical(NumericalAddress::new(
-                    AccountAddress::from_hex_literal("0x0")
-                        .unwrap()
-                        .into_bytes(),
+                    AccountAddress::from_hex_literal("0x0").unwrap().into_bytes(),
                     crate::parser::NumberFormat::Hex,
                 ))),
             ),
             (
                 "@0x54afa3526",
                 V::Address(ParsedAddress::Numerical(NumericalAddress::new(
-                    AccountAddress::from_hex_literal("0x54afa3526")
-                        .unwrap()
-                        .into_bytes(),
+                    AccountAddress::from_hex_literal("0x54afa3526").unwrap().into_bytes(),
                     crate::parser::NumberFormat::Hex,
                 ))),
             ),
-            (
-                "b\"hello\"",
-                V::Vector("hello".as_bytes().iter().copied().map(V::U8).collect()),
-            ),
+            ("b\"hello\"", V::Vector("hello".as_bytes().iter().copied().map(V::U8).collect())),
             ("x\"7fff\"", V::Vector(vec![V::U8(0x7f), V::U8(0xff)])),
             ("x\"\"", V::Vector(vec![])),
             ("x\"00\"", V::Vector(vec![V::U8(0x00)])),
-            (
-                "x\"deadbeef\"",
-                V::Vector(vec![V::U8(0xde), V::U8(0xad), V::U8(0xbe), V::U8(0xef)]),
-            ),
+            ("x\"deadbeef\"", V::Vector(vec![V::U8(0xde), V::U8(0xad), V::U8(0xbe), V::U8(0xef)])),
         ];
 
         for (s, expected) in cases {
@@ -664,11 +597,7 @@ mod tests {
             "0x1::Foo::Foo<0x1::Foo::Struct<vector<0x1::XYZ::XYZ>, 0x1::Foo::Foo<vector<0x1::Foo::Struct<0x1::XYZ::XYZ>>>>>",
         ];
         for s in valid {
-            assert!(
-                ParsedStructType::parse(s).is_ok(),
-                "Failed to parse struct {}",
-                s
-            );
+            assert!(ParsedStructType::parse(s).is_ok(), "Failed to parse struct {}", s);
         }
     }
 }

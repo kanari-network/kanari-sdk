@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // ignore: deprecated_member_use
 import 'package:flutter/services.dart';
 import 'package:kanari_pay/kanari_pay.dart';
 import 'package:kanari_pay/src/core/token_utils.dart' as token_utils;

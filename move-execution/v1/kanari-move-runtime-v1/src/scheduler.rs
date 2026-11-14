@@ -26,11 +26,8 @@ impl TransactionScheduler {
         let mut current_reserved_keys = BTreeSet::new();
 
         for signed_tx in transactions {
-            let conflict_keys = signed_tx
-                .transaction
-                .get_conflict_keys()
-                .into_iter()
-                .collect::<BTreeSet<_>>();
+            let conflict_keys =
+                signed_tx.transaction.get_conflict_keys().into_iter().collect::<BTreeSet<_>>();
 
             let wave_full = current_wave.len() >= Self::MAX_SPECULATIVE_WAVE_SIZE;
             let conflicts_with_current = conflict_keys

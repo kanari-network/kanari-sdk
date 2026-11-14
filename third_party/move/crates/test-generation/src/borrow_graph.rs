@@ -80,15 +80,9 @@ impl BorrowGraph {
     /// not exist in the graph.
     pub fn partition_mutability(&self, partition_id: PartitionID) -> Result<Mutability, String> {
         if let Some(nonce_set) = self.partition_map.get(&partition_id) {
-            if nonce_set
-                .iter()
-                .all(|(_, mutability)| *mutability == Mutability::Mutable)
-            {
+            if nonce_set.iter().all(|(_, mutability)| *mutability == Mutability::Mutable) {
                 Ok(Mutability::Mutable)
-            } else if nonce_set
-                .iter()
-                .all(|(_, mutability)| *mutability == Mutability::Immutable)
-            {
+            } else if nonce_set.iter().all(|(_, mutability)| *mutability == Mutability::Immutable) {
                 Ok(Mutability::Immutable)
             } else {
                 Ok(Mutability::Either)

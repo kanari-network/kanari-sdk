@@ -98,18 +98,10 @@ impl<'env> ModelBuilder<'env> {
         type_params: Vec<(Symbol, Type)>,
         fields: Option<BTreeMap<Symbol, (usize, Type)>>,
     ) {
-        let entry = StructEntry {
-            loc,
-            attributes,
-            module_id,
-            struct_id,
-            type_params,
-            fields,
-        };
+        let entry = StructEntry { loc, attributes, module_id, struct_id, type_params, fields };
         // Duplicate declarations have been checked by the Move compiler.
         assert!(self.struct_table.insert(name.clone(), entry).is_none());
-        self.reverse_struct_table
-            .insert((module_id, struct_id), name);
+        self.reverse_struct_table.insert((module_id, struct_id), name);
     }
 
     /// Defines a function.
@@ -121,12 +113,7 @@ impl<'env> ModelBuilder<'env> {
         type_params: Vec<(Symbol, Type)>,
         params: Vec<(Symbol, Type)>,
     ) {
-        let entry = FunEntry {
-            loc,
-            attributes,
-            type_params,
-            params,
-        };
+        let entry = FunEntry { loc, attributes, type_params, params };
         // Duplicate declarations have been checked by the Move compiler.
         assert!(self.fun_table.insert(name, entry).is_none());
     }

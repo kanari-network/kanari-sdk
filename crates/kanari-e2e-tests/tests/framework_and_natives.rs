@@ -13,18 +13,12 @@ fn framework_packages_defined_and_linked() {
     let configs = get_package_configs();
     assert!(configs.len() >= 2, "must have at least 2 package configs");
 
-    let stdlib = configs
-        .iter()
-        .find(|c| c.name == "MoveStdlib")
-        .expect("must have MoveStdlib");
+    let stdlib = configs.iter().find(|c| c.name == "MoveStdlib").expect("must have MoveStdlib");
     assert!(stdlib.is_stdlib());
     assert_eq!(stdlib.address, Address::STD_ADDRESS);
     assert!(stdlib.get_dependencies().is_empty());
 
-    let system = configs
-        .iter()
-        .find(|c| c.name == "KanariSystem")
-        .expect("must have KanariSystem");
+    let system = configs.iter().find(|c| c.name == "KanariSystem").expect("must have KanariSystem");
     assert!(!system.is_stdlib());
     assert_eq!(system.address, Address::KANARI_SYSTEM_ADDRESS);
     assert_eq!(system.get_dependencies(), vec!["move-stdlib"]);
@@ -37,25 +31,17 @@ fn system_natives_table_populated() {
     let table_zeros = all_natives(system_addr, GasParameters::zeros());
     let table_prod = all_natives(system_addr, GasParameters::production());
 
-    assert!(
-        !table_zeros.is_empty(),
-        "native function table must not be empty"
-    );
+    assert!(!table_zeros.is_empty(), "native function table must not be empty");
     assert_eq!(
         table_zeros.len(),
         table_prod.len(),
         "native count must match between zeros and production"
     );
 
-    let module_names: std::collections::HashSet<String> = table_zeros
-        .iter()
-        .map(|(_, mod_name, _, _)| mod_name.as_str().to_string())
-        .collect();
+    let module_names: std::collections::HashSet<String> =
+        table_zeros.iter().map(|(_, mod_name, _, _)| mod_name.as_str().to_string()).collect();
 
     for required in ["base64", "ed25519", "dilithium3", "transfer", "tx_context"] {
-        assert!(
-            module_names.contains(required),
-            "must have native module `{required}`"
-        );
+        assert!(module_names.contains(required), "must have native module `{required}`");
     }
 }

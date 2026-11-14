@@ -106,10 +106,7 @@ mod tests {
 
     #[test]
     fn parse_crlf_and_tabs() {
-        assert_eq!(
-            parse_edition("edition\t=\t\"2024\"\r\n"),
-            MoveEdition::Edition2024
-        );
+        assert_eq!(parse_edition("edition\t=\t\"2024\"\r\n"), MoveEdition::Edition2024);
         assert_eq!(parse_edition("edition=\"legacy\""), MoveEdition::Legacy);
         assert_eq!(parse_edition("edition = \"unknown\""), MoveEdition::Legacy);
         assert_eq!(parse_edition("edition = '2024'"), MoveEdition::Legacy);
@@ -136,11 +133,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pkg = dir.path().join("pkg");
         std::fs::create_dir_all(pkg.join("sources")).unwrap();
-        std::fs::write(
-            pkg.join("Move.toml"),
-            "[package]\nname=\"x\"\nedition=\"2024\"\n",
-        )
-        .unwrap();
+        std::fs::write(pkg.join("Move.toml"), "[package]\nname=\"x\"\nedition=\"2024\"\n").unwrap();
         let file = pkg.join("sources").join("mod.move");
         std::fs::write(&file, "module x::m {}").unwrap();
         assert_eq!(edition_for_file(&file), MoveEdition::Edition2024);

@@ -129,15 +129,11 @@ impl EncryptedData {
     /// Get the ciphertext bytes (STANDARD base64 only, no legacy fallback)
     pub fn get_ciphertext(&self) -> Result<Vec<u8>, EncryptionError> {
         if self.ciphertext.is_empty() {
-            return Err(EncryptionError::InvalidFormat(
-                "Empty ciphertext".to_string(),
-            ));
+            return Err(EncryptionError::InvalidFormat("Empty ciphertext".to_string()));
         }
-        general_purpose::STANDARD
-            .decode(&self.ciphertext)
-            .map_err(|e| {
-                EncryptionError::InvalidFormat(format!("Invalid ciphertext base64: {}", e))
-            })
+        general_purpose::STANDARD.decode(&self.ciphertext).map_err(|e| {
+            EncryptionError::InvalidFormat(format!("Invalid ciphertext base64: {}", e))
+        })
     }
 
     /// Get the nonce bytes (STANDARD base64 only, no legacy fallback)
@@ -190,18 +186,10 @@ pub fn encrypt_data(data: &[u8], password: &str) -> Result<EncryptedData, Encryp
     let ciphertext = if version >= 2 {
         let aad = encryption_aad(&salt_b64, version);
         cipher
-            .encrypt(
-                &nonce,
-                Payload {
-                    msg: data,
-                    aad: &aad,
-                },
-            )
+            .encrypt(&nonce, Payload { msg: data, aad: &aad })
             .map_err(|e| EncryptionError::AeadError(e.to_string()))?
     } else {
-        cipher
-            .encrypt(&nonce, data)
-            .map_err(|e| EncryptionError::AeadError(e.to_string()))?
+        cipher.encrypt(&nonce, data).map_err(|e| EncryptionError::AeadError(e.to_string()))?
     };
 
     // Store values in a more compact base64 representation
@@ -243,11 +231,7 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
 
     let salt_bytes = decode_salt(&encrypted.salt)?;
 
-    let version = if encrypted.version == 0 {
-        1
-    } else {
-        encrypted.version
-    };
+    let version = if encrypted.version == 0 { 1 } else { encrypted.version };
     let key_bytes_vec = derive_key_for_version(password, &salt_bytes, version)?;
     let cipher = cipher_from_derived(key_bytes_vec.as_slice())?;
 
@@ -256,9 +240,7 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
 
     // Create nonce for decryption - need to convert Vec<u8> to Nonce
     if nonce_bytes.len() != 12 {
-        return Err(EncryptionError::InvalidFormat(
-            "Invalid nonce length".to_string(),
-        ));
+        return Err(EncryptionError::InvalidFormat("Invalid nonce length".to_string()));
     }
     let nonce = aes_gcm::Nonce::try_from(nonce_bytes.as_slice())
         .map_err(|_| EncryptionError::InvalidFormat("Invalid nonce length".to_string()))?;
@@ -270,26 +252,16 @@ pub fn decrypt_data(encrypted: &EncryptedData, password: &str) -> Result<Vec<u8>
     if version >= 2 {
         let aad = encryption_aad(&encrypted.salt, version);
         cipher
-            .decrypt(
-                &nonce,
-                Payload {
-                    msg: &ciphertext,
-                    aad: &aad,
-                },
-            )
+            .decrypt(&nonce, Payload { msg: &ciphertext, aad: &aad })
             .map_err(|_| EncryptionError::DecryptionError)
     } else {
-        cipher
-            .decrypt(&nonce, ciphertext.as_ref())
-            .map_err(|_| EncryptionError::DecryptionError)
+        cipher.decrypt(&nonce, ciphertext.as_ref()).map_err(|_| EncryptionError::DecryptionError)
     }
 }
 
 fn validate_password(password: &str) -> Result<(), EncryptionError> {
     if password.is_empty() {
-        return Err(EncryptionError::InvalidInput(
-            "Password cannot be empty".to_string(),
-        ));
+        return Err(EncryptionError::InvalidInput("Password cannot be empty".to_string()));
     }
     if password.len() > crate::MAX_PASSWORD_LEN {
         return Err(EncryptionError::InvalidInput(format!(

@@ -43,16 +43,12 @@ pub fn on_code_action_request_with_text(
     current_text: Option<String>,
 ) -> Vec<CodeAction> {
     let file_path = uri_to_file_path(&params.text_document.uri).ok();
-    let edition = file_path
-        .as_deref()
-        .map(edition_for_file)
-        .unwrap_or(MoveEdition::Unknown);
+    let edition = file_path.as_deref().map(edition_for_file).unwrap_or(MoveEdition::Unknown);
     let file_text = match current_text {
         Some(t) => t,
-        None => file_path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .unwrap_or_default(),
+        None => {
+            file_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok()).unwrap_or_default()
+        }
     };
     let lines: Vec<&str> = file_text.lines().collect();
 
@@ -78,10 +74,7 @@ pub fn on_code_action_request_with_text(
                     title: format!("Rename '{unused_name}' to '_{unused_name}'"),
                     kind: Some(CodeActionKind::QUICKFIX),
                     diagnostics: Some(vec![diag.clone()]),
-                    edit: Some(WorkspaceEdit {
-                        changes: Some(changes),
-                        ..Default::default()
-                    }),
+                    edit: Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }),
                     is_preferred: Some(true),
                     ..Default::default()
                 });
@@ -106,10 +99,7 @@ pub fn on_code_action_request_with_text(
         // must NOT shadow `transfer` module itself).
         let module_alias_used = module_used_as_alias(&file_text, &name);
         if module_alias_used && let Some((addr, module)) = all_modules.get(&name) {
-            module_only
-                .entry((addr.clone(), module.clone()))
-                .or_default()
-                .push(i);
+            module_only.entry((addr.clone(), module.clone())).or_default().push(i);
             continue;
         }
         if let Some((addr, module)) = all_members.get(&name) {
@@ -119,10 +109,7 @@ pub fn on_code_action_request_with_text(
             e.0.push(i);
             e.1.insert(name.clone());
         } else if let Some((addr, module)) = all_modules.get(&name) {
-            module_only
-                .entry((addr.clone(), module.clone()))
-                .or_default()
-                .push(i);
+            module_only.entry((addr.clone(), module.clone())).or_default().push(i);
         }
     }
 
@@ -130,10 +117,8 @@ pub fn on_code_action_request_with_text(
     for ((addr, module), (diag_idxs, members)) in groups {
         let needs_self =
             module_used_as_alias(&file_text, &module) || existing_has_self(&lines, &module);
-        let diags: Vec<_> = diag_idxs
-            .iter()
-            .map(|&i| params.context.diagnostics[i].clone())
-            .collect();
+        let diags: Vec<_> =
+            diag_idxs.iter().map(|&i| params.context.diagnostics[i].clone()).collect();
         if let Some(we) = merged_import_edit(&lines, &addr, &module, &members, needs_self) {
             let mut changes = HashMap::new();
             changes.insert(params.text_document.uri.clone(), we);
@@ -145,10 +130,7 @@ pub fn on_code_action_request_with_text(
                 title,
                 kind: Some(CodeActionKind::QUICKFIX),
                 diagnostics: Some(diags),
-                edit: Some(WorkspaceEdit {
-                    changes: Some(changes),
-                    ..Default::default()
-                }),
+                edit: Some(WorkspaceEdit { changes: Some(changes), ..Default::default() }),
                 is_preferred: Some(needs_self || members.len() > 1),
                 ..Default::default()
             });
@@ -157,10 +139,8 @@ pub fn on_code_action_request_with_text(
 
     // --- 3. module-only groups -------------------------------------------
     for ((addr, module), diag_idxs) in module_only {
-        let diags: Vec<_> = diag_idxs
-            .iter()
-            .map(|&i| params.context.diagnostics[i].clone())
-            .collect();
+        let diags: Vec<_> =
+            diag_idxs.iter().map(|&i| params.context.diagnostics[i].clone()).collect();
         let import_path = format!("{addr}::{module}");
         if let Some(edit) = insert_import_edit(&lines, &import_path) {
             let mut we = WorkspaceEdit::default();
@@ -223,9 +203,7 @@ fn existing_has_self(lines: &[&str], module: &str) -> bool {
             continue;
         }
         if t.contains(&format!("::{module}::{{"))
-            && t.split("::{")
-                .nth(1)
-                .is_some_and(|inner| inner.trim().starts_with("Self"))
+            && t.split("::{").nth(1).is_some_and(|inner| inner.trim().starts_with("Self"))
         {
             return true;
         }
@@ -265,11 +243,7 @@ fn existing_members(lines: &[&str], addr: &str, module: &str) -> HashSet<String>
 }
 
 fn merged_members(members: &HashSet<String>, needs_self: bool) -> Vec<String> {
-    let mut v: Vec<String> = members
-        .iter()
-        .filter(|m| m.as_str() != "Self")
-        .cloned()
-        .collect();
+    let mut v: Vec<String> = members.iter().filter(|m| m.as_str() != "Self").cloned().collect();
     v.sort();
     if needs_self {
         v.insert(0, "Self".to_string());
@@ -325,11 +299,8 @@ fn merged_import_edit(
         }
         Some(edits)
     } else {
-        insert_import_edit(
-            lines,
-            &format!("{addr}::{module}::{{{}}}", inner.join(", ")),
-        )
-        .map(|e| vec![e])
+        insert_import_edit(lines, &format!("{addr}::{module}::{{{}}}", inner.join(", ")))
+            .map(|e| vec![e])
     }
 }
 
@@ -361,10 +332,7 @@ pub fn extract_unresolved_name(message: &str) -> Option<String> {
                 .unwrap_or(rest.len());
             let name = &rest[..end];
             if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
                 && best.as_ref().is_none_or(|(bidx, _)| idx < *bidx)
             {
                 best = Some((idx, name.to_string()));
@@ -378,11 +346,7 @@ pub fn extract_unresolved_name(message: &str) -> Option<String> {
 /// (Move compiler `UnusedItem::Variable`). Also matches the
 /// `Unused local variable 'x'` / `Unused variable 'x'` forms.
 pub fn extract_unused_name(message: &str) -> Option<String> {
-    let patterns = [
-        "Unused parameter '",
-        "Unused local variable '",
-        "Unused variable '",
-    ];
+    let patterns = ["Unused parameter '", "Unused local variable '", "Unused variable '"];
     let mut best: Option<(usize, String)> = None;
     for pat in patterns {
         if let Some(idx) = message.find(pat) {
@@ -396,10 +360,7 @@ pub fn extract_unused_name(message: &str) -> Option<String> {
             let end = rest.find('\'').unwrap_or(rest.len());
             let name = &rest[..end];
             if !name.is_empty()
-                && name
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
                 && !name.starts_with('_')
                 && best.as_ref().is_none_or(|(bidx, _)| idx < *bidx)
             {
@@ -509,19 +470,10 @@ pub fn module_used_as_alias(text: &str, module: &str) -> bool {
 pub fn insert_import_edit(lines: &[&str], import_path: &str) -> Option<TextEdit> {
     let (module_line, last_use_line, indent) = find_insert_line(lines)?;
     let at = last_use_line.unwrap_or(module_line) + 1;
-    let indent_str = if last_use_line.is_some() {
-        indent
-    } else {
-        "    ".to_string()
-    };
-    let range = Range::new(
-        lsp_types::Position::new(at as u32, 0),
-        lsp_types::Position::new(at as u32, 0),
-    );
-    Some(TextEdit {
-        range,
-        new_text: format!("{indent_str}use {import_path};\n"),
-    })
+    let indent_str = if last_use_line.is_some() { indent } else { "    ".to_string() };
+    let range =
+        Range::new(lsp_types::Position::new(at as u32, 0), lsp_types::Position::new(at as u32, 0));
+    Some(TextEdit { range, new_text: format!("{indent_str}use {import_path};\n") })
 }
 
 fn find_insert_line(lines: &[&str]) -> Option<(usize, Option<usize>, String)> {
@@ -570,10 +522,7 @@ pub fn scan_package_members_and_modules(root: &Path) -> (MembersMap, ModulesMap)
                 let rest = t.strip_prefix("module ")?;
                 let head = rest.split(['{', ';']).next()?.trim();
                 if let Some(idx) = head.find("::") {
-                    Some((
-                        head[..idx].trim().to_string(),
-                        head[idx + 2..].trim().to_string(),
-                    ))
+                    Some((head[..idx].trim().to_string(), head[idx + 2..].trim().to_string()))
                 } else if !head.is_empty() {
                     Some((String::new(), head.to_string()))
                 } else {
@@ -588,9 +537,7 @@ pub fn scan_package_members_and_modules(root: &Path) -> (MembersMap, ModulesMap)
             } else {
                 addr
             };
-            modules
-                .entry(module.clone())
-                .or_insert((addr.clone(), module.clone()));
+            modules.entry(module.clone()).or_insert((addr.clone(), module.clone()));
             for line in txt.lines() {
                 for marker in [
                     "public entry fun ",
@@ -770,16 +717,11 @@ pub fn code_lenses(params: &lsp_types::CodeLensParams, text: &str) -> Vec<lsp_ty
     let uri = params.text_document.uri.clone();
     let mut lenses = Vec::new();
     lenses.push(lsp_types::CodeLens {
-        range: Range::new(
-            lsp_types::Position::new(0, 0),
-            lsp_types::Position::new(0, 0),
-        ),
+        range: Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
         command: Some(lsp_types::Command {
             title: "▶ Run Tests".to_string(),
             command: "move-kanari.runTestFile".to_string(),
-            arguments: Some(vec![
-                serde_json::to_value(&uri).unwrap_or(serde_json::Value::Null),
-            ]),
+            arguments: Some(vec![serde_json::to_value(&uri).unwrap_or(serde_json::Value::Null)]),
         }),
         data: None,
     });
@@ -835,8 +777,5 @@ pub fn code_lenses(params: &lsp_types::CodeLensParams, text: &str) -> Vec<lsp_ty
 }
 
 pub fn read_disk_text(uri: &Uri) -> String {
-    uri_to_file_path(uri)
-        .ok()
-        .and_then(|p| std::fs::read_to_string(&p).ok())
-        .unwrap_or_default()
+    uri_to_file_path(uri).ok().and_then(|p| std::fs::read_to_string(&p).ok()).unwrap_or_default()
 }

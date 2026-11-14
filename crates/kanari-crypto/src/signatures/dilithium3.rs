@@ -15,9 +15,7 @@ pub fn verify_signature_dilithium3(
     let pub_bytes = hex::decode(pqc_pub_raw)
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid public key hex".to_string()))?;
     if pub_bytes.len() != ml_dsa_provider::ML_DSA_65_PUBLIC_KEY_BYTES {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid ML-DSA-65 public key".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Invalid ML-DSA-65 public key".to_string()));
     }
     if signature.len() != ml_dsa_provider::ML_DSA_65_SIGNATURE_BYTES {
         return Err(SignatureError::InvalidFormat(

@@ -29,21 +29,15 @@ async fn authenticated_source_rejects_spoofed_peer_info_identity() {
     let source = Keypair::generate_ed25519().public().to_peer_id();
     let spoofed = PeerInfoMsg {
         height: 10_000,
-        peer_id: Keypair::generate_ed25519()
-            .public()
-            .to_peer_id()
-            .to_string(),
+        peer_id: Keypair::generate_ed25519().public().to_peer_id().to_string(),
         timestamp: 1,
         latest_checkpoint_hash: "spoofed".to_string(),
         latest_state_root: "spoofed".to_string(),
         total_transactions: 0,
     };
 
-    sync.handle_message(AuthenticatedP2PMessage {
-        source,
-        message: P2PMessage::PeerInfo(spoofed),
-    })
-    .await;
+    sync.handle_message(AuthenticatedP2PMessage { source, message: P2PMessage::PeerInfo(spoofed) })
+        .await;
 
     assert!(sync.peer_heights_guard().is_empty());
     assert!(sync.divergent_peers_guard().is_empty());
@@ -70,11 +64,7 @@ fn apply_empty_checkpoint(engine: &BlockchainEngine, sequence: u64) {
         let chain = engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().hash().unwrap()
     };
-    let state_root = engine
-        .state
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .compute_state_root();
+    let state_root = engine.state.read().unwrap_or_else(|e| e.into_inner()).compute_state_root();
     let checkpoint = Checkpoint::new(sequence, vec![], vec![], state_root, sequence, prev_hash);
     engine.apply_checkpoint(checkpoint).unwrap();
 }
@@ -91,11 +81,7 @@ fn test_retry_cooldown_throttles_rapid_duplicate_checkpoint_request() {
 fn checkpoint_waiting_for_dag_evidence_is_retained_for_retry() {
     let sync = new_sync_manager();
     let prev_hash = {
-        let chain = sync
-            .engine
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let chain = sync.engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().hash().unwrap()
     };
     let candidate = BufferedCheckpointCandidate {
@@ -115,14 +101,12 @@ fn checkpoint_waiting_for_dag_evidence_is_retained_for_retry() {
             .sequence,
         1
     );
-    assert!(SyncManager::checkpoint_waits_for_dag_evidence(
-        &anyhow::anyhow!(
-            "Checkpoint #1 has not been committed by the local Mysticeti DAG; apply its signed DAG evidence first."
-        )
-    ));
-    assert!(!SyncManager::checkpoint_waits_for_dag_evidence(
-        &anyhow::anyhow!("checkpoint state root mismatch")
-    ));
+    assert!(SyncManager::checkpoint_waits_for_dag_evidence(&anyhow::anyhow!(
+        "Checkpoint #1 has not been committed by the local Mysticeti DAG; apply its signed DAG evidence first."
+    )));
+    assert!(!SyncManager::checkpoint_waits_for_dag_evidence(&anyhow::anyhow!(
+        "checkpoint state root mismatch"
+    )));
 }
 
 #[test]
@@ -162,8 +146,7 @@ async fn test_divergent_peer_is_quarantined_from_sync_targets() {
     let stats = sync.engine.get_stats();
     let local_checkpoint_hash = sync.engine.latest_checkpoint_hash_hex();
 
-    sync.handle_peer_info(peer_info(stats.height, &local_checkpoint_hash, "deadbeef"))
-        .await;
+    sync.handle_peer_info(peer_info(stats.height, &local_checkpoint_hash, "deadbeef")).await;
 
     assert!(sync.is_peer_divergent("peer-1"));
     assert_eq!(sync.best_peer_for_height(stats.height), None);
@@ -208,10 +191,7 @@ async fn test_divergent_peer_does_not_block_a_healthy_sync_source() {
     sync.handle_peer_info(healthy).await;
 
     assert!(sync.is_peer_divergent("peer-1"));
-    assert_eq!(
-        sync.best_peer_for_height(stats.height + 1),
-        Some("peer-2".into())
-    );
+    assert_eq!(sync.best_peer_for_height(stats.height + 1), Some("peer-2".into()));
     assert_eq!(sync.max_eligible_peer_height(), stats.height + 1);
 }
 
@@ -230,18 +210,10 @@ async fn test_divergent_peer_is_released_only_after_matching_again() {
     .await;
     assert!(sync.is_peer_divergent("peer-1"));
 
-    sync.handle_peer_info(peer_info(
-        stats.height,
-        &local_checkpoint_hash,
-        &local_state_root,
-    ))
-    .await;
+    sync.handle_peer_info(peer_info(stats.height, &local_checkpoint_hash, &local_state_root)).await;
 
     assert!(!sync.is_peer_divergent("peer-1"));
-    assert_eq!(
-        sync.best_peer_for_height(stats.height),
-        Some("peer-1".into())
-    );
+    assert_eq!(sync.best_peer_for_height(stats.height), Some("peer-1".into()));
 }
 
 #[tokio::test]
@@ -260,19 +232,12 @@ async fn test_divergent_peer_is_released_when_its_tip_becomes_canonical_history(
     );
     apply_empty_checkpoint(&sync.engine, historical_height + 1);
 
-    let mut recovered = peer_info(
-        historical_height + 2,
-        "future-checkpoint",
-        "future-state-root",
-    );
+    let mut recovered = peer_info(historical_height + 2, "future-checkpoint", "future-state-root");
     recovered.peer_id = "peer-1".to_string();
     sync.handle_peer_info(recovered).await;
 
     assert!(!sync.is_peer_divergent("peer-1"));
-    assert_eq!(
-        sync.best_peer_for_height(historical_height + 2),
-        Some("peer-1".to_string())
-    );
+    assert_eq!(sync.best_peer_for_height(historical_height + 2), Some("peer-1".to_string()));
 }
 
 #[tokio::test]
@@ -281,18 +246,10 @@ async fn test_checkpoint_hash_mismatch_with_same_state_root_is_eligible() {
     let stats = sync.engine.get_stats();
     let local_state_root = sync.engine.latest_checkpoint_state_root_hex();
 
-    sync.handle_peer_info(peer_info(
-        stats.height,
-        "different-checkpoint",
-        &local_state_root,
-    ))
-    .await;
+    sync.handle_peer_info(peer_info(stats.height, "different-checkpoint", &local_state_root)).await;
 
     assert!(!sync.is_peer_divergent("peer-1"));
-    assert_eq!(
-        sync.best_peer_for_height(stats.height),
-        Some("peer-1".to_string())
-    );
+    assert_eq!(sync.best_peer_for_height(stats.height), Some("peer-1".to_string()));
     assert_eq!(sync.max_eligible_peer_height(), stats.height);
 }
 
@@ -311,33 +268,20 @@ fn test_buffered_empty_checkpoint_is_not_applied_when_gap_is_filled() {
     let source_engine = Arc::new(source);
     apply_empty_checkpoint(source_engine.as_ref(), 1);
     apply_empty_checkpoint(source_engine.as_ref(), 2);
-    let checkpoint_one = source_engine
-        .get_checkpoint_sync(1)
-        .unwrap()
-        .expect("checkpoint one must exist");
-    let checkpoint_two = source_engine
-        .get_checkpoint_sync(2)
-        .unwrap()
-        .expect("checkpoint two must exist");
+    let checkpoint_one =
+        source_engine.get_checkpoint_sync(1).unwrap().expect("checkpoint one must exist");
+    let checkpoint_two =
+        source_engine.get_checkpoint_sync(2).unwrap().expect("checkpoint two must exist");
 
     let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
     let (network_tx, _network_rx) = mpsc::channel(128);
     let sync = SyncManager::new(engine.clone(), network_tx, "local-peer".to_string(), None);
 
-    assert!(
-        sync.buffer_checkpoint(checkpoint_two, Some("peer-2"), "test")
-            .is_some()
-    );
+    assert!(sync.buffer_checkpoint(checkpoint_two, Some("peer-2"), "test").is_some());
     assert_eq!(engine.get_stats().height, 0);
-    assert!(
-        sync.buffer_checkpoint(checkpoint_one, Some("peer-2"), "test")
-            .is_some()
-    );
+    assert!(sync.buffer_checkpoint(checkpoint_one, Some("peer-2"), "test").is_some());
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     runtime.block_on(sync.try_apply_buffered_checkpoints());
 
     assert_eq!(engine.get_stats().height, 0);
@@ -355,11 +299,7 @@ fn test_handle_checkpoint_response_keeps_earlier_pending_requests_until_apply() 
     }
 
     let prev_hash = {
-        let chain = sync
-            .engine
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let chain = sync.engine.blockchain.read().unwrap_or_else(|e| e.into_inner());
         chain.latest_checkpoint().hash().unwrap()
     };
     let bogus_checkpoint = CheckpointSyncData {
@@ -367,19 +307,13 @@ fn test_handle_checkpoint_response_keeps_earlier_pending_requests_until_apply() 
         dag_vertices: Vec::new(),
     };
 
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     runtime.block_on(sync.handle_checkpoint_response(
         serde_json::to_string(&bogus_checkpoint).unwrap(),
         Some("peer-2"),
     ));
 
-    let pending_heights: BTreeSet<_> = sync
-        .pending_checkpoint_requests_guard()
-        .keys()
-        .copied()
-        .collect();
+    let pending_heights: BTreeSet<_> =
+        sync.pending_checkpoint_requests_guard().keys().copied().collect();
     assert_eq!(pending_heights, BTreeSet::from([1, 2, 3]));
 }

@@ -104,19 +104,11 @@ pub struct VecBytes(Vec<serde_bytes::ByteBuf>);
 
 impl VecBytes {
     pub fn from(vec_bytes: Vec<Vec<u8>>) -> Self {
-        VecBytes(
-            vec_bytes
-                .into_iter()
-                .map(serde_bytes::ByteBuf::from)
-                .collect(),
-        )
+        VecBytes(vec_bytes.into_iter().map(serde_bytes::ByteBuf::from).collect())
     }
 
     pub fn into_vec(self) -> Vec<Vec<u8>> {
-        self.0
-            .into_iter()
-            .map(|byte_buf| byte_buf.into_vec())
-            .collect()
+        self.0.into_iter().map(|byte_buf| byte_buf.into_vec()).collect()
     }
 }
 

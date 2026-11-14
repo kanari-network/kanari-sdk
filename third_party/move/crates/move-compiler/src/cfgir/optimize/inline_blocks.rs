@@ -45,11 +45,7 @@ fn find_single_target_labels(start: Label, blocks: &BasicBlocks) -> BTreeSet<Lab
     counts.insert(start, 1);
     for block in blocks.values() {
         match &block.back().unwrap().value {
-            C::JumpIf {
-                cond: _cond,
-                if_true,
-                if_false,
-            } => {
+            C::JumpIf { cond: _cond, if_true, if_false } => {
                 *counts.entry(*if_true).or_insert(0) += 1;
                 *counts.entry(*if_false).or_insert(0) += 1
             }
@@ -57,11 +53,7 @@ fn find_single_target_labels(start: Label, blocks: &BasicBlocks) -> BTreeSet<Lab
             _ => (),
         }
     }
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count == 1)
-        .map(|(lbl, _)| lbl)
-        .collect()
+    counts.into_iter().filter(|(_, count)| *count == 1).map(|(lbl, _)| lbl).collect()
 }
 
 #[allow(clippy::needless_collect)]

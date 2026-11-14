@@ -511,6 +511,7 @@ Width limits, exposed so contracts can clamp / validate without hardcoding.
 
 ## Function `max_u16_value`
 
+Returns the maximum u16 value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u16_value">max_u16_value</a>(): u16
@@ -535,6 +536,7 @@ Width limits, exposed so contracts can clamp / validate without hardcoding.
 
 ## Function `max_u32_value`
 
+Returns the maximum u32 value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u32_value">max_u32_value</a>(): u32
@@ -559,6 +561,7 @@ Width limits, exposed so contracts can clamp / validate without hardcoding.
 
 ## Function `max_u64_value`
 
+Returns the maximum u64 value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u64_value">max_u64_value</a>(): u64
@@ -583,6 +586,7 @@ Width limits, exposed so contracts can clamp / validate without hardcoding.
 
 ## Function `max_u128_value`
 
+Returns the maximum u128 value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u128_value">max_u128_value</a>(): u128
@@ -607,6 +611,7 @@ Width limits, exposed so contracts can clamp / validate without hardcoding.
 
 ## Function `max_u256_value`
 
+Returns the maximum u256 value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u256_value">max_u256_value</a>(): u256
@@ -1398,6 +1403,7 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 ## Function `min_u8`
 
+Returns the minimum of two u8 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u8">min_u8</a>(x: u8, y: u8): u8
@@ -1426,6 +1432,7 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 ## Function `max_u8`
 
+Returns the maximum of two u8 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u8">max_u8</a>(x: u8, y: u8): u8
@@ -1454,6 +1461,7 @@ Round-up division: (x + y - 1) / y. Aborts E_DIVIDE_BY_ZERO on y == 0.
 
 ## Function `diff_u8`
 
+Returns the absolute difference of two u8 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u8">diff_u8</a>(x: u8, y: u8): u8
@@ -1507,6 +1515,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `clamp_u8`
 
+Clamps a u8 value to [lo, hi].
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u8">clamp_u8</a>(x: u8, lo: u8, hi: u8): u8
@@ -1538,6 +1547,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bound_u8`
 
+Bounds a u8 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u8">bound_u8</a>(x: u8, lo: u8, hi: u8): u8
@@ -1562,6 +1572,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `sqrt_u8`
 
+Returns the integer square root of a u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_sqrt_u8">sqrt_u8</a>(x: u8): u8
@@ -1586,6 +1597,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `log2_u8`
 
+Returns floor(log2(x)) for a u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_log2_u8">log2_u8</a>(x: u8): u8
@@ -1610,6 +1622,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `is_pow2_u8`
 
+Returns true if x is a power of two (u8).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u8">is_pow2_u8</a>(x: u8): bool
@@ -1634,6 +1647,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow2_u8`
 
+Returns 2^exp as u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow2_u8">pow2_u8</a>(exp: u8): u8
@@ -1658,6 +1672,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow_u8`
 
+Returns base^exponent as u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow_u8">pow_u8</a>(base: u8, exponent: u8): u8
@@ -1684,6 +1699,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_pow_u8`
 
+Returns (success, base^exponent) as u8, with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_pow_u8">try_pow_u8</a>(base: u8, exponent: u8): (bool, u8)
@@ -1713,6 +1729,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `ceil_div_u8`
 
+Returns ceil(x / y) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u8">ceil_div_u8</a>(x: u8, y: u8): u8
@@ -1742,6 +1759,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_u8`
 
+Returns x * y / z for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_u8">mul_div_u8</a>(x: u8, y: u8, z: u8): u8
@@ -1768,6 +1786,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_ceil_u8`
 
+Returns ceil(x * y / z) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u8">mul_div_ceil_u8</a>(x: u8, y: u8, z: u8): u8
@@ -1794,6 +1813,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_mul_div_u8`
 
+Returns (success, x * y / z) for u8 with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_mul_div_u8">try_mul_div_u8</a>(x: u8, y: u8, z: u8): (bool, u8)
@@ -1823,6 +1843,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_add_u8`
 
+Returns x * y + z for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_add_u8">mul_add_u8</a>(x: u8, y: u8, z: u8): u8
@@ -1849,6 +1870,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_floor_u8`
 
+Returns amount * bps / 10_000 (floor) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u8">bps_mul_floor_u8</a>(amount: u8, bps: u8): u8
@@ -1877,6 +1899,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_ceil_u8`
 
+Returns amount * bps / 10_000 (ceil) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u8">bps_mul_ceil_u8</a>(amount: u8, bps: u8): u8
@@ -1906,6 +1929,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_floor_u8`
 
+Returns amount * pct / 100 (floor) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_floor_u8">percent_mul_floor_u8</a>(amount: u8, pct: u8): u8
@@ -1931,6 +1955,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_ceil_u8`
 
+Returns amount * pct / 100 (ceil) for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_ceil_u8">percent_mul_ceil_u8</a>(amount: u8, pct: u8): u8
@@ -1956,6 +1981,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `within_tolerance_u8`
 
+Returns true if |a - b| <= tolerance for u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u8">within_tolerance_u8</a>(a: u8, b: u8, tolerance: u8): bool
@@ -1980,6 +2006,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `min_u16`
 
+Returns the minimum of two u16 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u16">min_u16</a>(x: u16, y: u16): u16
@@ -2008,6 +2035,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `max_u16`
 
+Returns the maximum of two u16 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u16">max_u16</a>(x: u16, y: u16): u16
@@ -2036,6 +2064,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `diff_u16`
 
+Returns the absolute difference of two u16 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u16">diff_u16</a>(x: u16, y: u16): u16
@@ -2064,6 +2093,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `average_u16`
 
+Returns the average of two u16 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_average_u16">average_u16</a>(a: u16, b: u16): u16
@@ -2088,6 +2118,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `clamp_u16`
 
+Clamps a u16 value to [lo, hi].
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u16">clamp_u16</a>(x: u16, lo: u16, hi: u16): u16
@@ -2119,6 +2150,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bound_u16`
 
+Bounds a u16 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u16">bound_u16</a>(x: u16, lo: u16, hi: u16): u16
@@ -2143,6 +2175,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `sqrt_u16`
 
+Returns the integer square root of a u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_sqrt_u16">sqrt_u16</a>(x: u16): u16
@@ -2167,6 +2200,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `log2_u16`
 
+Returns floor(log2(x)) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_log2_u16">log2_u16</a>(x: u16): u16
@@ -2191,6 +2225,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `is_pow2_u16`
 
+Returns true if x is a power of two (u16).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u16">is_pow2_u16</a>(x: u16): bool
@@ -2215,6 +2250,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow2_u16`
 
+Returns 2^exp as u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow2_u16">pow2_u16</a>(exp: u8): u16
@@ -2239,6 +2275,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow_u16`
 
+Returns base^exponent as u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow_u16">pow_u16</a>(base: u16, exponent: u8): u16
@@ -2265,6 +2302,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_pow_u16`
 
+Returns (success, base^exponent) as u16, with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_pow_u16">try_pow_u16</a>(base: u16, exponent: u8): (bool, u16)
@@ -2294,6 +2332,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `ceil_div_u16`
 
+Returns ceil(x / y) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u16">ceil_div_u16</a>(x: u16, y: u16): u16
@@ -2323,6 +2362,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_u16`
 
+Returns x * y / z for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_u16">mul_div_u16</a>(x: u16, y: u16, z: u16): u16
@@ -2349,6 +2389,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_ceil_u16`
 
+Returns ceil(x * y / z) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u16">mul_div_ceil_u16</a>(x: u16, y: u16, z: u16): u16
@@ -2375,6 +2416,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_mul_div_u16`
 
+Returns (success, x * y / z) for u16 with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_mul_div_u16">try_mul_div_u16</a>(x: u16, y: u16, z: u16): (bool, u16)
@@ -2404,6 +2446,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_add_u16`
 
+Returns x * y + z for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_add_u16">mul_add_u16</a>(x: u16, y: u16, z: u16): u16
@@ -2430,6 +2473,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_floor_u16`
 
+Returns amount * bps / 10_000 (floor) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u16">bps_mul_floor_u16</a>(amount: u16, bps: u16): u16
@@ -2457,6 +2501,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_ceil_u16`
 
+Returns amount * bps / 10_000 (ceil) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u16">bps_mul_ceil_u16</a>(amount: u16, bps: u16): u16
@@ -2484,6 +2529,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_floor_u16`
 
+Returns amount * pct / 100 (floor) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_floor_u16">percent_mul_floor_u16</a>(amount: u16, pct: u16): u16
@@ -2509,6 +2555,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_ceil_u16`
 
+Returns amount * pct / 100 (ceil) for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_ceil_u16">percent_mul_ceil_u16</a>(amount: u16, pct: u16): u16
@@ -2534,6 +2581,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `within_tolerance_u16`
 
+Returns true if |a - b| <= tolerance for u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u16">within_tolerance_u16</a>(a: u16, b: u16, tolerance: u16): bool
@@ -2558,6 +2606,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `min_u32`
 
+Returns the minimum of two u32 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u32">min_u32</a>(x: u32, y: u32): u32
@@ -2586,6 +2635,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `max_u32`
 
+Returns the maximum of two u32 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u32">max_u32</a>(x: u32, y: u32): u32
@@ -2614,6 +2664,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `diff_u32`
 
+Returns the absolute difference of two u32 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u32">diff_u32</a>(x: u32, y: u32): u32
@@ -2642,6 +2693,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `average_u32`
 
+Returns the average of two u32 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_average_u32">average_u32</a>(a: u32, b: u32): u32
@@ -2666,6 +2718,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `clamp_u32`
 
+Clamps a u32 value to [lo, hi].
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_clamp_u32">clamp_u32</a>(x: u32, lo: u32, hi: u32): u32
@@ -2697,6 +2750,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bound_u32`
 
+Bounds a u32 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u32">bound_u32</a>(x: u32, lo: u32, hi: u32): u32
@@ -2721,6 +2775,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `sqrt_u32`
 
+Returns the integer square root of a u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_sqrt_u32">sqrt_u32</a>(x: u32): u32
@@ -2745,6 +2800,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `log2_u32`
 
+Returns floor(log2(x)) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_log2_u32">log2_u32</a>(x: u32): u32
@@ -2769,6 +2825,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `is_pow2_u32`
 
+Returns true if x is a power of two (u32).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u32">is_pow2_u32</a>(x: u32): bool
@@ -2793,6 +2850,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow2_u32`
 
+Returns 2^exp as u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow2_u32">pow2_u32</a>(exp: u8): u32
@@ -2817,6 +2875,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `pow_u32`
 
+Returns base^exponent as u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow_u32">pow_u32</a>(base: u32, exponent: u8): u32
@@ -2843,6 +2902,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_pow_u32`
 
+Returns (success, base^exponent) as u32, with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_pow_u32">try_pow_u32</a>(base: u32, exponent: u8): (bool, u32)
@@ -2872,6 +2932,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `ceil_div_u32`
 
+Returns ceil(x / y) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ceil_div_u32">ceil_div_u32</a>(x: u32, y: u32): u32
@@ -2901,6 +2962,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_u32`
 
+Returns x * y / z for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_u32">mul_div_u32</a>(x: u32, y: u32, z: u32): u32
@@ -2927,6 +2989,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_div_ceil_u32`
 
+Returns ceil(x * y / z) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u32">mul_div_ceil_u32</a>(x: u32, y: u32, z: u32): u32
@@ -2953,6 +3016,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `try_mul_div_u32`
 
+Returns (success, x * y / z) for u32 with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_mul_div_u32">try_mul_div_u32</a>(x: u32, y: u32, z: u32): (bool, u32)
@@ -2982,6 +3046,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `mul_add_u32`
 
+Returns x * y + z for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_add_u32">mul_add_u32</a>(x: u32, y: u32, z: u32): u32
@@ -3008,6 +3073,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_floor_u32`
 
+Returns amount * bps / 10_000 (floor) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u32">bps_mul_floor_u32</a>(amount: u32, bps: u32): u32
@@ -3035,6 +3101,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `bps_mul_ceil_u32`
 
+Returns amount * bps / 10_000 (ceil) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u32">bps_mul_ceil_u32</a>(amount: u32, bps: u32): u32
@@ -3062,6 +3129,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_floor_u32`
 
+Returns amount * pct / 100 (floor) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_floor_u32">percent_mul_floor_u32</a>(amount: u32, pct: u32): u32
@@ -3087,6 +3155,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `percent_mul_ceil_u32`
 
+Returns amount * pct / 100 (ceil) for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_ceil_u32">percent_mul_ceil_u32</a>(amount: u32, pct: u32): u32
@@ -3112,6 +3181,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `within_tolerance_u32`
 
+Returns true if |a - b| <= tolerance for u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u32">within_tolerance_u32</a>(a: u32, b: u32, tolerance: u32): bool
@@ -3136,6 +3206,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `min_u64`
 
+Returns the minimum of two u64 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_min_u64">min_u64</a>(x: u64, y: u64): u64
@@ -3164,6 +3235,7 @@ Overflow-safe average, floor. Result always fits u8.
 
 ## Function `max_u64`
 
+Returns the maximum of two u64 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_max_u64">max_u64</a>(x: u64, y: u64): u64
@@ -3193,6 +3265,7 @@ Overflow-safe average, floor. Result always fits u8.
 ## Function `diff_u64`
 
 Absolute difference. Useful for slippage / tolerance checks.
+Returns the absolute difference of two u64 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u64">diff_u64</a>(x: u64, y: u64): u64
@@ -3221,6 +3294,7 @@ Absolute difference. Useful for slippage / tolerance checks.
 
 ## Function `diff_u128`
 
+Returns the absolute difference of two u128 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u128">diff_u128</a>(x: u128, y: u128): u128
@@ -3249,6 +3323,7 @@ Absolute difference. Useful for slippage / tolerance checks.
 
 ## Function `diff_u256`
 
+Returns the absolute difference of two u256 values.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_diff_u256">diff_u256</a>(x: u256, y: u256): u256
@@ -3278,6 +3353,7 @@ Absolute difference. Useful for slippage / tolerance checks.
 ## Function `bound_u64`
 
 Clamp with a readable abort code for inverted bounds (same as native).
+Bounds a u64 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u64">bound_u64</a>(x: u64, lo: u64, hi: u64): u64
@@ -3303,6 +3379,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `bound_u128`
 
+Bounds a u128 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u128">bound_u128</a>(x: u128, lo: u128, hi: u128): u128
@@ -3328,6 +3405,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `bound_u256`
 
+Bounds a u256 value to [lo, hi], returning status.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bound_u256">bound_u256</a>(x: u256, lo: u256, hi: u256): u256
@@ -3353,6 +3431,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `is_pow2_u64`
 
+Returns true if x is a power of two (u64).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u64">is_pow2_u64</a>(x: u64): bool
@@ -3377,6 +3456,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `is_pow2_u128`
 
+Returns true if x is a power of two (u128).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u128">is_pow2_u128</a>(x: u128): bool
@@ -3401,6 +3481,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `is_pow2_u256`
 
+Returns true if x is a power of two (u256).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_is_pow2_u256">is_pow2_u256</a>(x: u256): bool
@@ -3450,6 +3531,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `pow2_u64`
 
+Returns 2^exp as u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow2_u64">pow2_u64</a>(exp: u8): u64
@@ -3474,6 +3556,7 @@ Clamp with a readable abort code for inverted bounds (same as native).
 
 ## Function `pow2_u256`
 
+Returns 2^exp as u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_pow2_u256">pow2_u256</a>(exp: u32): u256
@@ -3523,6 +3606,7 @@ Legacy names kept for backwards compatibility.
 
 ## Function `divide_and_round_up_u128`
 
+Returns ceil(x / y) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_divide_and_round_up_u128">divide_and_round_up_u128</a>(x: u128, y: u128): u128
@@ -3549,6 +3633,7 @@ Legacy names kept for backwards compatibility.
 
 (x * y) / z for u64, floor. Routes through U256 native so
 <code><a href="math.md#0x2_math_MAX_U64">MAX_U64</a> * 2 / 2</code> works. Aborts E_OVERFLOW when result > MAX_U64.
+Returns x * y / z for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_u64">mul_div_u64</a>(x: u64, y: u64, z: u64): u64
@@ -3576,6 +3661,7 @@ Legacy names kept for backwards compatibility.
 ## Function `mul_div_ceil_u64`
 
 (x * y) / z for u64, ceil.
+Returns ceil(x * y / z) for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u64">mul_div_ceil_u64</a>(x: u64, y: u64, z: u64): u64
@@ -3603,6 +3689,7 @@ Legacy names kept for backwards compatibility.
 ## Function `mul_div_ceil_u128`
 
 (x * y) / z for u128, ceil.
+Returns ceil(x * y / z) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u128">mul_div_ceil_u128</a>(x: u128, y: u128, z: u128): u128
@@ -3628,6 +3715,7 @@ Legacy names kept for backwards compatibility.
 ## Function `mul_div_ceil_u256`
 
 (x * y) / z for u256, ceil.
+Returns ceil(x * y / z) for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_ceil_u256">mul_div_ceil_u256</a>(x: u256, y: u256, z: u256): u256
@@ -3653,6 +3741,7 @@ Legacy names kept for backwards compatibility.
 ## Function `mul_add_u64`
 
 (x * y) + z for u64. Aborts E_OVERFLOW when result > MAX_U64.
+Returns x * y + z for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_add_u64">mul_add_u64</a>(x: u64, y: u64, z: u64): u64
@@ -3704,6 +3793,7 @@ Legacy ceil helpers kept for backwards compatibility.
 
 ## Function `mul_div_round_up_u128`
 
+Returns x * y / z rounded up for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_round_up_u128">mul_div_round_up_u128</a>(x: u128, y: u128, z: u128): u128
@@ -3728,6 +3818,7 @@ Legacy ceil helpers kept for backwards compatibility.
 
 ## Function `mul_div_round_up_u256`
 
+Returns x * y / z rounded up for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_mul_div_round_up_u256">mul_div_round_up_u256</a>(x: u256, y: u256, z: u256): u256
@@ -3753,6 +3844,7 @@ Legacy ceil helpers kept for backwards compatibility.
 ## Function `try_mul_div_u64`
 
 Non-aborting u64 variant: (false, 0) on div-by-zero or u64 overflow.
+Returns (success, x * y / z) for u64 with overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_mul_div_u64">try_mul_div_u64</a>(x: u64, y: u64, z: u64): (bool, u64)
@@ -3783,6 +3875,7 @@ Non-aborting u64 variant: (false, 0) on div-by-zero or u64 overflow.
 ## Function `bps_mul_floor_u128`
 
 amount * bps / 10_000, floor. <code>bps</code> must be <= 10_000.
+Returns amount * bps / 10_000 (floor) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u128">bps_mul_floor_u128</a>(amount: u128, bps: u128): u128
@@ -3809,6 +3902,7 @@ amount * bps / 10_000, floor. <code>bps</code> must be <= 10_000.
 ## Function `bps_mul_ceil_u128`
 
 amount * bps / 10_000, ceil (favors the fee receiver / pool).
+Returns amount * bps / 10_000 (ceil) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u128">bps_mul_ceil_u128</a>(amount: u128, bps: u128): u128
@@ -3834,6 +3928,7 @@ amount * bps / 10_000, ceil (favors the fee receiver / pool).
 
 ## Function `bps_mul_floor_u64`
 
+Returns amount * bps / 10_000 (floor) for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u64">bps_mul_floor_u64</a>(amount: u64, bps: u64): u64
@@ -3859,6 +3954,7 @@ amount * bps / 10_000, ceil (favors the fee receiver / pool).
 
 ## Function `bps_mul_ceil_u64`
 
+Returns amount * bps / 10_000 (ceil) for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u64">bps_mul_ceil_u64</a>(amount: u64, bps: u64): u64
@@ -3884,6 +3980,7 @@ amount * bps / 10_000, ceil (favors the fee receiver / pool).
 
 ## Function `bps_mul_floor_u256`
 
+Returns amount * bps / 10_000 (floor) for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_floor_u256">bps_mul_floor_u256</a>(amount: u256, bps: u256): u256
@@ -3909,6 +4006,7 @@ amount * bps / 10_000, ceil (favors the fee receiver / pool).
 
 ## Function `bps_mul_ceil_u256`
 
+Returns amount * bps / 10_000 (ceil) for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bps_mul_ceil_u256">bps_mul_ceil_u256</a>(amount: u256, bps: u256): u256
@@ -3988,6 +4086,7 @@ but kept as a safety net).
 
 ## Function `add_bps_u256`
 
+Returns amount + amount * bps / 10_000 for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_add_bps_u256">add_bps_u256</a>(amount: u256, bps: u256): u256
@@ -4012,6 +4111,7 @@ but kept as a safety net).
 
 ## Function `sub_bps_u256`
 
+Returns amount - amount * bps / 10_000 for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_sub_bps_u256">sub_bps_u256</a>(amount: u256, bps: u256): u256
@@ -4039,6 +4139,7 @@ but kept as a safety net).
 ## Function `percent_mul_floor_u128`
 
 amount * pct / 100, floor. <code>pct</code> must be <= 100.
+Returns amount * pct / 100 (floor) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_floor_u128">percent_mul_floor_u128</a>(amount: u128, pct: u128): u128
@@ -4065,6 +4166,7 @@ amount * pct / 100, floor. <code>pct</code> must be <= 100.
 ## Function `percent_mul_ceil_u128`
 
 amount * pct / 100, ceil.
+Returns amount * pct / 100 (ceil) for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_ceil_u128">percent_mul_ceil_u128</a>(amount: u128, pct: u128): u128
@@ -4090,6 +4192,7 @@ amount * pct / 100, ceil.
 
 ## Function `percent_mul_floor_u256`
 
+Returns amount * pct / 100 (floor) for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_floor_u256">percent_mul_floor_u256</a>(amount: u256, pct: u256): u256
@@ -4115,6 +4218,7 @@ amount * pct / 100, ceil.
 
 ## Function `percent_mul_ceil_u256`
 
+Returns amount * pct / 100 (ceil) for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_percent_mul_ceil_u256">percent_mul_ceil_u256</a>(amount: u256, pct: u256): u256
@@ -4315,6 +4419,7 @@ WAD helpers for u256 (same 1e18 scale, wider range).
 
 ## Function `wad_div_u256`
 
+Returns a / b scaled by WAD for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_wad_div_u256">wad_div_u256</a>(a: u256, b: u256): u256
@@ -4339,6 +4444,7 @@ WAD helpers for u256 (same 1e18 scale, wider range).
 
 ## Function `wad_mul_ceil_u256`
 
+Returns a * b / WAD ceil for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_wad_mul_ceil_u256">wad_mul_ceil_u256</a>(a: u256, b: u256): u256
@@ -4363,6 +4469,7 @@ WAD helpers for u256 (same 1e18 scale, wider range).
 
 ## Function `wad_div_ceil_u256`
 
+Returns a / b ceil for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_wad_div_ceil_u256">wad_div_ceil_u256</a>(a: u256, b: u256): u256
@@ -4387,6 +4494,7 @@ WAD helpers for u256 (same 1e18 scale, wider range).
 
 ## Function `ray_mul_u256`
 
+Returns a * b / RAY for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ray_mul_u256">ray_mul_u256</a>(a: u256, b: u256): u256
@@ -4411,6 +4519,7 @@ WAD helpers for u256 (same 1e18 scale, wider range).
 
 ## Function `ray_div_u256`
 
+Returns a / b * RAY for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_ray_div_u256">ray_div_u256</a>(a: u256, b: u256): u256
@@ -4522,6 +4631,7 @@ returns amount * price_num / price_den with floor rounding.
 
 ## Function `apply_price_u256`
 
+Applies price in fixed-point (RAY) to amount for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_apply_price_u256">apply_price_u256</a>(amount: u256, price_num: u256, price_den: u256): u256
@@ -4551,6 +4661,7 @@ returns amount * price_num / price_den with floor rounding.
 ## Function `within_tolerance_u128`
 
 Check <code>|a - b| &lt;= tolerance</code> without overflow.
+Returns true if |a - b| <= tolerance for u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u128">within_tolerance_u128</a>(a: u128, b: u128, tolerance: u128): bool
@@ -4575,6 +4686,7 @@ Check <code>|a - b| &lt;= tolerance</code> without overflow.
 
 ## Function `within_tolerance_u64`
 
+Returns true if |a - b| <= tolerance for u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u64">within_tolerance_u64</a>(a: u64, b: u64, tolerance: u64): bool
@@ -4599,6 +4711,7 @@ Check <code>|a - b| &lt;= tolerance</code> without overflow.
 
 ## Function `within_tolerance_u256`
 
+Returns true if |a - b| <= tolerance for u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_within_tolerance_u256">within_tolerance_u256</a>(a: u256, b: u256, tolerance: u256): bool
@@ -4649,6 +4762,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `assert_min_out_u256`
 
+Asserts actual_out >= min_amount_out, else aborts.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_assert_min_out_u256">assert_min_out_u256</a>(actual_out: u256, min_amount_out: u256)
@@ -4673,6 +4787,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u8`
 
+Returns x + y as Option<u8>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u8">checked_add_u8</a>(x: u8, y: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -4701,6 +4816,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u8`
 
+Returns x - y as Option<u8>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u8">checked_sub_u8</a>(x: u8, y: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -4729,6 +4845,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u8`
 
+Returns x * y as Option<u8>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u8">checked_mul_u8</a>(x: u8, y: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -4759,6 +4876,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u8`
 
+Returns x / y as Option<u8>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u8">checked_div_u8</a>(x: u8, y: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -4787,6 +4905,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u8`
 
+Returns base^exponent as Option<u8>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u8">checked_pow_u8</a>(base: u8, exponent: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -4816,6 +4935,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u16`
 
+Returns x + y as Option<u16>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u16">checked_add_u16</a>(x: u16, y: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -4844,6 +4964,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u16`
 
+Returns x - y as Option<u16>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u16">checked_sub_u16</a>(x: u16, y: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -4872,6 +4993,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u16`
 
+Returns x * y as Option<u16>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u16">checked_mul_u16</a>(x: u16, y: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -4902,6 +5024,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u16`
 
+Returns x / y as Option<u16>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u16">checked_div_u16</a>(x: u16, y: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -4930,6 +5053,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u16`
 
+Returns base^exponent as Option<u16>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u16">checked_pow_u16</a>(base: u16, exponent: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -4959,6 +5083,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u32`
 
+Returns x + y as Option<u32>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u32">checked_add_u32</a>(x: u32, y: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -4987,6 +5112,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u32`
 
+Returns x - y as Option<u32>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u32">checked_sub_u32</a>(x: u32, y: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -5015,6 +5141,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u32`
 
+Returns x * y as Option<u32>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u32">checked_mul_u32</a>(x: u32, y: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -5045,6 +5172,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u32`
 
+Returns x / y as Option<u32>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u32">checked_div_u32</a>(x: u32, y: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -5073,6 +5201,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u32`
 
+Returns base^exponent as Option<u32>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u32">checked_pow_u32</a>(base: u32, exponent: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -5102,6 +5231,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u64`
 
+Returns x + y as Option<u64>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u64">checked_add_u64</a>(x: u64, y: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -5130,6 +5260,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u64`
 
+Returns x - y as Option<u64>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u64">checked_sub_u64</a>(x: u64, y: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -5158,6 +5289,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u64`
 
+Returns x * y as Option<u64>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u64">checked_mul_u64</a>(x: u64, y: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -5188,6 +5320,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u64`
 
+Returns x / y as Option<u64>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u64">checked_div_u64</a>(x: u64, y: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -5216,6 +5349,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u64`
 
+Returns base^exponent as Option<u64>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u64">checked_pow_u64</a>(base: u64, exponent: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -5245,6 +5379,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u128`
 
+Returns x + y as Option<u128>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u128">checked_add_u128</a>(x: u128, y: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -5273,6 +5408,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u128`
 
+Returns x - y as Option<u128>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u128">checked_sub_u128</a>(x: u128, y: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -5301,6 +5437,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u128`
 
+Returns x * y as Option<u128>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u128">checked_mul_u128</a>(x: u128, y: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -5331,6 +5468,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u128`
 
+Returns x / y as Option<u128>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u128">checked_div_u128</a>(x: u128, y: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -5359,6 +5497,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u128`
 
+Returns base^exponent as Option<u128>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u128">checked_pow_u128</a>(base: u128, exponent: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -5388,6 +5527,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_add_u256`
 
+Returns x + y as Option<u256>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_add_u256">checked_add_u256</a>(x: u256, y: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -5416,6 +5556,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_sub_u256`
 
+Returns x - y as Option<u256>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_sub_u256">checked_sub_u256</a>(x: u256, y: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -5444,6 +5585,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_mul_u256`
 
+Returns x * y as Option<u256>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_mul_u256">checked_mul_u256</a>(x: u256, y: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -5474,6 +5616,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_div_u256`
 
+Returns x / y as Option<u256>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_div_u256">checked_div_u256</a>(x: u256, y: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -5502,6 +5645,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_pow_u256`
 
+Returns base^exponent as Option<u256>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_pow_u256">checked_pow_u256</a>(base: u256, exponent: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -5531,6 +5675,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u8`
 
+Returns x + y saturating at u8::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u8">saturating_add_u8</a>(x: u8, y: u8): u8
@@ -5559,6 +5704,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u8`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u8">saturating_sub_u8</a>(x: u8, y: u8): u8
@@ -5587,6 +5733,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u8`
 
+Returns x * y saturating at u8::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u8">saturating_mul_u8</a>(x: u8, y: u8): u8
@@ -5617,6 +5764,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u8`
 
+Returns base^exponent saturating at u8::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u8">saturating_pow_u8</a>(base: u8, exponent: u8): u8
@@ -5646,6 +5794,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u8`
 
+Returns x * y / z saturating at u8::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u8">saturating_mul_div_u8</a>(x: u8, y: u8, z: u8): u8
@@ -5676,6 +5825,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u16`
 
+Returns x + y saturating at u16::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u16">saturating_add_u16</a>(x: u16, y: u16): u16
@@ -5704,6 +5854,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u16`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u16">saturating_sub_u16</a>(x: u16, y: u16): u16
@@ -5732,6 +5883,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u16`
 
+Returns x * y saturating at u16::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u16">saturating_mul_u16</a>(x: u16, y: u16): u16
@@ -5762,6 +5914,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u16`
 
+Returns base^exponent saturating at u16::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u16">saturating_pow_u16</a>(base: u16, exponent: u8): u16
@@ -5791,6 +5944,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u16`
 
+Returns x * y / z saturating at u16::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u16">saturating_mul_div_u16</a>(x: u16, y: u16, z: u16): u16
@@ -5821,6 +5975,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u32`
 
+Returns x + y saturating at u32::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u32">saturating_add_u32</a>(x: u32, y: u32): u32
@@ -5849,6 +6004,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u32`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u32">saturating_sub_u32</a>(x: u32, y: u32): u32
@@ -5877,6 +6033,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u32`
 
+Returns x * y saturating at u32::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u32">saturating_mul_u32</a>(x: u32, y: u32): u32
@@ -5907,6 +6064,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u32`
 
+Returns base^exponent saturating at u32::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u32">saturating_pow_u32</a>(base: u32, exponent: u8): u32
@@ -5936,6 +6094,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u32`
 
+Returns x * y / z saturating at u32::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u32">saturating_mul_div_u32</a>(x: u32, y: u32, z: u32): u32
@@ -5966,6 +6125,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u64`
 
+Returns x + y saturating at u64::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u64">saturating_add_u64</a>(x: u64, y: u64): u64
@@ -5994,6 +6154,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u64`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u64">saturating_sub_u64</a>(x: u64, y: u64): u64
@@ -6022,6 +6183,8 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u64`
 
+Returns x * y saturating at u64::MAX.
+Returns x * y saturating at u64::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u64">saturating_mul_u64</a>(x: u64, y: u64): u64
@@ -6052,6 +6215,8 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u64`
 
+Returns base^exponent saturating at u64::MAX.
+Returns base^exponent saturating at u64::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u64">saturating_pow_u64</a>(base: u64, exponent: u8): u64
@@ -6081,6 +6246,8 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u64`
 
+Returns x * y / z saturating at u64::MAX.
+Returns x * y / z saturating at u64::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u64">saturating_mul_div_u64</a>(x: u64, y: u64, z: u64): u64
@@ -6111,6 +6278,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u128`
 
+Returns x + y saturating at u128::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u128">saturating_add_u128</a>(x: u128, y: u128): u128
@@ -6139,6 +6307,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u128`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u128">saturating_sub_u128</a>(x: u128, y: u128): u128
@@ -6167,6 +6336,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u128`
 
+Returns x * y saturating at u128::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u128">saturating_mul_u128</a>(x: u128, y: u128): u128
@@ -6197,6 +6367,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u128`
 
+Returns base^exponent saturating at u128::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u128">saturating_pow_u128</a>(base: u128, exponent: u32): u128
@@ -6226,6 +6397,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u128`
 
+Returns x * y / z saturating at u128::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u128">saturating_mul_div_u128</a>(x: u128, y: u128, z: u128): u128
@@ -6256,6 +6428,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_add_u256`
 
+Returns x + y saturating at u256::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_add_u256">saturating_add_u256</a>(x: u256, y: u256): u256
@@ -6284,6 +6457,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_sub_u256`
 
+Returns x - y saturating at 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_sub_u256">saturating_sub_u256</a>(x: u256, y: u256): u256
@@ -6312,6 +6486,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_u256`
 
+Returns x * y saturating at u256::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_u256">saturating_mul_u256</a>(x: u256, y: u256): u256
@@ -6342,6 +6517,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_pow_u256`
 
+Returns base^exponent saturating at u256::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_pow_u256">saturating_pow_u256</a>(base: u256, exponent: u32): u256
@@ -6371,6 +6547,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `saturating_mul_div_u256`
 
+Returns x * y / z saturating at u256::MAX.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_saturating_mul_div_u256">saturating_mul_div_u256</a>(x: u256, y: u256, z: u256): u256
@@ -6401,6 +6578,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u8`
 
+Returns x << shift as Option<u8>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u8">checked_shl_u8</a>(x: u8, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -6429,6 +6607,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u8`
 
+Returns x >> shift as Option<u8>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u8">checked_shr_u8</a>(x: u8, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -6457,6 +6636,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u8`
 
+Returns x << shift as Option<u8> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u8">lossless_shl_u8</a>(x: u8, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -6490,6 +6670,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u8`
 
+Returns x >> shift as Option<u8> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u8">lossless_shr_u8</a>(x: u8, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -6523,6 +6704,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u8`
 
+Returns x / y as Option<u8>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u8">lossless_div_u8</a>(x: u8, y: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -6551,6 +6733,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u8`
 
+Returns bitwise NOT of x as u8.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u8">bitwise_not_u8</a>(x: u8): u8
@@ -6575,6 +6758,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u16`
 
+Returns x << shift as Option<u16>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u16">checked_shl_u16</a>(x: u16, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -6603,6 +6787,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u16`
 
+Returns x >> shift as Option<u16>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u16">checked_shr_u16</a>(x: u16, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -6631,6 +6816,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u16`
 
+Returns x << shift as Option<u16> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u16">lossless_shl_u16</a>(x: u16, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -6664,6 +6850,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u16`
 
+Returns x >> shift as Option<u16> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u16">lossless_shr_u16</a>(x: u16, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -6697,6 +6884,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u16`
 
+Returns x / y as Option<u16>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u16">lossless_div_u16</a>(x: u16, y: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -6725,6 +6913,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u16`
 
+Returns bitwise NOT of x as u16.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u16">bitwise_not_u16</a>(x: u16): u16
@@ -6749,6 +6938,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u32`
 
+Returns x << shift as Option<u32>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u32">checked_shl_u32</a>(x: u32, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -6777,6 +6967,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u32`
 
+Returns x >> shift as Option<u32>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u32">checked_shr_u32</a>(x: u32, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -6805,6 +6996,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u32`
 
+Returns x << shift as Option<u32> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u32">lossless_shl_u32</a>(x: u32, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -6838,6 +7030,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u32`
 
+Returns x >> shift as Option<u32> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u32">lossless_shr_u32</a>(x: u32, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -6871,6 +7064,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u32`
 
+Returns x / y as Option<u32>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u32">lossless_div_u32</a>(x: u32, y: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -6899,6 +7093,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u32`
 
+Returns bitwise NOT of x as u32.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u32">bitwise_not_u32</a>(x: u32): u32
@@ -6923,6 +7118,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u64`
 
+Returns x << shift as Option<u64>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u64">checked_shl_u64</a>(x: u64, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -6951,6 +7147,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u64`
 
+Returns x >> shift as Option<u64>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u64">checked_shr_u64</a>(x: u64, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -6979,6 +7176,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u64`
 
+Returns x << shift as Option<u64> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u64">lossless_shl_u64</a>(x: u64, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -7012,6 +7210,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u64`
 
+Returns x >> shift as Option<u64> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u64">lossless_shr_u64</a>(x: u64, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -7045,6 +7244,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u64`
 
+Returns x / y as Option<u64>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u64">lossless_div_u64</a>(x: u64, y: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -7073,6 +7273,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u64`
 
+Returns bitwise NOT of x as u64.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u64">bitwise_not_u64</a>(x: u64): u64
@@ -7097,6 +7298,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u128`
 
+Returns x << shift as Option<u128>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u128">checked_shl_u128</a>(x: u128, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -7125,6 +7327,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u128`
 
+Returns x >> shift as Option<u128>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u128">checked_shr_u128</a>(x: u128, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -7153,6 +7356,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u128`
 
+Returns x << shift as Option<u128> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u128">lossless_shl_u128</a>(x: u128, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -7186,6 +7390,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u128`
 
+Returns x >> shift as Option<u128> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u128">lossless_shr_u128</a>(x: u128, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -7219,6 +7424,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u128`
 
+Returns x / y as Option<u128>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u128">lossless_div_u128</a>(x: u128, y: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;
@@ -7247,6 +7453,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u128`
 
+Returns bitwise NOT of x as u128.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u128">bitwise_not_u128</a>(x: u128): u128
@@ -7271,6 +7478,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shl_u256`
 
+Returns x << shift as Option<u256>, or None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shl_u256">checked_shl_u256</a>(x: u256, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -7304,6 +7512,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `checked_shr_u256`
 
+Returns x >> shift as Option<u256>, or None on underflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_checked_shr_u256">checked_shr_u256</a>(x: u256, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -7329,6 +7538,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shl_u256`
 
+Returns x << shift as Option<u256> without overflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shl_u256">lossless_shl_u256</a>(x: u256, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -7359,6 +7569,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_shr_u256`
 
+Returns x >> shift as Option<u256> without underflow check.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_shr_u256">lossless_shr_u256</a>(x: u256, shift: u8): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -7388,6 +7599,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `lossless_div_u256`
 
+Returns x / y as Option<u256>, or None if y == 0.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_lossless_div_u256">lossless_div_u256</a>(x: u256, y: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u256&gt;
@@ -7416,6 +7628,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `bitwise_not_u256`
 
+Returns bitwise NOT of x as u256.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_bitwise_not_u256">bitwise_not_u256</a>(x: u256): u256
@@ -7440,6 +7653,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u8_from_u16`
 
+Tries to convert a u16 to u8, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u8_from_u16">try_as_u8_from_u16</a>(x: u16): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -7468,6 +7682,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u8_from_u32`
 
+Tries to convert a u32 to u8, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u8_from_u32">try_as_u8_from_u32</a>(x: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -7496,6 +7711,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u16_from_u32`
 
+Tries to convert a u32 to u16, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u16_from_u32">try_as_u16_from_u32</a>(x: u32): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -7524,6 +7740,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u8_from_u64`
 
+Tries to convert a u64 to u8, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u8_from_u64">try_as_u8_from_u64</a>(x: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -7552,6 +7769,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u16_from_u64`
 
+Tries to convert a u64 to u16, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u16_from_u64">try_as_u16_from_u64</a>(x: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -7580,6 +7798,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u32_from_u64`
 
+Tries to convert a u64 to u32, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u32_from_u64">try_as_u32_from_u64</a>(x: u64): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -7608,6 +7827,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u8_from_u128`
 
+Tries to convert a u128 to u8, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u8_from_u128">try_as_u8_from_u128</a>(x: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -7636,6 +7856,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u16_from_u128`
 
+Tries to convert a u128 to u16, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u16_from_u128">try_as_u16_from_u128</a>(x: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -7664,6 +7885,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u32_from_u128`
 
+Tries to convert a u128 to u32, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u32_from_u128">try_as_u32_from_u128</a>(x: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -7692,6 +7914,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u64_from_u128`
 
+Tries to convert a u128 to u64, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u64_from_u128">try_as_u64_from_u128</a>(x: u128): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -7720,6 +7943,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u8_from_u256`
 
+Tries to convert a u256 to u8, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u8_from_u256">try_as_u8_from_u256</a>(x: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u8&gt;
@@ -7748,6 +7972,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u16_from_u256`
 
+Tries to convert a u256 to u16, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u16_from_u256">try_as_u16_from_u256</a>(x: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u16&gt;
@@ -7776,6 +8001,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u32_from_u256`
 
+Tries to convert a u256 to u32, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u32_from_u256">try_as_u32_from_u256</a>(x: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u32&gt;
@@ -7804,6 +8030,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u64_from_u256`
 
+Tries to convert a u256 to u64, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u64_from_u256">try_as_u64_from_u256</a>(x: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
@@ -7832,6 +8059,7 @@ aborts E_INVALID_ARG when actual < min_amount_out.
 
 ## Function `try_as_u128_from_u256`
 
+Tries to convert a u256 to u128, returning None on overflow.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="math.md#0x2_math_try_as_u128_from_u256">try_as_u128_from_u256</a>(x: u256): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u128&gt;

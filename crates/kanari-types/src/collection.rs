@@ -28,13 +28,7 @@ impl CollectionRecord {
         creator: AccountAddress,
         max_supply: u64,
     ) -> Self {
-        Self {
-            id,
-            name,
-            description,
-            creator,
-            max_supply,
-        }
+        Self { id, name, description, creator, max_supply }
     }
 
     /// Return the collection id address (derived from UID)
@@ -70,12 +64,7 @@ impl NftCapRecord {
         issued_counter: u64,
         collection_id: AccountAddress,
     ) -> Self {
-        Self {
-            id,
-            remaining,
-            issued_counter,
-            collection_id,
-        }
+        Self { id, remaining, issued_counter, collection_id }
     }
 
     pub fn remaining(&self) -> u64 {
@@ -145,11 +134,7 @@ impl CollectionModule {
 
     /// Whether a type name is a `Collection` object type.
     pub fn is_collection_type(type_name: &str) -> bool {
-        type_name.contains(&format!(
-            "::{}::{}",
-            Self::COLLECTION_MODULE,
-            Self::COLLECTION_STRUCT
-        ))
+        type_name.contains(&format!("::{}::{}", Self::COLLECTION_MODULE, Self::COLLECTION_STRUCT))
     }
 
     /// Whether a type name is an `nft::MintLog` mint event.
@@ -171,10 +156,8 @@ impl CollectionModule {
     }
 
     fn mint_log_address(event_data: &[u8], offset: usize) -> Option<AccountAddress> {
-        let bytes: [u8; AccountAddress::LENGTH] = event_data
-            .get(offset..offset + AccountAddress::LENGTH)?
-            .try_into()
-            .ok()?;
+        let bytes: [u8; AccountAddress::LENGTH] =
+            event_data.get(offset..offset + AccountAddress::LENGTH)?.try_into().ok()?;
         Some(AccountAddress::new(bytes))
     }
 

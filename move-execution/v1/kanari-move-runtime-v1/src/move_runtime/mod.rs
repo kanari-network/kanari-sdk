@@ -87,14 +87,8 @@ enum ModulePublishIntent {
     Bootstrap,
 }
 
-type LoadedMutableObject = (
-    usize,
-    String,
-    AccountAddress,
-    kanari_types::transaction::ObjectOwnerKind,
-    String,
-    u64,
-);
+type LoadedMutableObject =
+    (usize, String, AccountAddress, kanari_types::transaction::ObjectOwnerKind, String, u64);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ObjectParamBindingRequirement {
@@ -151,18 +145,10 @@ impl SessionNativeOutputs {
         }
         for op in dynamic_fields {
             match op {
-                DynamicFieldOp::Add {
-                    object_id,
-                    name_bytes,
-                    value_bytes,
-                } => {
-                    cs.added_dynamic_fields
-                        .push((object_id, name_bytes, value_bytes));
+                DynamicFieldOp::Add { object_id, name_bytes, value_bytes } => {
+                    cs.added_dynamic_fields.push((object_id, name_bytes, value_bytes));
                 }
-                DynamicFieldOp::Remove {
-                    object_id,
-                    name_bytes,
-                } => {
+                DynamicFieldOp::Remove { object_id, name_bytes } => {
                     cs.removed_dynamic_fields.push((object_id, name_bytes));
                 }
             }
@@ -188,15 +174,12 @@ impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
     /// Type tag for a parameter, unwrapping a reference layer when the reference
     /// itself carries no tag.
     fn type_tag_for_param(&self, param_type: &RuntimeType) -> Option<TypeTag> {
-        self.session
-            .get_type_tag(param_type)
-            .ok()
-            .or_else(|| match param_type {
-                RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
-                    self.session.get_type_tag(inner).ok()
-                }
-                _ => None,
-            })
+        self.session.get_type_tag(param_type).ok().or_else(|| match param_type {
+            RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {
+                self.session.get_type_tag(inner).ok()
+            }
+            _ => None,
+        })
     }
 
     /// True when the parameter is a struct carrying the `key` ability.
@@ -225,10 +208,7 @@ impl<'s, 'r, 'l> ParamProbe<'s, 'r, 'l> {
                 if self.is_tx_context_param(param_type) {
                     return None;
                 }
-                Some(ObjectParamBindingRequirement {
-                    param_index,
-                    mutable,
-                })
+                Some(ObjectParamBindingRequirement { param_index, mutable })
             })
             .collect()
     }
@@ -342,10 +322,7 @@ impl MoveRuntime {
     }
 
     fn is_runtime_struct_like(ty: &RuntimeType) -> bool {
-        matches!(
-            ty,
-            RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_)
-        )
+        matches!(ty, RuntimeType::Struct(_) | RuntimeType::StructInstantiation(_))
     }
 
     fn object_digest(data: &[u8]) -> String {
@@ -429,24 +406,17 @@ impl MoveRuntime {
     }
 
     fn read_vm(&self) -> RwLockReadGuard<'_, MoveVM> {
-        self.vm
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.vm.read().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn write_vm(&self) -> RwLockWriteGuard<'_, MoveVM> {
-        self.vm
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.vm.write().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Create a new runtime with custom native functions and default storage.
     pub(crate) fn new_with_natives(natives: Vec<NativeFunctionTable>) -> Result<Self> {
-        let state = if cfg!(miri) {
-            MoveVMState::new_in_memory()?
-        } else {
-            MoveVMState::open_default()?
-        };
+        let state =
+            if cfg!(miri) { MoveVMState::new_in_memory()? } else { MoveVMState::open_default()? };
         Self::new_internal(natives, state, None)
     }
 
@@ -470,10 +440,8 @@ impl MoveRuntime {
         state: MoveVMState,
         shared_store: Option<Arc<PersistentStore>>,
     ) -> Result<Self> {
-        let all_natives: NativeFunctionTable = natives
-            .into_iter()
-            .flat_map(|table| table.into_iter())
-            .collect();
+        let all_natives: NativeFunctionTable =
+            natives.into_iter().flat_map(|table| table.into_iter()).collect();
 
         let vm = MoveVM::new(all_natives.clone()).require("VM init error")?;
 
@@ -610,11 +578,8 @@ impl MoveRuntime {
         let resolver =
             KanariMoveResolver::without_trace(self.state.clone(), object_storage.clone());
 
-        let published_modules = self
-            .published_modules
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
+        let published_modules =
+            self.published_modules.read().unwrap_or_else(|p| p.into_inner()).clone();
 
         let runtime = MoveRuntime {
             vm: Arc::new(RwLock::new(vm)),
@@ -649,18 +614,14 @@ impl MoveRuntime {
     /// Refresh module identity and VM caches after canonical state has committed.
     pub fn refresh_committed_modules(&self) -> Result<()> {
         let module_ids = self.state.get_all_module_ids()?;
-        *self
-            .published_modules
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = module_ids.into_iter().collect();
+        *self.published_modules.write().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            module_ids.into_iter().collect();
         self.reload_vm_cache()
     }
 
     /// Clear the in-memory object cache.
     pub fn clear_object_cache(&self) -> Result<()> {
-        self.object_storage
-            .clear()
-            .require("Failed to clear runtime object cache")
+        self.object_storage.clear().require("Failed to clear runtime object cache")
     }
 
     /// Preload system modules into the VM cache to ensure dependencies are available
@@ -761,10 +722,7 @@ impl MoveRuntime {
         ));
         store.apply_raw_changes(&updates, &deletes)?;
 
-        let mut modules = self
-            .published_modules
-            .write()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut modules = self.published_modules.write().unwrap_or_else(|p| p.into_inner());
         modules.extend(published_module_updates);
         for module_id in published_module_deletes {
             modules.remove(&module_id);
@@ -905,10 +863,7 @@ impl MoveRuntime {
         // The caller provides these context fields for API compatibility. The
         // bytecode publish path has no TxContext and must not fabricate them;
         // they are forwarded to a module `init` when one runs at publish.
-        let publish_guard = self
-            .module_publish_lock
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
         self.verify_module_publish_safety(
@@ -948,10 +903,7 @@ impl MoveRuntime {
                 )?;
             }
 
-            let result = session
-                .finish()
-                .0
-                .require("Failed to finish publish session")?;
+            let result = session.finish().0.require("Failed to finish publish session")?;
             (result.0, result.1, metered_gas.gas_used())
         };
 
@@ -1023,10 +975,7 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // Package publishing shares the same context rule as single modules.
-        let publish_guard = self
-            .module_publish_lock
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
 
         // Deserialize the whole package before verifying any of it: a module
         // may depend on a sibling that is published by this same transaction,
@@ -1112,10 +1061,7 @@ impl MoveRuntime {
                 }
             }
 
-            let result = session
-                .finish()
-                .0
-                .require("Failed to finish publish package session")?;
+            let result = session.finish().0.require("Failed to finish publish package session")?;
             (result.0, result.1, metered_gas.gas_used())
         };
 
@@ -1219,9 +1165,8 @@ impl MoveRuntime {
         use move_core_types::language_storage::TypeTag;
 
         let ident = IdentStr::new("init").require("Invalid init function name")?;
-        let func = session
-            .load_function(module_id, ident, &[])
-            .require("Failed to load init function")?;
+        let func =
+            session.load_function(module_id, ident, &[]).require("Failed to load init function")?;
 
         // Build args: one empty slot per non-context parameter (the entry
         // machinery synthesizes one-time-witness bytes into empty slots),
@@ -1267,14 +1212,8 @@ impl MoveRuntime {
             .execute_function_bypass_visibility(module_id, ident, vec![], final_args, metered_gas)
             .require("Module init execution failed")?;
 
-        let SessionNativeOutputs {
-            transferred,
-            events,
-            saved,
-            deleted,
-            dynamic_fields,
-            borrowed,
-        } = SessionNativeOutputs::drain(session.get_native_extensions());
+        let SessionNativeOutputs { transferred, events, saved, deleted, dynamic_fields, borrowed } =
+            SessionNativeOutputs::drain(session.get_native_extensions());
 
         self.add_transferred_objects_to_changeset(cs, transferred, false, None)?;
         SessionNativeOutputs::apply_simple_effects(cs, events, deleted, dynamic_fields);
@@ -1341,10 +1280,8 @@ impl MoveRuntime {
         modules: Vec<(ModuleId, CompiledModule, Vec<u8>)>,
     ) -> Result<Vec<(ModuleId, CompiledModule, Vec<u8>)>> {
         let module_count = modules.len();
-        let package_ids: HashSet<ModuleId> = modules
-            .iter()
-            .map(|(module_id, _, _)| module_id.clone())
-            .collect();
+        let package_ids: HashSet<ModuleId> =
+            modules.iter().map(|(module_id, _, _)| module_id.clone()).collect();
 
         // Edge direction: dependency -> dependent, so a module is published
         // once every sibling it depends on has been published.
@@ -1360,9 +1297,8 @@ impl MoveRuntime {
             }
         }
 
-        let mut ready: Vec<usize> = (0..module_count)
-            .filter(|index| pending_dependencies[*index] == 0)
-            .collect();
+        let mut ready: Vec<usize> =
+            (0..module_count).filter(|index| pending_dependencies[*index] == 0).collect();
         let mut order: Vec<usize> = Vec::with_capacity(module_count);
         while let Some(index) = ready.pop() {
             let (module_id, _, _) = &modules[index];
@@ -1385,9 +1321,7 @@ impl MoveRuntime {
             modules.into_iter().map(Some).collect();
         let mut ordered = Vec::with_capacity(module_count);
         for index in order {
-            let module = slots[index]
-                .take()
-                .expect("each package module is ordered exactly once");
+            let module = slots[index].take().expect("each package module is ordered exactly once");
             ordered.push(module);
         }
         Ok(ordered)
@@ -1547,9 +1481,7 @@ impl MoveRuntime {
             MoveValue::U64(epoch_timestamp_ms),
             MoveValue::U64(0),
         ]));
-        move_value
-            .simple_serialize()
-            .require("Failed to serialize TxContext MoveValue")
+        move_value.simple_serialize().require("Failed to serialize TxContext MoveValue")
     }
 
     fn synthesize_otw_bytes_from_layout(layout: &MoveTypeLayout) -> Option<Vec<u8>> {
@@ -1571,16 +1503,12 @@ impl MoveRuntime {
 
     /// Convert an object-id string into a `UIDRecord` when possible.
     fn uid_from_object_id(object_id: &str) -> Option<kanari_types::object::UIDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(kanari_types::object::UIDRecord::new)
+        AccountAddress::from_hex_literal(object_id).ok().map(kanari_types::object::UIDRecord::new)
     }
 
     /// Convert an object-id string into an `IDRecord` when possible.
     fn id_from_object_id(object_id: &str) -> Option<kanari_types::object::IDRecord> {
-        AccountAddress::from_hex_literal(object_id)
-            .ok()
-            .map(kanari_types::object::IDRecord::new)
+        AccountAddress::from_hex_literal(object_id).ok().map(kanari_types::object::IDRecord::new)
     }
 
     fn maybe_add_token_balance(
@@ -1682,14 +1610,9 @@ impl MoveRuntime {
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> anyhow::Result<(
-        AccountAddress,
-        kanari_types::transaction::ObjectOwnerKind,
-        u64,
-    )> {
-        if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
-            .iter()
-            .find(|(_, id, _, _, _, _)| id == object_id)
+    ) -> anyhow::Result<(AccountAddress, kanari_types::transaction::ObjectOwnerKind, u64)> {
+        if let Some((_, _, owner, owner_kind, _, version)) =
+            loaded_mutable_objects.iter().find(|(_, id, _, _, _, _)| id == object_id)
         {
             return Ok((*owner, owner_kind.clone(), *version + 1));
         }
@@ -1739,8 +1662,7 @@ impl MoveRuntime {
         let updated_obj =
             Self::build_created_object(owner, owner_kind, object_id, type_name, data, version);
         cs.created_objects.retain(|(k, _)| k != object_id);
-        cs.created_objects
-            .push((object_id.to_string(), updated_obj));
+        cs.created_objects.push((object_id.to_string(), updated_obj));
     }
 
     /// Persist created objects from a changeset to the object store.
@@ -1754,9 +1676,7 @@ impl MoveRuntime {
                 data: created.data.clone(),
                 version: created.version,
             };
-            self.object_storage
-                .store_object(stored)
-                .map_err(anyhow::Error::new)?;
+            self.object_storage.store_object(stored).map_err(anyhow::Error::new)?;
         }
         Ok(())
     }
@@ -1764,9 +1684,7 @@ impl MoveRuntime {
     /// Persist deleted objects from a changeset to the object store.
     pub fn persist_deleted_objects(&self, cs: &ChangeSet) -> Result<()> {
         for obj_id in &cs.deleted_objects {
-            self.object_storage
-                .delete_object(obj_id)
-                .map_err(anyhow::Error::new)?;
+            self.object_storage.delete_object(obj_id).map_err(anyhow::Error::new)?;
         }
         Ok(())
     }
@@ -1788,9 +1706,7 @@ impl MoveRuntime {
             data,
             version,
         };
-        self.object_storage
-            .store_object(stored)
-            .require("Object storage operation failed")
+        self.object_storage.store_object(stored).require("Object storage operation failed")
     }
 
     /// Ensure the system clock object exists, creating it via VM or native path as needed.
@@ -1847,10 +1763,7 @@ impl MoveRuntime {
         let digest = hasher.finalize();
         let addr = AccountAddress::from_bytes(&digest[..AccountAddress::LENGTH])
             .context("Failed to derive native system clock object id")?;
-        let clock = Clock {
-            id: UIDRecord::new(addr),
-            timestamp_ms: 0,
-        };
+        let clock = Clock { id: UIDRecord::new(addr), timestamp_ms: 0 };
         let clock_type = {
             let module_id = ClockModule::get_module_id()?;
             format!(
@@ -1900,10 +1813,7 @@ impl MoveRuntime {
             current_clock.timestamp_ms
         );
 
-        let clock = Clock {
-            id: UIDRecord::new(clock_id),
-            timestamp_ms,
-        };
+        let clock = Clock { id: UIDRecord::new(clock_id), timestamp_ms };
         let data = bcs::to_bytes(&clock).context("Failed to encode native clock prologue")?;
         let version = if data == existing.data {
             existing.version
@@ -2041,9 +1951,8 @@ impl MoveRuntime {
         } = options;
 
         let vm_guard = self.read_vm();
-        let (resolver, resolver_trace) = self
-            .resolver
-            .tracing_clone_with_overlay(state_overlay.clone());
+        let (resolver, resolver_trace) =
+            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
         let mut session =
             self.create_session_with_resolver(&vm_guard, resolver, state_overlay.clone());
         let mut deterministic_reads =
@@ -2061,19 +1970,13 @@ impl MoveRuntime {
             state_overlay.as_deref(),
         )?;
 
-        let explicit_object_ids: HashSet<String> = object_inputs
-            .iter()
-            .map(|input| input.object_ref.object_id.clone())
-            .collect();
+        let explicit_object_ids: HashSet<String> =
+            object_inputs.iter().map(|input| input.object_ref.object_id.clone()).collect();
         let mut explicit_object_bindings = object_inputs.iter();
 
         let mut ty_args_loaded = vec![];
         for tag in type_args.iter() {
-            ty_args_loaded.push(
-                session
-                    .load_type(tag)
-                    .require("Object storage operation failed")?,
-            );
+            ty_args_loaded.push(session.load_type(tag).require("Object storage operation failed")?);
         }
 
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
@@ -2252,11 +2155,8 @@ impl MoveRuntime {
                 // writebacks below) are surfaced to callers that compose
                 // calls, e.g. programmable transactions threading a `u64`
                 // across commands.
-                let pure_return_values: Vec<Vec<u8>> = return_values
-                    .return_values
-                    .iter()
-                    .map(|(bytes, _)| bytes.clone())
-                    .collect();
+                let pure_return_values: Vec<Vec<u8>> =
+                    return_values.return_values.iter().map(|(bytes, _)| bytes.clone()).collect();
                 // Extract data from native extensions before finishing the session
                 let SessionNativeOutputs {
                     transferred,
@@ -2285,9 +2185,7 @@ impl MoveRuntime {
 
                 for (idx, data, _) in return_values.mutable_reference_outputs {
                     if let Some((_, id, owner, owner_kind, type_name, version)) =
-                        loaded_mutable_objects
-                            .iter()
-                            .find(|(i, _, _, _, _, _)| *i == idx as usize)
+                        loaded_mutable_objects.iter().find(|(i, _, _, _, _, _)| *i == idx as usize)
                     {
                         self.upsert_created_object(
                             &mut cs,
@@ -2360,9 +2258,7 @@ impl MoveRuntime {
                         &mut cs,
                         gas_limit,
                         gas_price,
-                        GasOperation::ExecuteFunction {
-                            complexity: penalty_complexity,
-                        },
+                        GasOperation::ExecuteFunction { complexity: penalty_complexity },
                         0,
                         0,
                     );
@@ -2441,11 +2337,8 @@ impl MoveRuntime {
         for type_arg in type_args {
             // Parse type tag from string (e.g., "0x1::aptos_coin::AptosCoin") - uses cache
             let type_tag = self.parse_type_tag_fast(type_arg)?;
-            ty_args_loaded.push(
-                session
-                    .load_type(&type_tag)
-                    .require("Failed to load type argument")?,
-            );
+            ty_args_loaded
+                .push(session.load_type(&type_tag).require("Failed to load type argument")?);
         }
 
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
@@ -2498,10 +2391,7 @@ impl MoveRuntime {
                     .collect();
 
                 if results.len() == 1 {
-                    results
-                        .into_iter()
-                        .next()
-                        .require("View function returned no values")
+                    results.into_iter().next().require("View function returned no values")
                 } else {
                     Ok(serde_json::Value::Array(results))
                 }

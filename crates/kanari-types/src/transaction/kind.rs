@@ -129,11 +129,7 @@ impl Transaction {
             addr.to_hex_literal()
         } else {
             let s = self.sender();
-            if !s.starts_with("0x") {
-                format!("0x{}", s)
-            } else {
-                s.to_string()
-            }
+            if !s.starts_with("0x") { format!("0x{}", s) } else { s.to_string() }
         };
 
         let mut keys = Vec::new();
@@ -184,11 +180,7 @@ impl Transaction {
             }
             Transaction::PublishPackage { modules, .. }
             | Transaction::UpgradePackage { modules, .. } => {
-                keys.extend(
-                    modules
-                        .iter()
-                        .map(|module| format!("module:{}", module.module_name)),
-                );
+                keys.extend(modules.iter().map(|module| format!("module:{}", module.module_name)));
             }
             Transaction::ExecuteFunction { .. } => {}
         }
@@ -280,13 +272,7 @@ impl Transaction {
     }
 
     pub fn native_call(&self) -> Option<NativeCall> {
-        let Transaction::ExecuteFunction {
-            module,
-            function,
-            args,
-            object_inputs,
-            ..
-        } = self
+        let Transaction::ExecuteFunction { module, function, args, object_inputs, .. } = self
         else {
             return None;
         };
@@ -317,14 +303,9 @@ impl Transaction {
                     return None;
                 }
                 let amount = bcs::from_bytes::<u64>(args.get(1)?).ok()?;
-                let recipient = AccountAddress::from_bytes(args.get(2)?.as_slice())
-                    .ok()?
-                    .to_hex_literal();
-                Some(NativeCall::Transfer {
-                    coin_object_id,
-                    recipient,
-                    amount,
-                })
+                let recipient =
+                    AccountAddress::from_bytes(args.get(2)?.as_slice()).ok()?.to_hex_literal();
+                Some(NativeCall::Transfer { coin_object_id, recipient, amount })
             }
             function_name
                 if function_name == GasModule::function_names().burn && !args.is_empty() =>
@@ -350,17 +331,15 @@ impl Transaction {
             Transaction::PublishPackage { .. } => "publish_package",
             Transaction::UpgradeModule { .. } => "upgrade_module",
             Transaction::UpgradePackage { .. } => "upgrade_package",
-            Transaction::ExecuteFunction {
-                module, function, ..
-            } if module == &GasModule::module_path()
-                && function == GasModule::function_names().transfer =>
+            Transaction::ExecuteFunction { module, function, .. }
+                if module == &GasModule::module_path()
+                    && function == GasModule::function_names().transfer =>
             {
                 "transfer"
             }
-            Transaction::ExecuteFunction {
-                module, function, ..
-            } if module == &GasModule::module_path()
-                && function == GasModule::function_names().burn =>
+            Transaction::ExecuteFunction { module, function, .. }
+                if module == &GasModule::module_path()
+                    && function == GasModule::function_names().burn =>
             {
                 "burn"
             }

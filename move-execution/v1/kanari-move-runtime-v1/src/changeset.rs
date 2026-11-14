@@ -46,11 +46,7 @@ impl CreatedObject {
 
     /// Constructs an ObjectRef for this object with the given id, version, and digest.
     pub fn object_ref(&self, object_id: &str) -> ObjectRef {
-        ObjectRef::new(
-            object_id.to_string(),
-            Some(self.version),
-            Some(self.digest()),
-        )
+        ObjectRef::new(object_id.to_string(), Some(self.version), Some(self.digest()))
     }
 }
 
@@ -78,9 +74,7 @@ pub struct StateAccessSet {
 impl StateAccessSet {
     /// Returns true if this access set conflicts with another (writes overlap with reads or writes).
     pub fn conflicts_with(&self, other: &Self) -> bool {
-        self.writes
-            .iter()
-            .any(|key| other.reads.contains(key) || other.writes.contains(key))
+        self.writes.iter().any(|key| other.reads.contains(key) || other.writes.contains(key))
             || other.writes.iter().any(|key| self.reads.contains(key))
     }
 
@@ -95,11 +89,7 @@ impl StateAccessSet {
 
 impl OwnerDelta {
     fn new(address: AccountAddress) -> Self {
-        Self {
-            address,
-            balance_delta: 0,
-            modules_added: BTreeSet::new(),
-        }
+        Self { address, balance_delta: 0, modules_added: BTreeSet::new() }
     }
 
     /// Decrements the balance delta by the given amount.
@@ -142,11 +132,7 @@ pub struct ChangeSet {
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
     /// NFT capability creations or updates: (owner, token_type, NftCapRecord)
-    pub nft_caps: Vec<(
-        AccountAddress,
-        String,
-        kanari_types::collection::NftCapRecord,
-    )>,
+    pub nft_caps: Vec<(AccountAddress, String, kanari_types::collection::NftCapRecord)>,
     /// Per-owner token balances (absolute set): (owner, token_type, BalanceRecord)
     pub token_balance_sets: Vec<(AccountAddress, String, BalanceRecord)>,
     pub input_objects: Vec<ObjectInput>,
@@ -221,11 +207,7 @@ impl ChangeSet {
             access.write(format!("nft:{token_type}"));
         }
         for (owner, token_type, _) in &self.token_balance_sets {
-            access.write(format!(
-                "token_balance:{}:{}",
-                owner.to_hex_literal(),
-                token_type
-            ));
+            access.write(format!("token_balance:{}:{}", owner.to_hex_literal(), token_type));
         }
         for (object_id, _) in &self.created_objects {
             access.write(Self::object_access_key(object_id));
@@ -362,9 +344,7 @@ impl ChangeSet {
 
     /// Returns a mutable reference to the owner delta for the given address, creating one if absent.
     pub fn get_or_create_owner_delta(&mut self, address: AccountAddress) -> &mut OwnerDelta {
-        self.owner_deltas
-            .entry(address)
-            .or_insert_with(|| OwnerDelta::new(address))
+        self.owner_deltas.entry(address).or_insert_with(|| OwnerDelta::new(address))
     }
 
     /// Transfer operation: debit sender, credit receiver
@@ -388,8 +368,7 @@ impl ChangeSet {
 
     /// Module publish operation. Sequence handling remains in the engine layer.
     pub fn publish_module(&mut self, publisher: AccountAddress, module_name: String) {
-        self.get_or_create_owner_delta(publisher)
-            .add_module(module_name);
+        self.get_or_create_owner_delta(publisher).add_module(module_name);
     }
 
     /// Collect gas fees to DAO
@@ -399,16 +378,12 @@ impl ChangeSet {
 
     /// Canonical settlement coin for this changeset (`None` = native KANARI).
     pub fn gas_coin_type(&self) -> &str {
-        self.gas_coin_type
-            .as_deref()
-            .unwrap_or(kanari_types::gas_coin::GAS_COIN)
+        self.gas_coin_type.as_deref().unwrap_or(kanari_types::gas_coin::GAS_COIN)
     }
 
     /// Whether gas settles in native KANARI (legacy accounting path).
     pub fn is_native_gas(&self) -> bool {
-        self.gas_coin_type
-            .as_deref()
-            .is_none_or(|coin| coin == kanari_types::gas_coin::GAS_COIN)
+        self.gas_coin_type.as_deref().is_none_or(|coin| coin == kanari_types::gas_coin::GAS_COIN)
     }
 
     /// Record the settlement coin before collecting fees.
@@ -434,8 +409,7 @@ impl ChangeSet {
     ) {
         let normalized = CoinModule::normalize_token_type(coin_type);
         if normalized == kanari_types::gas_coin::GAS_COIN {
-            self.get_or_create_owner_delta(dao_address)
-                .credit(gas_amount);
+            self.get_or_create_owner_delta(dao_address).credit(gas_amount);
             let collected = self.native_gas_credits.entry(dao_address).or_insert(0);
             *collected = collected.saturating_add(gas_amount);
             return;
@@ -454,10 +428,7 @@ impl ChangeSet {
         if normalized == kanari_types::gas_coin::GAS_COIN {
             return self.native_gas_credits.values().copied().sum();
         }
-        self.token_gas_credits
-            .get(&normalized)
-            .copied()
-            .unwrap_or(0)
+        self.token_gas_credits.get(&normalized).copied().unwrap_or(0)
     }
 
     /// Sets the total gas consumed by this execution.
@@ -506,9 +477,8 @@ impl ChangeSet {
     pub fn merge(&mut self, mut other: ChangeSet) {
         for (addr, other_change) in other.owner_deltas {
             let existing = self.get_or_create_owner_delta(addr);
-            existing.balance_delta = existing
-                .balance_delta
-                .saturating_add(other_change.balance_delta);
+            existing.balance_delta =
+                existing.balance_delta.saturating_add(other_change.balance_delta);
             existing.modules_added.extend(other_change.modules_added);
         }
         for (collector, amount) in other.native_gas_credits {
@@ -539,12 +509,9 @@ impl ChangeSet {
 
         self.created_objects.extend(other.created_objects);
         self.deleted_objects.extend(other.deleted_objects);
-        self.explicit_object_changes
-            .append(&mut other.explicit_object_changes);
-        self.added_dynamic_fields
-            .append(&mut other.added_dynamic_fields);
-        self.removed_dynamic_fields
-            .append(&mut other.removed_dynamic_fields);
+        self.explicit_object_changes.append(&mut other.explicit_object_changes);
+        self.added_dynamic_fields.append(&mut other.added_dynamic_fields);
+        self.removed_dynamic_fields.append(&mut other.removed_dynamic_fields);
         for (key, value) in other.move_writes {
             self.move_writes.insert(key, value);
         }
@@ -573,21 +540,15 @@ impl ChangeSet {
         self.gas_object_refs.reserve(other.gas_object_refs.len());
         self.created_objects.reserve(other.created_objects.len());
         self.deleted_objects.reserve(other.deleted_objects.len());
-        self.explicit_object_changes
-            .reserve(other.explicit_object_changes.len());
-        self.added_dynamic_fields
-            .reserve(other.added_dynamic_fields.len());
-        self.removed_dynamic_fields
-            .reserve(other.removed_dynamic_fields.len());
+        self.explicit_object_changes.reserve(other.explicit_object_changes.len());
+        self.added_dynamic_fields.reserve(other.added_dynamic_fields.len());
+        self.removed_dynamic_fields.reserve(other.removed_dynamic_fields.len());
 
         for (addr, other_change) in &other.owner_deltas {
             let existing = self.get_or_create_owner_delta(*addr);
-            existing.balance_delta = existing
-                .balance_delta
-                .saturating_add(other_change.balance_delta);
-            existing
-                .modules_added
-                .extend(other_change.modules_added.iter().cloned());
+            existing.balance_delta =
+                existing.balance_delta.saturating_add(other_change.balance_delta);
+            existing.modules_added.extend(other_change.modules_added.iter().cloned());
         }
         for (collector, amount) in &other.native_gas_credits {
             let collected = self.native_gas_credits.entry(*collector).or_insert(0);
@@ -603,37 +564,27 @@ impl ChangeSet {
         self.events.extend(other.events.iter().cloned());
         self.treasuries.extend(other.treasuries.iter().cloned());
         self.nft_caps.extend(other.nft_caps.iter().cloned());
-        self.input_objects
-            .extend(other.input_objects.iter().cloned());
-        self.shared_inputs
-            .extend(other.shared_inputs.iter().cloned());
-        self.immutable_inputs
-            .extend(other.immutable_inputs.iter().cloned());
+        self.input_objects.extend(other.input_objects.iter().cloned());
+        self.shared_inputs.extend(other.shared_inputs.iter().cloned());
+        self.immutable_inputs.extend(other.immutable_inputs.iter().cloned());
         if self.gas_payment.is_none() {
             self.gas_payment = other.gas_payment.clone();
         }
-        self.gas_object_refs
-            .extend(other.gas_object_refs.iter().cloned());
+        self.gas_object_refs.extend(other.gas_object_refs.iter().cloned());
 
         for (owner, token_type, amount) in &other.token_balance_sets {
             self.add_token_balance_set(*owner, token_type.clone(), amount.value());
         }
 
-        self.created_objects
-            .extend(other.created_objects.iter().cloned());
-        self.deleted_objects
-            .extend(other.deleted_objects.iter().cloned());
-        self.explicit_object_changes
-            .extend(other.explicit_object_changes.iter().cloned());
-        self.added_dynamic_fields
-            .extend(other.added_dynamic_fields.iter().cloned());
-        self.removed_dynamic_fields
-            .extend(other.removed_dynamic_fields.iter().cloned());
+        self.created_objects.extend(other.created_objects.iter().cloned());
+        self.deleted_objects.extend(other.deleted_objects.iter().cloned());
+        self.explicit_object_changes.extend(other.explicit_object_changes.iter().cloned());
+        self.added_dynamic_fields.extend(other.added_dynamic_fields.iter().cloned());
+        self.removed_dynamic_fields.extend(other.removed_dynamic_fields.iter().cloned());
         for (key, value) in &other.move_writes {
             self.move_writes.insert(key.clone(), value.clone());
         }
-        self.resolver_reads
-            .extend(other.resolver_reads.iter().cloned());
+        self.resolver_reads.extend(other.resolver_reads.iter().cloned());
 
         self.gas_used = self.gas_used.saturating_add(other.gas_used);
         if !other.success {
@@ -654,8 +605,7 @@ impl ChangeSet {
 
     /// Records an object deletion by its canonical ID.
     pub fn add_deleted_object(&mut self, object_id: String) {
-        self.deleted_objects
-            .push(Self::canonicalize_object_id(&object_id));
+        self.deleted_objects.push(Self::canonicalize_object_id(&object_id));
     }
 
     fn canonicalize_object_id(object_id: &str) -> String {
@@ -671,17 +621,12 @@ impl ChangeSet {
 
     /// Deterministic-access key for one dynamic-field record.
     fn dynamic_field_access_key(object_id: &str, name: &[u8]) -> String {
-        format!(
-            "dynamic:{}:{}",
-            Self::canonicalize_object_id(object_id),
-            hex::encode(name)
-        )
+        format!("dynamic:{}:{}", Self::canonicalize_object_id(object_id), hex::encode(name))
     }
 
     /// Records a treasury cap creation or update for a token type.
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
-        self.treasuries
-            .push((owner, token_type, TreasuryCap { total_supply }));
+        self.treasuries.push((owner, token_type, TreasuryCap { total_supply }));
     }
 
     /// Record an absolute token balance for a given account/token pair. Multiple coin
@@ -692,15 +637,12 @@ impl ChangeSet {
         token_type: String,
         amount: u64,
     ) {
-        if let Some((_, _, existing_balance)) = self
-            .token_balance_sets
-            .iter_mut()
-            .find(|(o, t, _)| o == &owner && t == &token_type)
+        if let Some((_, _, existing_balance)) =
+            self.token_balance_sets.iter_mut().find(|(o, t, _)| o == &owner && t == &token_type)
         {
             *existing_balance = BalanceRecord::new(existing_balance.value().saturating_add(amount));
         } else {
-            self.token_balance_sets
-                .push((owner, token_type, BalanceRecord::new(amount)));
+            self.token_balance_sets.push((owner, token_type, BalanceRecord::new(amount)));
         }
     }
 
@@ -729,10 +671,8 @@ impl ChangeSet {
             format!("0x{}", hex::encode(&hash[0..32]))
         };
 
-        if let Some((_, existing_obj)) = self
-            .created_objects
-            .iter_mut()
-            .find(|(id, _)| id == &canonical_id)
+        if let Some((_, existing_obj)) =
+            self.created_objects.iter_mut().find(|(id, _)| id == &canonical_id)
         {
             if owner.to_hex_literal() != canonical_id {
                 existing_obj.owner = owner;
@@ -836,11 +776,8 @@ impl ChangeSet {
         let mut deleted = Vec::new();
         let mut transferred = Vec::new();
         let mut causal_edges = Vec::new();
-        let input_refs = self
-            .input_objects
-            .iter()
-            .map(|input| input.object_ref.clone())
-            .collect::<Vec<_>>();
+        let input_refs =
+            self.input_objects.iter().map(|input| input.object_ref.clone()).collect::<Vec<_>>();
 
         for change in &object_changes {
             match change.change_type {
@@ -947,11 +884,7 @@ impl ChangeSet {
         causal_edges.dedup();
 
         TransactionEffects {
-            status: if self.success {
-                "success".to_string()
-            } else {
-                "failed".to_string()
-            },
+            status: if self.success { "success".to_string() } else { "failed".to_string() },
             gas_used: self.gas_used,
             gas_payment: gas_payment.or_else(|| self.gas_payment.clone()),
             input_objects: self
@@ -989,10 +922,8 @@ impl ChangeSet {
             .filter(|input| matches!(input.owner, Some(ObjectOwnerKind::Immutable)))
             .map(|input| input.object_ref.clone())
             .collect();
-        self.gas_object_refs = gas_payment
-            .as_ref()
-            .map(|payment| payment.payment_objects.clone())
-            .unwrap_or_default();
+        self.gas_object_refs =
+            gas_payment.as_ref().map(|payment| payment.payment_objects.clone()).unwrap_or_default();
         self.gas_payment = gas_payment;
     }
 

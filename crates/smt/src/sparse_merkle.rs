@@ -101,11 +101,7 @@ fn node_key(prefix_hash: &[u8; 32], depth: usize) -> Vec<u8> {
 }
 
 fn hash_from_slice(bytes: &[u8]) -> Result<[u8; 32]> {
-    anyhow::ensure!(
-        bytes.len() == 32,
-        "invalid SMT node hash length: {}",
-        bytes.len()
-    );
+    anyhow::ensure!(bytes.len() == 32, "invalid SMT node hash length: {}", bytes.len());
     let mut out = [0u8; 32];
     out.copy_from_slice(bytes);
     Ok(out)
@@ -159,10 +155,7 @@ impl SparseMerkleTree {
         prefix_hash: &[u8; 32],
         depth: usize,
     ) -> [u8; 32] {
-        cache
-            .get(&node_key(prefix_hash, depth))
-            .copied()
-            .unwrap_or(self.default_hashes[depth])
+        cache.get(&node_key(prefix_hash, depth)).copied().unwrap_or(self.default_hashes[depth])
     }
 
     fn node_hash_from_overlay(
@@ -306,10 +299,7 @@ impl SparseMerkleTree {
             );
         }
         self.apply_node_overlay_to_cache(&mut cache, overlay);
-        *self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned") = cache;
+        *self.node_cache.lock().expect("SMT node cache mutex poisoned") = cache;
         self.node_cache_ready.store(true, Ordering::Release);
         self.purge_legacy_persisted_node_index()?;
         Ok(())
@@ -336,16 +326,12 @@ impl SparseMerkleTree {
         if self.node_cache_ready.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.rebuild_node_cache_from_persisted_data()
-            .context("Failed to rebuild SMT node cache")
+        self.rebuild_node_cache_from_persisted_data().context("Failed to rebuild SMT node cache")
     }
 
     pub fn root_hash(&self) -> Result<[u8; 32]> {
         if self.node_cache_ready.load(Ordering::Acquire) {
-            let cache = self
-                .node_cache
-                .lock()
-                .expect("SMT node cache mutex poisoned");
+            let cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
             return Ok(self.node_hash_from_cache(&cache, &[0u8; 32], 0));
         }
         // root is stored at depth 0 with empty prefix
@@ -386,10 +372,7 @@ impl SparseMerkleTree {
         }
         batch.delete(NODE_INDEX_VERSION_KEY);
         self.db.write(batch)?;
-        self.node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned")
-            .clear();
+        self.node_cache.lock().expect("SMT node cache mutex poisoned").clear();
         self.node_cache_ready.store(false, Ordering::Release);
         if !entries.is_empty() {
             self.insert(entries)?;
@@ -407,8 +390,7 @@ impl SparseMerkleTree {
         updates: &[(Vec<u8>, Vec<u8>)],
         deletes: &[Vec<u8>],
     ) -> Result<[u8; 32]> {
-        self.root_hash_with_changes_and_overlay(updates, deletes)
-            .map(|(root, _)| root)
+        self.root_hash_with_changes_and_overlay(updates, deletes).map(|(root, _)| root)
     }
 
     pub fn root_hash_with_changes_and_overlay(
@@ -421,10 +403,7 @@ impl SparseMerkleTree {
         }
 
         self.ensure_node_index()?;
-        let cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
         let mut changes = BTreeMap::new();
         for key in deletes {
             changes.insert(digest(key), None);
@@ -438,9 +417,8 @@ impl SparseMerkleTree {
             return self.root_hash_with_sorted_changes_parallel(&cache, changes);
         }
         for (key_hash, value) in changes {
-            let leaf = value
-                .map(|value| hash_leaf(&key_hash, value))
-                .unwrap_or(self.default_hashes[256]);
+            let leaf =
+                value.map(|value| hash_leaf(&key_hash, value)).unwrap_or(self.default_hashes[256]);
             self.stage_leaf_node_update(&cache, &mut overlay, key_hash, leaf);
         }
         let root = self.node_hash_from_overlay(&cache, &overlay, &[0u8; 32], 0);
@@ -453,9 +431,8 @@ impl SparseMerkleTree {
         changes: BTreeMap<[u8; 32], Option<&Vec<u8>>>,
     ) -> Result<([u8; 32], SmtNodeOverlay)> {
         const PARALLEL_BUCKET_DEPTH: usize = 12;
-        let mut buckets = (0..(1usize << PARALLEL_BUCKET_DEPTH))
-            .map(|_| Vec::new())
-            .collect::<Vec<_>>();
+        let mut buckets =
+            (0..(1usize << PARALLEL_BUCKET_DEPTH)).map(|_| Vec::new()).collect::<Vec<_>>();
         for (key_hash, value) in changes {
             buckets[top_bits(&key_hash, PARALLEL_BUCKET_DEPTH)].push((key_hash, value));
         }
@@ -480,12 +457,7 @@ impl SparseMerkleTree {
                         PARALLEL_BUCKET_DEPTH,
                     );
                 }
-                self.stage_node(
-                    &mut overlay,
-                    &bucket_prefix,
-                    PARALLEL_BUCKET_DEPTH,
-                    bucket_root,
-                );
+                self.stage_node(&mut overlay, &bucket_prefix, PARALLEL_BUCKET_DEPTH, bucket_root);
                 (bucket_prefix, bucket_root, overlay)
             })
             .collect::<Vec<_>>();
@@ -509,11 +481,7 @@ impl SparseMerkleTree {
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let kh = digest(key);
         let data_key = data_key(&kh);
-        if let Some(v) = self.db.get(data_key)? {
-            Ok(Some(v.to_vec()))
-        } else {
-            Ok(None)
-        }
+        if let Some(v) = self.db.get(data_key)? { Ok(Some(v.to_vec())) } else { Ok(None) }
     }
 
     /// Produce a proof for `key`. Returns (is_member, leaf_hash, siblings bottom-up)
@@ -526,17 +494,11 @@ impl SparseMerkleTree {
         let is_member = value.is_some();
 
         // leaf hash
-        let leaf_hash = if let Some(val) = value {
-            hash_leaf(&kh, &val)
-        } else {
-            self.default_hashes[256]
-        };
+        let leaf_hash =
+            if let Some(val) = value { hash_leaf(&kh, &val) } else { self.default_hashes[256] };
 
         self.ensure_node_index()?;
-        let cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
         let mut siblings: Vec<[u8; 32]> = Vec::with_capacity(256);
 
         // traverse from leaf depth down to 1 and collect sibling at each level
@@ -559,10 +521,7 @@ impl SparseMerkleTree {
         }
         self.ensure_node_index()?;
         let mut batch = WriteBatch::default();
-        let mut cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let mut cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
         let mut keyed = kvs
             .iter()
             .map(|(key, value)| (digest(key), key.as_slice(), value.as_slice()))
@@ -598,10 +557,7 @@ impl SparseMerkleTree {
     ) -> Result<()> {
         self.ensure_node_index()?;
         let mut batch = WriteBatch::default();
-        let mut cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let mut cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
         let mut changes = BTreeMap::new();
         for key in deletes {
             batch.delete(data_key(&digest(key)));
@@ -614,9 +570,8 @@ impl SparseMerkleTree {
 
         let mut overlay = HashMap::new();
         for (key_hash, value) in changes {
-            let leaf = value
-                .map(|value| hash_leaf(&key_hash, value))
-                .unwrap_or(self.default_hashes[256]);
+            let leaf =
+                value.map(|value| hash_leaf(&key_hash, value)).unwrap_or(self.default_hashes[256]);
             self.stage_leaf_node_update(&cache, &mut overlay, key_hash, leaf);
         }
         let computed_root = self.node_hash_from_overlay(&cache, &overlay, &[0u8; 32], 0);
@@ -692,10 +647,7 @@ impl SparseMerkleTree {
     }
 
     pub fn apply_precomputed_node_overlay(&self, node_overlay: SmtNodeOverlay) {
-        let mut cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let mut cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
         Self::apply_node_overlay_entries_to_cache(&mut cache, node_overlay);
     }
 
@@ -711,10 +663,7 @@ impl SparseMerkleTree {
             return Ok(());
         }
         self.ensure_node_index()?;
-        let mut cache = self
-            .node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned");
+        let mut cache = self.node_cache.lock().expect("SMT node cache mutex poisoned");
 
         // prepare key hashes
         let mut keyed: Vec<[u8; 32]> = Vec::with_capacity(keys.len());
@@ -760,19 +709,15 @@ pub fn compute_sparse_root(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
     }
 
     compute_sparse_subtree_root(
-        &entries
-            .iter()
-            .map(|(key, value)| (digest(key), value))
-            .collect::<Vec<_>>(),
+        &entries.iter().map(|(key, value)| (digest(key), value)).collect::<Vec<_>>(),
         0,
     )
 }
 
 fn compute_sparse_root_parallel_byte(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
     const PARALLEL_BUCKET_DEPTH: usize = 12;
-    let mut buckets = (0..(1usize << PARALLEL_BUCKET_DEPTH))
-        .map(|_| Vec::new())
-        .collect::<Vec<_>>();
+    let mut buckets =
+        (0..(1usize << PARALLEL_BUCKET_DEPTH)).map(|_| Vec::new()).collect::<Vec<_>>();
     for (key, value) in entries {
         let key_hash = digest(key);
         buckets[top_bits(&key_hash, PARALLEL_BUCKET_DEPTH)].push((key_hash, value));
@@ -784,12 +729,7 @@ fn compute_sparse_root_parallel_byte(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32]
         .collect::<Vec<_>>();
 
     for depth in (1..=PARALLEL_BUCKET_DEPTH).rev() {
-        roots = roots
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| hash_node(&pair[0], &pair[1]))
-            .collect();
+        roots = roots.as_chunks::<2>().0.iter().map(|pair| hash_node(&pair[0], &pair[1])).collect();
         debug_assert_eq!(roots.len(), 1usize << (depth - 1));
     }
 
@@ -961,11 +901,7 @@ mod tests {
         let other_key = b"key4";
         let (is_member, leaf_hash, siblings) = smt.proof(other_key)?;
         assert!(!is_member);
-        assert!(verify_proof(
-            &root,
-            other_key,
-            (is_member, leaf_hash, siblings)
-        ));
+        assert!(verify_proof(&root, other_key, (is_member, leaf_hash, siblings)));
 
         Ok(())
     }
@@ -1026,10 +962,8 @@ mod tests {
             (b"delete".to_vec(), b"value".to_vec()),
         ])?;
 
-        let updates = vec![
-            (b"keep".to_vec(), b"new".to_vec()),
-            (b"add".to_vec(), b"value".to_vec()),
-        ];
+        let updates =
+            vec![(b"keep".to_vec(), b"new".to_vec()), (b"add".to_vec(), b"value".to_vec())];
         let deletes = vec![b"delete".to_vec()];
         let speculative_root = smt.root_hash_with_changes(&updates, &deletes)?;
 
@@ -1060,10 +994,7 @@ mod tests {
     fn test_rebuild_removes_stale_entries() -> Result<()> {
         let dir = tempdir()?;
         let smt = open_test_db(dir.path());
-        smt.insert(&[
-            (b"stale".to_vec(), b"old".to_vec()),
-            (b"keep".to_vec(), b"old".to_vec()),
-        ])?;
+        smt.insert(&[(b"stale".to_vec(), b"old".to_vec()), (b"keep".to_vec(), b"old".to_vec())])?;
 
         let replacement = vec![(b"keep".to_vec(), b"new".to_vec())];
         smt.rebuild(&replacement)?;
@@ -1084,10 +1015,7 @@ mod tests {
         smt.db.put(b"n:legacy-node", [7u8; 32])?;
         smt.db.put(NODE_INDEX_VERSION_KEY, b"1")?;
         smt.node_cache_ready.store(false, Ordering::Release);
-        smt.node_cache
-            .lock()
-            .expect("SMT node cache mutex poisoned")
-            .clear();
+        smt.node_cache.lock().expect("SMT node cache mutex poisoned").clear();
 
         assert!(smt.proof(b"keep")?.0);
         assert_eq!(smt.db.get(ROOT_NODE_KEY)?.as_deref(), Some(root.as_slice()));
@@ -1105,10 +1033,8 @@ mod tests {
             (b"delete".to_vec(), b"value".to_vec()),
         ])?;
 
-        let updates = vec![
-            (b"keep".to_vec(), b"new".to_vec()),
-            (b"add".to_vec(), b"value".to_vec()),
-        ];
+        let updates =
+            vec![(b"keep".to_vec(), b"new".to_vec()), (b"add".to_vec(), b"value".to_vec())];
         let deletes = vec![b"delete".to_vec()];
         let (root, overlay) = smt.root_hash_with_changes_and_overlay(&updates, &deletes)?;
         smt.apply_changes_with_precomputed_overlay(&updates, &deletes, root, overlay)?;
@@ -1135,10 +1061,7 @@ mod tests {
         let smt = open_test_db(dir.path());
         let mut materialized = BTreeMap::new();
         for i in 0..64u64 {
-            materialized.insert(
-                format!("object:{i:064x}").into_bytes(),
-                i.to_le_bytes().to_vec(),
-            );
+            materialized.insert(format!("object:{i:064x}").into_bytes(), i.to_le_bytes().to_vec());
         }
         let initial = materialized
             .iter()
@@ -1153,10 +1076,7 @@ mod tests {
         }
         let updates = (32..96u64)
             .map(|i| {
-                (
-                    format!("object:{i:064x}").into_bytes(),
-                    i.wrapping_mul(17).to_le_bytes().to_vec(),
-                )
+                (format!("object:{i:064x}").into_bytes(), i.wrapping_mul(17).to_le_bytes().to_vec())
             })
             .collect::<Vec<_>>();
         for (key, value) in &updates {
@@ -1198,11 +1118,7 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let deletes = base
-            .iter()
-            .take(256)
-            .map(|(key, _)| key.clone())
-            .collect::<Vec<_>>();
+        let deletes = base.iter().take(256).map(|(key, _)| key.clone()).collect::<Vec<_>>();
 
         let speculative = smt.root_hash_with_changes(&updates, &deletes)?;
         smt.delete(&deletes)?;
@@ -1218,10 +1134,7 @@ mod tests {
             .rotate_left((index % 63) as u32);
         (
             format!("{namespace}:{mixed:016x}:{index:05}").into_bytes(),
-            mixed
-                .wrapping_mul(0xD6E8_FD9D_50D8_3845)
-                .to_le_bytes()
-                .to_vec(),
+            mixed.wrapping_mul(0xD6E8_FD9D_50D8_3845).to_le_bytes().to_vec(),
         )
     }
 

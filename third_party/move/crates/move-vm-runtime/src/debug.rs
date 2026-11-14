@@ -108,19 +108,11 @@ pub(crate) struct DebugContext {
 
 impl DebugContext {
     pub(crate) fn new() -> Self {
-        Self {
-            breakpoints: BTreeSet::new(),
-            should_take_input: true,
-        }
+        Self { breakpoints: BTreeSet::new(), should_take_input: true }
     }
 
     fn delete_breakpoint_at_index(&mut self, breakpoint: &str) {
-        let index = breakpoint
-            .strip_prefix("at_index")
-            .unwrap()
-            .trim()
-            .parse::<usize>()
-            .unwrap();
+        let index = breakpoint.strip_prefix("at_index").unwrap().trim().parse::<usize>().unwrap();
         self.breakpoints = self
             .breakpoints
             .iter()
@@ -175,19 +167,14 @@ impl DebugContext {
             .breakpoints
             .get(&function_string)
             .or_else(|| {
-                self.breakpoints
-                    .iter()
-                    .find(|bp| instr_string[..].starts_with(bp.as_str()))
+                self.breakpoints.iter().find(|bp| instr_string[..].starts_with(bp.as_str()))
             })
             .or_else(|| self.breakpoints.get(&pc.to_string()));
 
         if self.should_take_input || breakpoint_hit.is_some() {
             self.should_take_input = true;
             if let Some(bp_match) = breakpoint_hit {
-                println!(
-                    "Breakpoint {} hit with instruction {}",
-                    bp_match, instr_string
-                );
+                println!("Breakpoint {} hit with instruction {}", bp_match, instr_string);
             }
             println!(
                 "function >> {}\ninstruction >> {:?}\nprogram counter >> {}",

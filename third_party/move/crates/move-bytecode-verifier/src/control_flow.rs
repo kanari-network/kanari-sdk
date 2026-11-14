@@ -98,9 +98,7 @@ fn verify_reducibility<'a>(
     verifier_config: &VerifierConfig,
     function_context: &'a FunctionContext<'a>,
 ) -> PartialVMResult<()> {
-    let current_function = function_context
-        .index()
-        .unwrap_or(FunctionDefinitionIndex(0));
+    let current_function = function_context.index().unwrap_or(FunctionDefinitionIndex(0));
     let err = move |code: StatusCode, offset: CodeOffset| {
         Err(PartialVMError::new(code).at_code_offset(current_function, offset))
     };

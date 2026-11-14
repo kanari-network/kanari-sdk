@@ -238,6 +238,7 @@ Returns <code><b>false</b></code> otherwise. Not all <code><a href="../../depend
 
 ## Function `push_char`
 
+Pushes a <code><a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">Char</a></code> to the back of a <code><a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a></code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_push_char">push_char</a>(<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>: &<b>mut</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>, char: <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">ascii::Char</a>)
@@ -262,6 +263,7 @@ Returns <code><b>false</b></code> otherwise. Not all <code><a href="../../depend
 
 ## Function `pop_char`
 
+Removes and returns the last character in a <code><a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a></code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_pop_char">pop_char</a>(<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>: &<b>mut</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>): <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_Char">ascii::Char</a>
@@ -288,6 +290,7 @@ Returns <code><b>false</b></code> otherwise. Not all <code><a href="../../depend
 
 ## Function `length`
 
+Returns the length of the <code><a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">String</a></code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_length">length</a>(<a href="../../dependencies/move-stdlib/string.md#0x1_string">string</a>: &<a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>): u64
@@ -428,7 +431,7 @@ Returns <code><b>true</b></code> if <code>byte</code> is an printable ASCII char
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_is_printable_char">is_printable_char</a>(byte: u8): bool {
     byte &gt;= 0x20 && // Disallow metacharacters
-   <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_byte">byte</a> &lt;= 0x7E // Don't allow DEL metacharacter
+    <a href="../../dependencies/move-stdlib/ascii.md#0x1_ascii_byte">byte</a> &lt;= 0x7E // Don't allow DEL metacharacter
 }
 </code></pre>
 

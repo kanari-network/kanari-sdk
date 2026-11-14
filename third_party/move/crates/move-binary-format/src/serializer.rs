@@ -194,11 +194,7 @@ impl CompiledModule {
         let mut temp = BinaryData::new();
         ser.serialize_tables(&mut temp, self)?;
         if temp.len() > u32::MAX as usize {
-            bail!(
-                "table content size ({}) cannot exceed ({})",
-                temp.len(),
-                u32::MAX
-            );
+            bail!("table content size ({}) cannot exceed ({})", temp.len(), u32::MAX);
         }
         ser.common.serialize_header(&mut binary_data)?;
         ser.serialize_table_indices(&mut binary_data)?;
@@ -251,11 +247,7 @@ struct ModuleSerializer {
 //
 fn check_index_in_binary(index: usize) -> Result<u32> {
     if index > u32::MAX as usize {
-        bail!(
-            "Compilation unit too big ({}) cannot exceed {}",
-            index,
-            u32::MAX
-        )
+        bail!("Compilation unit too big ({}) cannot exceed {}", index, u32::MAX)
     }
     Ok(index as u32)
 }
@@ -950,12 +942,7 @@ impl CommonSerializer {
             self.function_instantiations.0,
             self.function_instantiations.1,
         )?;
-        serialize_table_index(
-            binary,
-            TableType::SIGNATURES,
-            self.signatures.0,
-            self.signatures.1,
-        )?;
+        serialize_table_index(binary, TableType::SIGNATURES, self.signatures.0, self.signatures.1)?;
         serialize_table_index(
             binary,
             TableType::IDENTIFIERS,
@@ -976,12 +963,7 @@ impl CommonSerializer {
         )?;
         if self.major_version >= VERSION_5 {
             // Metadata was not introduced before v5, so do not generate it for lower versions.
-            serialize_table_index(
-                binary,
-                TableType::METADATA,
-                self.metadata.0,
-                self.metadata.1,
-            )?;
+            serialize_table_index(binary, TableType::METADATA, self.metadata.0, self.metadata.1)?;
         }
         Ok(())
     }

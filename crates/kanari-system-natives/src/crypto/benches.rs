@@ -20,10 +20,7 @@ fn bench<R>(name: &str, iters: u64, mut f: impl FnMut() -> R) {
     for _ in 0..iters {
         black_box(f());
     }
-    println!(
-        "{name:32} {:12.1} ns/op",
-        t.elapsed().as_nanos() as f64 / iters as f64
-    );
+    println!("{name:32} {:12.1} ns/op", t.elapsed().as_nanos() as f64 / iters as f64);
 }
 
 fn random_32() -> [u8; 32] {
@@ -64,10 +61,7 @@ fn crypto_calibrate() {
         let mut cand = [0u8; 65];
         cand[..64].copy_from_slice(&rec_compact);
         cand[64] = v;
-        if recover_secp256k1_public_key(&cand, &digest)
-            .map(|p| p == expected_c)
-            .unwrap_or(false)
-        {
+        if recover_secp256k1_public_key(&cand, &digest).map(|p| p == expected_c).unwrap_or(false) {
             sig65 = Some(cand);
             break;
         }
@@ -79,9 +73,7 @@ fn crypto_calibrate() {
     bench("k1_ecrecover", 2_000, || {
         recover_secp256k1_public_key(black_box(&sig65), black_box(&digest)).unwrap()
     });
-    bench("k1_decompress", 2_000, || {
-        decompress_secp256k1_pubkey(black_box(&k1_pub_c)).unwrap()
-    });
+    bench("k1_decompress", 2_000, || decompress_secp256k1_pubkey(black_box(&k1_pub_c)).unwrap());
     assert!(
         verify_secp256k1_ecdsa_native(&k1_pub_c, &k1_sig64, msg, NativeEcdsaHash::Sha256).unwrap()
     );
@@ -98,11 +90,7 @@ fn crypto_calibrate() {
     // --- P-256 (r1) ---
     let r1_sk = p256::ecdsa::SigningKey::from_slice(&random_32())
         .unwrap_or_else(|_| p256::ecdsa::SigningKey::from_slice(&[0x42u8; 32]).unwrap());
-    let r1_pub = r1_sk
-        .verifying_key()
-        .to_sec1_point(false)
-        .as_bytes()
-        .to_vec();
+    let r1_pub = r1_sk.verifying_key().to_sec1_point(false).as_bytes().to_vec();
     let r1_sig = {
         use p256::ecdsa::signature::Signer;
         let sig: p256::ecdsa::Signature = r1_sk.sign(msg);
@@ -240,12 +228,8 @@ fn crypto_calibrate() {
         // Hash slope (the native hashes the full message, up to 1MB).
         let msg_1k = vec![9u8; 1024];
         let msg_1m = vec![9u8; 1_048_576];
-        bench("sha256_1KB", 2_000, || {
-            sha2::Sha256::digest(black_box(&msg_1k)).to_vec()
-        });
-        bench("sha256_1MB", 20, || {
-            sha2::Sha256::digest(black_box(&msg_1m)).to_vec()
-        });
+        bench("sha256_1KB", 2_000, || sha2::Sha256::digest(black_box(&msg_1k)).to_vec());
+        bench("sha256_1MB", 20, || sha2::Sha256::digest(black_box(&msg_1m)).to_vec());
         // PQC message-size slope check (1MB input): does verify time move?
         let big = vec![3u8; 1_048_576];
         let kp_d3 = generate_keypair(CurveType::Dilithium3).expect("d3 keygen");
@@ -397,12 +381,8 @@ fn crypto_calibrate() {
         let proof_bytes = proof_to_bytes(&proof).unwrap();
         assert!(verify_groth16_proof(&vk_bytes, &inputs, &proof_bytes).unwrap());
         bench("groth16_verify_binding", 20, || {
-            verify_groth16_proof(
-                black_box(&vk_bytes),
-                black_box(&inputs),
-                black_box(&proof_bytes),
-            )
-            .unwrap()
+            verify_groth16_proof(black_box(&vk_bytes), black_box(&inputs), black_box(&proof_bytes))
+                .unwrap()
         });
     }
 }

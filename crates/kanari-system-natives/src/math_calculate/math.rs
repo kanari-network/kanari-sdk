@@ -228,11 +228,7 @@ fn mul_div_u128_round_checked(x: u128, y: u128, z: u128, round_up: bool) -> Resu
     let prod_256 = ethnum::U256::from(x) * ethnum::U256::from(y);
     let z_256 = ethnum::U256::from(z);
     let (q, r) = prod_256.div_rem(z_256);
-    let result_256 = if round_up && r != ethnum::U256::ZERO {
-        q + ethnum::U256::ONE
-    } else {
-        q
-    };
+    let result_256 = if round_up && r != ethnum::U256::ZERO { q + ethnum::U256::ONE } else { q };
     if result_256 > ethnum::U256::from(u128::MAX) {
         Err(E_OVERFLOW)
     } else {
@@ -553,14 +549,8 @@ pub fn native_try_pow_u64(
     );
 
     match base.checked_pow(exponent as u32) {
-        Some(v) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(true), Value::u64(v)],
-        )),
-        None => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(false), Value::u64(0)],
-        )),
+        Some(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true), Value::u64(v)])),
+        None => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false), Value::u64(0)])),
     }
 }
 
@@ -582,14 +572,8 @@ pub fn native_try_pow_u128(
     );
 
     match base.checked_pow(exponent) {
-        Some(v) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(true), Value::u128(v)],
-        )),
-        None => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(false), Value::u128(0)],
-        )),
+        Some(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true), Value::u128(v)])),
+        None => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false), Value::u128(0)])),
     }
 }
 
@@ -653,14 +637,8 @@ pub fn native_try_mul_div_u128(
     let x: u128 = pop_arg!(args, u128);
 
     match mul_div_u128_checked(x, y, z) {
-        Ok(v) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(true), Value::u128(v)],
-        )),
-        Err(_) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(false), Value::u128(0)],
-        )),
+        Ok(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true), Value::u128(v)])),
+        Err(_) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false), Value::u128(0)])),
     }
 }
 
@@ -699,10 +677,7 @@ pub fn native_min_u128(
     let b: u128 = pop_arg!(args, u128);
     let a: u128 = pop_arg!(args, u128);
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u128(std::cmp::min(a, b))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u128(std::cmp::min(a, b))]))
 }
 
 /// Get maximum of two u128 values
@@ -719,10 +694,7 @@ pub fn native_max_u128(
     let b: u128 = pop_arg!(args, u128);
     let a: u128 = pop_arg!(args, u128);
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u128(std::cmp::max(a, b))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u128(std::cmp::max(a, b))]))
 }
 
 /// Overflow-safe average of two u64: (a & b) + ((a ^ b) >> 1)
@@ -739,10 +711,7 @@ pub fn native_average_u64(
     let b: u64 = pop_arg!(args, u64);
     let a: u64 = pop_arg!(args, u64);
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u64(average_u64(a, b))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u64(average_u64(a, b))]))
 }
 
 /// Overflow-safe average of two u128
@@ -759,10 +728,7 @@ pub fn native_average_u128(
     let b: u128 = pop_arg!(args, u128);
     let a: u128 = pop_arg!(args, u128);
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u128(average_u128(a, b))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u128(average_u128(a, b))]))
 }
 
 /// Clamp x into [lo, hi]. Aborts with E_INVALID_ARG when lo > hi.
@@ -864,10 +830,7 @@ pub fn native_sqrt_u256(
     // bit length, and charging after would let out-of-gas escape.
     let px = m2p(&x);
     native_charge_gas_early_exit!(context, sqrt_u256_gas_cost(gas_params, px.bits() as u64));
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u256(p2m(isqrt_u256(px)))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u256(p2m(isqrt_u256(px)))]))
 }
 
 /// base ^ exponent for u256. Aborts with E_OVERFLOW on overflow.
@@ -911,10 +874,9 @@ pub fn native_try_pow_u256(
     );
 
     match pow_u256_checked(m2p(&base), exponent) {
-        Some(v) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(true), Value::u256(p2m(v))],
-        )),
+        Some(v) => {
+            Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true), Value::u256(p2m(v))]))
+        }
         None => Ok(NR::ok(
             context.gas_used(),
             smallvec![Value::bool(false), Value::u256(MU256::zero())],
@@ -981,10 +943,7 @@ pub fn native_try_mul_div_u256(
     let x: MU256 = pop_arg!(args, MU256);
 
     match mul_div_u256_checked(&x, &y, &z) {
-        Ok(v) => Ok(NR::ok(
-            context.gas_used(),
-            smallvec![Value::bool(true), Value::u256(v)],
-        )),
+        Ok(v) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(true), Value::u256(v)])),
         Err(_) => Ok(NR::ok(
             context.gas_used(),
             smallvec![Value::bool(false), Value::u256(MU256::zero())],
@@ -1028,10 +987,7 @@ pub fn native_min_u256(
     let a: MU256 = pop_arg!(args, MU256);
     let (pa, pb) = (m2p(&a), m2p(&b));
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u256(p2m(std::cmp::min(pa, pb)))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u256(p2m(std::cmp::min(pa, pb)))]))
 }
 
 /// Maximum of two u256 values.
@@ -1049,10 +1005,7 @@ pub fn native_max_u256(
     let a: MU256 = pop_arg!(args, MU256);
     let (pa, pb) = (m2p(&a), m2p(&b));
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u256(p2m(std::cmp::max(pa, pb)))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u256(p2m(std::cmp::max(pa, pb)))]))
 }
 
 /// Overflow-safe average (floor) of two u256 values.
@@ -1069,10 +1022,7 @@ pub fn native_average_u256(
     let b: MU256 = pop_arg!(args, MU256);
     let a: MU256 = pop_arg!(args, MU256);
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::u256(p2m(average_u256(m2p(&a), m2p(&b))))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::u256(p2m(average_u256(m2p(&a), m2p(&b))))]))
 }
 
 /// Clamp x into [lo, hi] for u256. Aborts with E_INVALID_ARG when lo > hi.
@@ -1333,10 +1283,7 @@ mod tests {
     fn test_mul_div_u128_avoids_intermediate_overflow() {
         assert_eq!(mul_div_u128_checked(u128::MAX, 2, 2).unwrap(), u128::MAX);
         // (MAX * MAX) / MAX == MAX without intermediate overflow
-        assert_eq!(
-            mul_div_u128_checked(u128::MAX, u128::MAX, u128::MAX).unwrap(),
-            u128::MAX
-        );
+        assert_eq!(mul_div_u128_checked(u128::MAX, u128::MAX, u128::MAX).unwrap(), u128::MAX);
     }
 
     #[test]
@@ -1352,34 +1299,22 @@ mod tests {
 
     #[test]
     fn test_mul_div_u128_overflow() {
-        assert_eq!(
-            mul_div_u128_checked(u128::MAX, u128::MAX, 1).unwrap_err(),
-            E_OVERFLOW
-        );
+        assert_eq!(mul_div_u128_checked(u128::MAX, u128::MAX, 1).unwrap_err(), E_OVERFLOW);
         // ceil path overflows while floor does not
         assert_eq!(mul_div_u128_checked(10, 10, 40).unwrap(), 2);
         assert_eq!(mul_div_u128_round_checked(10, 10, 40, false).unwrap(), 2);
         assert_eq!(mul_div_u128_round_checked(10, 10, 40, true).unwrap(), 3);
         assert_eq!(mul_div_u128_round_checked(10, 20, 5, true).unwrap(), 40);
         // round-up overflow: floor fits, ceil does not
-        assert_eq!(
-            mul_div_u128_round_checked(u128::MAX, 2, 2, false).unwrap(),
-            u128::MAX
-        );
+        assert_eq!(mul_div_u128_round_checked(u128::MAX, 2, 2, false).unwrap(), u128::MAX);
     }
 
     #[test]
     fn test_mul_add_u128() {
         assert_eq!(mul_add_u128_checked(10, 20, 5).unwrap(), 205);
         assert_eq!(mul_add_u128_checked(u128::MAX, 1, 0).unwrap(), u128::MAX);
-        assert_eq!(
-            mul_add_u128_checked(u128::MAX, 1, 1).unwrap_err(),
-            E_OVERFLOW
-        );
-        assert_eq!(
-            mul_add_u128_checked(u128::MAX, 2, 0).unwrap_err(),
-            E_OVERFLOW
-        );
+        assert_eq!(mul_add_u128_checked(u128::MAX, 1, 1).unwrap_err(), E_OVERFLOW);
+        assert_eq!(mul_add_u128_checked(u128::MAX, 2, 0).unwrap_err(), E_OVERFLOW);
     }
 
     #[test]
@@ -1517,11 +1452,7 @@ mod tests {
             for _ in 0..ITERS {
                 let (x, y) = (rng.next_u128(), rng.next_u128());
                 // z == 0 half the time to cover div-by-zero agreement.
-                let z = if rng.next_u64().is_multiple_of(2) {
-                    0
-                } else {
-                    rng.next_u128()
-                };
+                let z = if rng.next_u64().is_multiple_of(2) { 0 } else { rng.next_u128() };
                 let got = mul_div_u256_checked(&MU256::from(x), &MU256::from(y), &MU256::from(z));
                 let want = mul_div_u128_checked(x, y, z);
                 match (got, want) {
@@ -1531,10 +1462,7 @@ mod tests {
                     // u128 overflow with a fitting u256 result is correct
                     // divergence: different widths, different MAX.
                     (Ok(g), Err(E_OVERFLOW)) => {
-                        assert!(
-                            g > MU256::from(u128::MAX),
-                            "u128 overflow must exceed u128::MAX"
-                        )
+                        assert!(g > MU256::from(u128::MAX), "u128 overflow must exceed u128::MAX")
                     }
                     // Div-by-zero must agree on both widths.
                     (Err(gc), Err(wc)) => assert_eq!(gc, wc, "error code disagreement"),
@@ -1598,10 +1526,7 @@ mod tests {
             for _ in 0..ITERS {
                 let x = rng.next_p256_edge_biased();
                 if x == P256::zero() {
-                    assert_eq!(
-                        log2_u256_checked(&MU256::zero()).unwrap_err(),
-                        E_INVALID_ARG
-                    );
+                    assert_eq!(log2_u256_checked(&MU256::zero()).unwrap_err(), E_INVALID_ARG);
                     continue;
                 }
                 let l: u32 = {
@@ -1671,57 +1596,30 @@ mod tests {
         #[test]
         fn test_mul_div_u256_no_intermediate_overflow() {
             // (MAX * 2) / 2 == MAX and (MAX * MAX) / MAX == MAX
-            assert_eq!(
-                mul_div_u256_checked(&max256(), &m(2), &m(2)).unwrap(),
-                max256()
-            );
-            assert_eq!(
-                mul_div_u256_checked(&max256(), &max256(), &max256()).unwrap(),
-                max256()
-            );
+            assert_eq!(mul_div_u256_checked(&max256(), &m(2), &m(2)).unwrap(), max256());
+            assert_eq!(mul_div_u256_checked(&max256(), &max256(), &max256()).unwrap(), max256());
             assert_eq!(mul_div_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(40));
             assert_eq!(
                 mul_div_u256_checked(&m(1), &m(2), &MU256::zero()).unwrap_err(),
                 E_DIVIDE_BY_ZERO
             );
-            assert_eq!(
-                mul_div_u256_checked(&max256(), &max256(), &m(1)).unwrap_err(),
-                E_OVERFLOW
-            );
+            assert_eq!(mul_div_u256_checked(&max256(), &max256(), &m(1)).unwrap_err(), E_OVERFLOW);
         }
 
         #[test]
         fn test_mul_div_u256_round() {
             // 10 * 10 / 40 = 2.5
-            assert_eq!(
-                mul_div_u256_round_checked(&m(10), &m(10), &m(40), false).unwrap(),
-                m(2)
-            );
-            assert_eq!(
-                mul_div_u256_round_checked(&m(10), &m(10), &m(40), true).unwrap(),
-                m(3)
-            );
-            assert_eq!(
-                mul_div_u256_round_checked(&m(10), &m(20), &m(5), true).unwrap(),
-                m(40)
-            );
+            assert_eq!(mul_div_u256_round_checked(&m(10), &m(10), &m(40), false).unwrap(), m(2));
+            assert_eq!(mul_div_u256_round_checked(&m(10), &m(10), &m(40), true).unwrap(), m(3));
+            assert_eq!(mul_div_u256_round_checked(&m(10), &m(20), &m(5), true).unwrap(), m(40));
         }
 
         #[test]
         fn test_mul_add_u256() {
             assert_eq!(mul_add_u256_checked(&m(10), &m(20), &m(5)).unwrap(), m(205));
-            assert_eq!(
-                mul_add_u256_checked(&max256(), &m(1), &m(0)).unwrap(),
-                max256()
-            );
-            assert_eq!(
-                mul_add_u256_checked(&max256(), &m(1), &m(1)).unwrap_err(),
-                E_OVERFLOW
-            );
-            assert_eq!(
-                mul_add_u256_checked(&max256(), &m(2), &m(0)).unwrap_err(),
-                E_OVERFLOW
-            );
+            assert_eq!(mul_add_u256_checked(&max256(), &m(1), &m(0)).unwrap(), max256());
+            assert_eq!(mul_add_u256_checked(&max256(), &m(1), &m(1)).unwrap_err(), E_OVERFLOW);
+            assert_eq!(mul_add_u256_checked(&max256(), &m(2), &m(0)).unwrap_err(), E_OVERFLOW);
         }
 
         #[test]
@@ -1731,10 +1629,7 @@ mod tests {
             assert!(pow_u256_checked(m2p(&max256()), 2).is_none());
             // 2^256 overflows u256, 2^255 does not
             assert!(pow_u256_checked(P256::from(2u64), 256).is_none());
-            assert_eq!(
-                p2m(pow_u256_checked(P256::from(2u64), 255).unwrap()),
-                p2m(pow2_p256(255))
-            );
+            assert_eq!(p2m(pow_u256_checked(P256::from(2u64), 255).unwrap()), p2m(pow2_p256(255)));
         }
 
         #[test]
@@ -1762,10 +1657,7 @@ mod tests {
             let max = m2p(&max256());
             assert_eq!(average_u256(max, max), max);
             assert_eq!(average_u256(max, P256::zero()), max / P256::from(2u64));
-            assert_eq!(
-                average_u256(P256::from(10u64), P256::from(20u64)),
-                P256::from(15u64)
-            );
+            assert_eq!(average_u256(P256::from(10u64), P256::from(20u64)), P256::from(15u64));
         }
 
         #[test]
@@ -1776,10 +1668,7 @@ mod tests {
             assert_eq!(clamp_u256(a, c, b).unwrap_err(), E_INVALID_ARG);
             assert_eq!(log2_u256_checked(&MU256::from(1u64)).unwrap(), P256::zero());
             assert_eq!(log2_u256_checked(&max256()).unwrap(), P256::from(255u64));
-            assert_eq!(
-                log2_u256_checked(&MU256::zero()).unwrap_err(),
-                E_INVALID_ARG
-            );
+            assert_eq!(log2_u256_checked(&MU256::zero()).unwrap_err(), E_INVALID_ARG);
         }
     }
 }

@@ -20,10 +20,7 @@ pub struct AbstractStack<T> {
 impl<T: Eq + Clone + Debug> AbstractStack<T> {
     /// Creates an empty stack
     pub fn new() -> Self {
-        Self {
-            values: vec![],
-            len: 0,
-        }
+        Self { values: vec![], len: 0 }
     }
 
     /// Returns true iff the stack is empty

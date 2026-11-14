@@ -24,11 +24,7 @@ pub struct KanariMoveResolver {
 
 impl KanariMoveResolver {
     pub(crate) fn without_trace(state: MoveVMState, object_storage: Arc<dyn ObjectStore>) -> Self {
-        Self {
-            state,
-            object_storage,
-            read_trace: None,
-        }
+        Self { state, object_storage, read_trace: None }
     }
 
     pub(crate) fn tracing_clone_with_overlay(

@@ -174,9 +174,7 @@ fn bad_bool_byte() {
     use MoveTypeLayout as T;
     assert_eq!(
         "unexpected byte: 42",
-        MoveValue::visit_deserialize(&[42], &T::Bool, &mut NullTraversal)
-            .unwrap_err()
-            .to_string(),
+        MoveValue::visit_deserialize(&[42], &T::Bool, &mut NullTraversal).unwrap_err().to_string(),
     );
 }
 
@@ -195,9 +193,7 @@ fn bad_vector_length() {
 
     assert_eq!(
         "unexpected end of input",
-        MoveValue::visit_deserialize(&bytes, &layout, &mut NullTraversal)
-            .unwrap_err()
-            .to_string(),
+        MoveValue::visit_deserialize(&bytes, &layout, &mut NullTraversal).unwrap_err().to_string(),
     );
 }
 
@@ -280,10 +276,8 @@ fn nested_typed_struct_visit() {
             write!(self.output, "\n[{}] vector<{layout:#}>", self.depth).unwrap();
 
             let mut elems = vec![];
-            let mut elem_visitor = Self {
-                depth: self.depth + 1,
-                output: std::mem::take(&mut self.output),
-            };
+            let mut elem_visitor =
+                Self { depth: self.depth + 1, output: std::mem::take(&mut self.output) };
 
             while let Some(elem) = driver.next_element(&mut elem_visitor)? {
                 elems.push(elem)
@@ -301,10 +295,8 @@ fn nested_typed_struct_visit() {
             write!(self.output, "\n[{}] {layout:#}", self.depth).unwrap();
 
             let mut fields = vec![];
-            let mut field_visitor = Self {
-                depth: self.depth + 1,
-                output: std::mem::take(&mut self.output),
-            };
+            let mut field_visitor =
+                Self { depth: self.depth + 1, output: std::mem::take(&mut self.output) };
 
             while let Some((field, value)) = driver.next_field(&mut field_visitor)? {
                 fields.push((field.name.clone(), value));
@@ -320,10 +312,7 @@ fn nested_typed_struct_visit() {
         "0x0::foo::Bar",
         vec![(
             "inner",
-            layout_(
-                "0x0::baz::Qux",
-                vec![("f", T::U64), ("g", T::Vector(Box::new(T::U32)))],
-            ),
+            layout_("0x0::baz::Qux", vec![("f", T::U64), ("g", T::Vector(Box::new(T::U32)))]),
         )],
     );
 
@@ -337,10 +326,7 @@ fn nested_typed_struct_visit() {
             "inner",
             value_(
                 "0x0::baz::Qux",
-                vec![
-                    ("f", V::U64(7)),
-                    ("g", V::Vector(vec![V::U32(1), V::U32(2), V::U32(3)])),
-                ],
+                vec![("f", V::U64(7)), ("g", V::Vector(vec![V::U32(1), V::U32(2), V::U32(3)]))],
             ),
         )],
     );
@@ -512,10 +498,8 @@ fn peek_field_test() {
 /// Create a struct value for test purposes.
 fn value_(rep: &str, fields: Vec<(&str, MoveValue)>) -> MoveValue {
     let type_ = StructTag::from_str(rep).unwrap();
-    let fields = fields
-        .into_iter()
-        .map(|(name, value)| (Identifier::new(name).unwrap(), value))
-        .collect();
+    let fields =
+        fields.into_iter().map(|(name, value)| (Identifier::new(name).unwrap(), value)).collect();
 
     MoveValue::Struct(MoveStruct::new(type_, fields))
 }

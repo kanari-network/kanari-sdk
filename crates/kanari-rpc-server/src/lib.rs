@@ -98,11 +98,7 @@ pub struct RpcServerState {
 
 impl RpcServerState {
     pub fn new(engine: Arc<BlockchainEngine>) -> Self {
-        Self {
-            engine,
-            transaction_broadcaster: None,
-            started_at: Instant::now(),
-        }
+        Self { engine, transaction_broadcaster: None, started_at: Instant::now() }
     }
 
     pub fn with_transaction_broadcaster(
@@ -126,21 +122,11 @@ impl RpcServerState {
 }
 
 fn error_response(id: u64, error: RpcError) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: None,
-        error: Some(error),
-        id,
-    }
+    RpcResponse { jsonrpc: "2.0".to_string(), result: None, error: Some(error), id }
 }
 
 fn respond_with_value(id: u64, val: serde_json::Value) -> RpcResponse {
-    RpcResponse {
-        jsonrpc: "2.0".to_string(),
-        result: Some(val),
-        error: None,
-        id,
-    }
+    RpcResponse { jsonrpc: "2.0".to_string(), result: Some(val), error: None, id }
 }
 
 pub(crate) fn invalid_params_response(id: u64, message: impl Into<String>) -> RpcResponse {
@@ -164,12 +150,8 @@ pub(crate) fn parse_labeled_params<T: serde::de::DeserializeOwned>(
     params: &serde_json::Value,
     label: &str,
 ) -> Result<T, Box<RpcResponse>> {
-    serde_json::from_value(params.clone()).map_err(|e| {
-        Box::new(invalid_params_response(
-            id,
-            format!("Invalid {}: {}", label, e),
-        ))
-    })
+    serde_json::from_value(params.clone())
+        .map_err(|e| Box::new(invalid_params_response(id, format!("Invalid {}: {}", label, e))))
 }
 
 pub(crate) fn first_array_param(
@@ -179,8 +161,7 @@ pub(crate) fn first_array_param(
     let arr = params
         .as_array()
         .ok_or_else(|| Box::new(invalid_params_response(id, "Expected array params")))?;
-    arr.first()
-        .ok_or_else(|| Box::new(invalid_params_response(id, "Empty params array")))
+    arr.first().ok_or_else(|| Box::new(invalid_params_response(id, "Empty params array")))
 }
 
 fn respond_with_serialize<T: serde::Serialize>(id: u64, v: T) -> RpcResponse {
@@ -211,10 +192,7 @@ const RPC_RATE_LIMITER_MAX_TRACKED_IPS: usize = 10_000;
 impl RpcRateLimiter {
     fn allow(&self, ip: IpAddr) -> bool {
         let now = Instant::now();
-        let mut windows = self
-            .windows
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut windows = self.windows.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS && !windows.contains_key(&ip) {
             // Opportunistically drop expired windows so a long-lived public
             // node does not accumulate one entry per source address forever.
@@ -225,10 +203,8 @@ impl RpcRateLimiter {
             // the map. Evict the oldest source so memory stays hard-bounded
             // regardless of how many distinct addresses arrive.
             if windows.len() >= RPC_RATE_LIMITER_MAX_TRACKED_IPS {
-                let mut oldest: Vec<(IpAddr, Instant)> = windows
-                    .iter()
-                    .map(|(addr, w)| (*addr, w.started_at))
-                    .collect();
+                let mut oldest: Vec<(IpAddr, Instant)> =
+                    windows.iter().map(|(addr, w)| (*addr, w.started_at)).collect();
                 oldest.sort_by_key(|(_, t)| *t);
                 let evict_count = windows.len() - RPC_RATE_LIMITER_MAX_TRACKED_IPS + 1;
                 for (addr, _) in oldest.into_iter().take(evict_count) {
@@ -236,15 +212,9 @@ impl RpcRateLimiter {
                 }
             }
         }
-        let window = windows.entry(ip).or_insert(RateWindow {
-            started_at: now,
-            request_count: 0,
-        });
+        let window = windows.entry(ip).or_insert(RateWindow { started_at: now, request_count: 0 });
         if now.duration_since(window.started_at) >= RPC_RATE_LIMIT_WINDOW {
-            *window = RateWindow {
-                started_at: now,
-                request_count: 0,
-            };
+            *window = RateWindow { started_at: now, request_count: 0 };
         }
         if window.request_count >= RPC_RATE_LIMIT_PER_WINDOW {
             return false;
@@ -291,10 +261,7 @@ async fn rate_limit_by_ip(
 
 /// Create RPC server router
 pub fn create_router(state: RpcServerState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any);
 
     Router::new()
         .route("/", post(handle_rpc))
@@ -315,10 +282,8 @@ pub fn create_router(state: RpcServerState) -> Router {
 /// spam barrier, so request volume must be bounded at the network edge. Tests
 /// keep using [`create_router`] so bursty unit tests are not throttled.
 pub fn create_router_with_anti_spam(state: RpcServerState) -> Router {
-    create_router(state).layer(middleware::from_fn_with_state(
-        RpcRateLimiter::default(),
-        rate_limit_by_ip,
-    ))
+    create_router(state)
+        .layer(middleware::from_fn_with_state(RpcRateLimiter::default(), rate_limit_by_ip))
 }
 
 /// Handle RPC request
@@ -327,10 +292,8 @@ async fn handle_rpc(State(state): State<RpcServerState>, req: Request) -> impl I
     // extractors are not supported for `ConnectInfo` in axum 0.8, and a
     // required `ConnectInfo` extractor would 500 every router-level test that
     // posts without connect info.
-    let client_ip = req
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0.ip().to_string());
+    let client_ip =
+        req.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0.ip().to_string());
     let Json(request) = match Json::<RpcRequest>::from_request(req, &state).await {
         Ok(Json(request)) => Json(request),
         Err(rejection) => return rejection.into_response(),
@@ -462,10 +425,7 @@ async fn handle_metrics(State(state): State<RpcServerState>) -> impl IntoRespons
     match state.engine.export_consensus_metrics_prometheus() {
         Ok(metrics) => (
             StatusCode::OK,
-            [(
-                header::CONTENT_TYPE,
-                "text/plain; version=0.0.4; charset=utf-8",
-            )],
+            [(header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
             metrics,
         )
             .into_response(),
@@ -485,11 +445,7 @@ pub async fn start_server(engine: Arc<BlockchainEngine>, addr: &str) -> Result<(
 
     info!("Starting RPC server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }
@@ -505,11 +461,7 @@ pub async fn start_server_with_transaction_broadcaster(
 
     info!("Starting RPC server on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
     Ok(())
 }
@@ -568,11 +520,8 @@ async fn handle_network_status(state: &RpcServerState, request: &RpcRequest) -> 
         })
         .collect::<Vec<_>>();
 
-    let status = NetworkStatus {
-        local_authority_id,
-        authority_count: authorities.len(),
-        authorities,
-    };
+    let status =
+        NetworkStatus { local_authority_id, authority_count: authorities.len(), authorities };
 
     respond_with_serialize(request.id, status)
 }

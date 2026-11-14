@@ -6,10 +6,7 @@ use kanari_crypto::{CurveType, generate_keypair, verify_signature};
 fn sign_verify_roundtrip(curve: CurveType) {
     let kp = generate_keypair(curve).expect("generate_keypair ต้องสำเร็จ");
     let tagged = kp.tagged_address();
-    assert!(
-        tagged.starts_with(&format!("{curve}:")),
-        "tagged_address ต้องขึ้นต้นด้วย curve: {tagged}"
-    );
+    assert!(tagged.starts_with(&format!("{curve}:")), "tagged_address ต้องขึ้นต้นด้วย curve: {tagged}");
 
     let msg = b"kanari e2e: sign me";
     let sk = kp.export_private_key_secure();

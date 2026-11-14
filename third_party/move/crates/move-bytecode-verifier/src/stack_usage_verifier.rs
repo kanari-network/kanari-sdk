@@ -74,26 +74,20 @@ impl<'a> StackUsageVerifier<'a> {
             // Check that the stack height is sufficient to accommodate the number
             // of pops this instruction does
             if stack_size_increment < num_pops {
-                return Err(
-                    PartialVMError::new(StatusCode::NEGATIVE_STACK_SIZE_WITHIN_BLOCK)
-                        .at_code_offset(self.current_function(), block_start),
-                );
+                return Err(PartialVMError::new(StatusCode::NEGATIVE_STACK_SIZE_WITHIN_BLOCK)
+                    .at_code_offset(self.current_function(), block_start));
             }
             if let Some(new_incr) = u64::checked_sub(stack_size_increment, num_pops) {
                 stack_size_increment = new_incr
             } else {
-                return Err(
-                    PartialVMError::new(StatusCode::NEGATIVE_STACK_SIZE_WITHIN_BLOCK)
-                        .at_code_offset(self.current_function(), block_start),
-                );
+                return Err(PartialVMError::new(StatusCode::NEGATIVE_STACK_SIZE_WITHIN_BLOCK)
+                    .at_code_offset(self.current_function(), block_start));
             };
             if let Some(new_incr) = u64::checked_add(stack_size_increment, num_pushes) {
                 stack_size_increment = new_incr
             } else {
-                return Err(
-                    PartialVMError::new(StatusCode::POSITIVE_STACK_SIZE_AT_BLOCK_END)
-                        .at_code_offset(self.current_function(), block_start),
-                );
+                return Err(PartialVMError::new(StatusCode::POSITIVE_STACK_SIZE_AT_BLOCK_END)
+                    .at_code_offset(self.current_function(), block_start));
             };
 
             if stack_size_increment > config.max_value_stack_size as u64 {
@@ -105,10 +99,8 @@ impl<'a> StackUsageVerifier<'a> {
         if stack_size_increment == 0 {
             Ok(())
         } else {
-            Err(
-                PartialVMError::new(StatusCode::POSITIVE_STACK_SIZE_AT_BLOCK_END)
-                    .at_code_offset(self.current_function(), block_start),
-            )
+            Err(PartialVMError::new(StatusCode::POSITIVE_STACK_SIZE_AT_BLOCK_END)
+                .at_code_offset(self.current_function(), block_start))
         }
     }
 

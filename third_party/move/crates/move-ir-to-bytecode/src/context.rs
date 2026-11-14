@@ -117,49 +117,30 @@ impl<'a> CompiledDependencyView<'a> {
     fn source_struct_info(&self, idx: StructHandleIndex) -> Option<(ModuleIdent, StructName)> {
         let handle = self.struct_pool.get(idx.0 as usize)?;
         let module_handle = self.module_pool.get(handle.module.0 as usize)?;
-        let address = *self
-            .address_identifiers
-            .get(module_handle.address.0 as usize)?;
-        let module = ModuleName(
-            self.identifiers
-                .get(module_handle.name.0 as usize)?
-                .as_str()
-                .into(),
-        );
+        let address = *self.address_identifiers.get(module_handle.address.0 as usize)?;
+        let module =
+            ModuleName(self.identifiers.get(module_handle.name.0 as usize)?.as_str().into());
         assert!(module != ModuleName::module_self());
-        let ident = ModuleIdent {
-            address,
-            name: module,
-        };
-        let name = StructName(
-            self.identifiers
-                .get(handle.name.0 as usize)?
-                .as_str()
-                .into(),
-        );
+        let ident = ModuleIdent { address, name: module };
+        let name = StructName(self.identifiers.get(handle.name.0 as usize)?.as_str().into());
         Some((ident, name))
     }
 
     fn struct_handle(&self, module: &ModuleName, name: &StructName) -> Option<&'a StructHandle> {
         self.structs
-            .get(&(
-                ident_str(module.0.as_str()).ok()?,
-                ident_str(name.0.as_str()).ok()?,
-            ))
+            .get(&(ident_str(module.0.as_str()).ok()?, ident_str(name.0.as_str()).ok()?))
             .and_then(|idx| self.struct_pool.get(*idx as usize))
     }
 
     fn function_signature(&self, name: &FunctionName) -> Option<FunctionSignature> {
-        self.functions
-            .get(ident_str(name.0.as_str()).ok()?)
-            .and_then(|idx| {
-                let fh = self.function_pool.get(*idx as usize)?;
-                Some(FunctionSignature {
-                    parameters: self.signature_pool[fh.parameters.0 as usize].0.clone(),
-                    return_: self.signature_pool[fh.return_.0 as usize].0.clone(),
-                    type_parameters: fh.type_parameters.clone(),
-                })
+        self.functions.get(ident_str(name.0.as_str()).ok()?).and_then(|idx| {
+            let fh = self.function_pool.get(*idx as usize)?;
+            Some(FunctionSignature {
+                parameters: self.signature_pool[fh.parameters.0 as usize].0.clone(),
+                return_: self.signature_pool[fh.return_.0 as usize].0.clone(),
+                type_parameters: fh.type_parameters.clone(),
             })
+        })
     }
 }
 
@@ -173,9 +154,7 @@ pub(crate) struct StoredCompiledDependency {
 
 impl StoredCompiledDependency {
     pub fn create(module: CompiledModule) -> Result<Self> {
-        Self::try_new(Box::new(module), move |module| {
-            CompiledDependencyView::new(module)
-        })
+        Self::try_new(Box::new(module), move |module| CompiledDependencyView::new(module))
     }
 }
 
@@ -324,9 +303,7 @@ impl<'a> Context<'a> {
             name: ModuleName(compiled_dep.name().as_str().into()),
         };
         match self.dependencies.get(&ident) {
-            None => self
-                .dependencies
-                .insert(ident, CompiledDependency::borrowed(compiled_dep)?),
+            None => self.dependencies.insert(ident, CompiledDependency::borrowed(compiled_dep)?),
             Some(_previous) => bail!("Duplicate dependency module for {}", ident),
         };
         Ok(())
@@ -354,9 +331,7 @@ impl<'a> Context<'a> {
         assert!(num_functions == self.function_signatures.len());
         let function_handles = Self::materialize_pool(
             num_functions,
-            self.function_handles
-                .into_iter()
-                .map(|(_, (t, idx))| (t, idx.0)),
+            self.function_handles.into_iter().map(|(_, (t, idx))| (t, idx.0)),
         );
         let materialized_pools = MaterializedPools {
             function_handles,
@@ -379,10 +354,7 @@ impl<'a> Context<'a> {
         label_to_index: HashMap<BlockLabel_, u16>,
     ) -> HashMap<u16, u16> {
         let labels = std::mem::take(&mut self.labels);
-        label_to_index
-            .into_iter()
-            .map(|(lbl, actual_idx)| (labels[&lbl], actual_idx))
-            .collect()
+        label_to_index.into_iter().map(|(lbl, actual_idx)| (labels[&lbl], actual_idx)).collect()
     }
 
     //**********************************************************************************************
@@ -391,9 +363,7 @@ impl<'a> Context<'a> {
 
     /// Get the alias for the identifier, fails if it is not bound.
     fn module_alias(&self, ident: &ModuleIdent) -> Result<&ModuleName> {
-        self.aliases
-            .get(ident)
-            .ok_or_else(|| format_err!("Missing import for module {}", ident))
+        self.aliases.get(ident).ok_or_else(|| format_err!("Missing import for module {}", ident))
     }
 
     /// Get the handle for the alias, fails if it is not bound.
@@ -414,12 +384,7 @@ impl<'a> Context<'a> {
 
     /// Get the module handle index for the alias, fails if it is not bound.
     pub fn module_handle_index(&self, module_name: &ModuleName) -> Result<ModuleHandleIndex> {
-        Ok(ModuleHandleIndex(
-            *self
-                .module_handles
-                .get(self.module_handle(module_name)?)
-                .unwrap(),
-        ))
+        Ok(ModuleHandleIndex(*self.module_handles.get(self.module_handle(module_name)?).unwrap()))
     }
 
     /// Get the field handle index for the alias, adds it if missing.
@@ -429,10 +394,7 @@ impl<'a> Context<'a> {
         field: u16,
     ) -> Result<FieldHandleIndex> {
         let field_handle = FieldHandle { owner, field };
-        Ok(FieldHandleIndex(get_or_add_item(
-            &mut self.field_handles,
-            field_handle,
-        )?))
+        Ok(FieldHandleIndex(get_or_add_item(&mut self.field_handles, field_handle)?))
     }
 
     /// Get the struct instantiation index for the alias, adds it if missing.
@@ -441,10 +403,7 @@ impl<'a> Context<'a> {
         def: StructDefinitionIndex,
         type_parameters: SignatureIndex,
     ) -> Result<StructDefInstantiationIndex> {
-        let struct_inst = StructDefInstantiation {
-            def,
-            type_parameters,
-        };
+        let struct_inst = StructDefInstantiation { def, type_parameters };
         Ok(StructDefInstantiationIndex(get_or_add_item(
             &mut self.struct_instantiations,
             struct_inst,
@@ -457,10 +416,7 @@ impl<'a> Context<'a> {
         handle: FunctionHandleIndex,
         type_parameters: SignatureIndex,
     ) -> Result<FunctionInstantiationIndex> {
-        let func_inst = FunctionInstantiation {
-            handle,
-            type_parameters,
-        };
+        let func_inst = FunctionInstantiation { handle, type_parameters };
         Ok(FunctionInstantiationIndex(get_or_add_item(
             &mut self.function_instantiations,
             func_inst,
@@ -473,14 +429,8 @@ impl<'a> Context<'a> {
         handle: FieldHandleIndex,
         type_parameters: SignatureIndex,
     ) -> Result<FieldInstantiationIndex> {
-        let field_inst = FieldInstantiation {
-            handle,
-            type_parameters,
-        };
-        Ok(FieldInstantiationIndex(get_or_add_item(
-            &mut self.field_instantiations,
-            field_inst,
-        )?))
+        let field_inst = FieldInstantiation { handle, type_parameters };
+        Ok(FieldInstantiationIndex(get_or_add_item(&mut self.field_instantiations, field_inst)?))
     }
 
     /// Get the fake offset for the label. Labels will be fixed to real offsets after compilation
@@ -498,19 +448,13 @@ impl<'a> Context<'a> {
 
     /// Get the address pool index, adds it if missing.
     pub fn address_index(&mut self, addr: AccountAddress) -> Result<AddressIdentifierIndex> {
-        Ok(AddressIdentifierIndex(get_or_add_item(
-            &mut self.address_identifiers,
-            addr,
-        )?))
+        Ok(AddressIdentifierIndex(get_or_add_item(&mut self.address_identifiers, addr)?))
     }
 
     /// Get the byte array pool index, adds it if missing.
     #[allow(clippy::ptr_arg)]
     pub fn constant_index(&mut self, constant: Constant) -> Result<ConstantPoolIndex> {
-        Ok(ConstantPoolIndex(get_or_add_item(
-            &mut self.constant_pool,
-            constant,
-        )?))
+        Ok(ConstantPoolIndex(get_or_add_item(&mut self.constant_pool, constant)?))
     }
 
     pub fn named_constant_index(&mut self, constant: &ConstantName) -> Result<ConstantPoolIndex> {
@@ -579,8 +523,7 @@ impl<'a> Context<'a> {
         self.aliases.insert(id, alias);
         let address = self.address_index(id.address)?;
         let name = self.identifier_index(id.name.0)?;
-        self.modules
-            .insert(alias, (id, ModuleHandle { address, name }));
+        self.modules.insert(alias, (id, ModuleHandle { address, name }));
         Ok(ModuleHandleIndex(get_or_add_item_ref(
             &mut self.module_handles,
             &self.modules.get(&alias).unwrap().1,
@@ -606,15 +549,8 @@ impl<'a> Context<'a> {
     ) -> Result<StructHandleIndex> {
         let module = self.module_handle_index(&sname.module)?;
         let name = self.identifier_index(sname.name.0)?;
-        self.structs.insert(
-            sname.clone(),
-            StructHandle {
-                module,
-                name,
-                abilities,
-                type_parameters,
-            },
-        );
+        self.structs
+            .insert(sname.clone(), StructHandle { module, name, abilities, type_parameters });
         Ok(StructHandleIndex(get_or_add_item_ref(
             &mut self.struct_handles,
             self.structs.get(&sname).unwrap(),
@@ -632,9 +568,7 @@ impl<'a> Context<'a> {
         }
         // TODO: Add the decl of the struct definition name here
         // need to handle duplicates
-        Ok(StructDefinitionIndex(
-            *self.struct_defs.entry(s).or_insert(idx as TableIndex),
-        ))
+        Ok(StructDefinitionIndex(*self.struct_defs.entry(s).or_insert(idx as TableIndex)))
     }
 
     /// Given an identifier and a signature, creates a function handle and adds it to the pool.
@@ -650,14 +584,9 @@ impl<'a> Context<'a> {
         let module = self.module_handle_index(&mname)?;
         let name = self.identifier_index(fname.0)?;
 
-        self.function_signatures
-            .insert(m_f.clone(), signature.clone());
+        self.function_signatures.insert(m_f.clone(), signature.clone());
 
-        let FunctionSignature {
-            return_,
-            parameters,
-            type_parameters,
-        } = signature;
+        let FunctionSignature { return_, parameters, type_parameters } = signature;
 
         let params_idx = get_or_add_item(&mut self.signatures, Signature(parameters))?;
         let return_idx = get_or_add_item(&mut self.signatures, Signature(return_))?;
@@ -701,9 +630,7 @@ impl<'a> Context<'a> {
         decl_order: usize,
     ) {
         // need to handle duplicates
-        self.fields
-            .entry((s, f))
-            .or_insert((sd_idx, token, decl_order));
+        self.fields.entry((s, f)).or_insert((sd_idx, token, decl_order));
     }
 
     //**********************************************************************************************
@@ -783,10 +710,7 @@ impl<'a> Context<'a> {
                     .source_struct_info(orig_sh_idx)
                     .ok_or_else(|| format_err!("Malformed dependency"))?;
                 let module_name = *self.module_alias(&mident)?;
-                let sident = QualifiedStructIdent {
-                    module: module_name,
-                    name: sname,
-                };
+                let sident = QualifiedStructIdent { module: module_name, name: sname };
                 let correct_sh_idx = self.struct_handle_index(sident)?;
                 SignatureToken::Struct(correct_sh_idx)
             }
@@ -797,10 +721,7 @@ impl<'a> Context<'a> {
                     .source_struct_info(orig_sh_idx)
                     .ok_or_else(|| format_err!("Malformed dependency"))?;
                 let module_name = *self.module_alias(&mident)?;
-                let sident = QualifiedStructIdent {
-                    module: module_name,
-                    name: sname,
-                };
+                let sident = QualifiedStructIdent { module: module_name, name: sname };
                 let correct_sh_idx = self.struct_handle_index(sident)?;
                 let correct_inners = inners
                     .into_iter()
@@ -827,11 +748,7 @@ impl<'a> Context<'a> {
             .map(|t| self.reindex_signature_token(dep, t))
             .collect::<Result<_>>()?;
         let type_parameters = orig.type_parameters;
-        Ok(FunctionSignature {
-            return_,
-            parameters,
-            type_parameters,
-        })
+        Ok(FunctionSignature { return_, parameters, type_parameters })
     }
 
     fn dep_function_signature(

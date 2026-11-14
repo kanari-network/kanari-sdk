@@ -21,12 +21,7 @@ pub fn uri_to_file_path(uri: &Uri) -> Result<PathBuf> {
 
 pub fn path_to_uri(path: &Path) -> Result<Uri> {
     Url::from_file_path(path)
-        .map_err(|_| {
-            anyhow!(
-                "path cannot be represented as a file URI: {}",
-                path.display()
-            )
-        })?
+        .map_err(|_| anyhow!("path cannot be represented as a file URI: {}", path.display()))?
         .as_str()
         .parse()
         .map_err(|err| anyhow!("failed to parse file URI for {}: {err}", path.display()))

@@ -44,13 +44,7 @@ pub(crate) trait DiagnosticCode: Copy {
         let severity = self.severity();
         let category = Self::CATEGORY as u8;
         let (code, message) = self.code_and_message();
-        DiagnosticInfo {
-            severity,
-            category,
-            code,
-            external_prefix: None,
-            message,
-        }
+        DiagnosticInfo { severity, category, code, external_prefix: None, message }
     }
 }
 
@@ -60,18 +54,9 @@ pub enum WarningFilter {
     /// Filters all warnings
     All(ExternalPrefix),
     /// Filters all warnings of a specific category. Only known filters have names.
-    Category {
-        prefix: ExternalPrefix,
-        category: u8,
-        name: Option<WellKnownFilterName>,
-    },
+    Category { prefix: ExternalPrefix, category: u8, name: Option<WellKnownFilterName> },
     /// Filters a single warning, as defined by codes below. Only known filters have names.
-    Code {
-        prefix: ExternalPrefix,
-        category: u8,
-        code: u8,
-        name: Option<WellKnownFilterName>,
-    },
+    Code { prefix: ExternalPrefix, category: u8, code: u8, name: Option<WellKnownFilterName> },
 }
 
 //**************************************************************************************************
@@ -90,13 +75,7 @@ pub const fn custom(
     message: &'static str,
 ) -> DiagnosticInfo {
     assert!(category <= 99);
-    DiagnosticInfo {
-        severity,
-        category,
-        code,
-        external_prefix: Some(external_prefix),
-        message,
-    }
+    DiagnosticInfo { severity, category, code, external_prefix: Some(external_prefix), message }
 }
 
 macro_rules! codes {
@@ -394,12 +373,7 @@ impl WarningFilter {
         code: u8,
         name: Option<WellKnownFilterName>,
     ) -> Self {
-        Self::Code {
-            prefix,
-            category,
-            code,
-            name,
-        }
+        Self::Code { prefix, category, code, name }
     }
 
     pub fn category(
@@ -407,11 +381,7 @@ impl WarningFilter {
         category: u8,
         name: Option<WellKnownFilterName>,
     ) -> Self {
-        Self::Category {
-            prefix,
-            category,
-            name,
-        }
+        Self::Category { prefix, category, name }
     }
 }
 
@@ -421,13 +391,7 @@ impl WarningFilter {
 
 impl DiagnosticInfo {
     pub fn render(self) -> (/* code */ String, /* message */ &'static str) {
-        let Self {
-            severity,
-            category,
-            code,
-            external_prefix,
-            message,
-        } = self;
+        let Self { severity, category, code, external_prefix, message } = self;
         let sev_prefix = match severity {
             Severity::BlockingError | Severity::NonblockingError => "E",
             Severity::Warning => "W",

@@ -42,8 +42,7 @@ type EscapeAnalysisState = MapDomain<TempIndex, AbsValue>;
 
 impl EscapeAnalysisState {
     fn get_local_index(&self, i: &TempIndex) -> &AbsValue {
-        self.get(i)
-            .unwrap_or_else(|| panic!("Unbound local index {} in state {:?}", i, self))
+        self.get(i).unwrap_or_else(|| panic!("Unbound local index {} in state {:?}", i, self))
     }
 
     fn assign(&mut self, lhs: TempIndex, rhs: &TempIndex) {
@@ -52,16 +51,11 @@ impl EscapeAnalysisState {
     }
 
     pub fn call(&mut self, rets: &[TempIndex], args: &[TempIndex], call_env: &FunctionEnv) {
-        let has_internal_ref_input = args
-            .iter()
-            .any(|arg_index| self.get(arg_index).unwrap().is_internal_ref());
+        let has_internal_ref_input =
+            args.iter().any(|arg_index| self.get(arg_index).unwrap().is_internal_ref());
         for (ret_index, ret_type) in call_env.get_return_types().iter().enumerate() {
             let ret_value = if ret_type.is_reference() {
-                if has_internal_ref_input {
-                    AbsValue::InternalRef
-                } else {
-                    AbsValue::OkRef
-                }
+                if has_internal_ref_input { AbsValue::InternalRef } else { AbsValue::OkRef }
             } else {
                 AbsValue::NonRef
             };
@@ -122,17 +116,11 @@ impl EscapeAnalysis<'_> {
         );
         let fun_loc = self.func_env.get_loc();
         let label = Label::primary(fun_loc.file_id(), fun_loc.span());
-        let severity = if is_mut {
-            Severity::Error
-        } else {
-            Severity::Warning
-        };
+        let severity = if is_mut { Severity::Error } else { Severity::Warning };
         let warning_id = WarningId { ret_index, offset };
         self.escape_warnings.borrow_mut().insert(
             warning_id,
-            Diagnostic::new(severity)
-                .with_message(message)
-                .with_labels(vec![label]),
+            Diagnostic::new(severity).with_message(message).with_labels(vec![label]),
         );
     }
 }
@@ -168,11 +156,8 @@ impl<'a> TransferFunctions for EscapeAnalysis<'a> {
                     state.insert(rets[0], AbsValue::OkRef);
                 }
                 Function(mid, fid, _) => {
-                    let callee_fun_env = self
-                        .func_env
-                        .module_env
-                        .env
-                        .get_function(mid.qualified(*fid));
+                    let callee_fun_env =
+                        self.func_env.module_env.env.get_function(mid.qualified(*fid));
                     if callee_fun_env.is_native() {
                         // check if this is a modeled native
                         match (
@@ -261,19 +246,13 @@ impl FunctionTargetProcessor for EscapeAnalysisProcessor {
         let mut initial_state = EscapeAnalysisState::default();
         // initialize_formals
         for (param_index, param_type) in func_env.get_parameter_types().iter().enumerate() {
-            let param_val = if param_type.is_reference() {
-                AbsValue::OkRef
-            } else {
-                AbsValue::NonRef
-            };
+            let param_val =
+                if param_type.is_reference() { AbsValue::OkRef } else { AbsValue::NonRef };
             initial_state.insert(param_index, param_val);
         }
 
         let cfg = StacklessControlFlowGraph::new_forward(&data.code);
-        let analysis = EscapeAnalysis {
-            func_env,
-            escape_warnings: RefCell::new(BTreeMap::new()),
-        };
+        let analysis = EscapeAnalysis { func_env, escape_warnings: RefCell::new(BTreeMap::new()) };
         analysis.analyze_function(initial_state, &data.code, &cfg);
         let env = func_env.module_env.env;
         for (_, warning) in analysis.escape_warnings.into_inner() {

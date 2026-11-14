@@ -14,10 +14,7 @@ pub(crate) fn select_native_gas_payment(
     exclude_object_ids: &[String],
     pending_access_keys: &HashSet<String>,
 ) -> anyhow::Result<GasPayment> {
-    let excluded = exclude_object_ids
-        .iter()
-        .map(|id| normalize_addr(id))
-        .collect::<HashSet<_>>();
+    let excluded = exclude_object_ids.iter().map(|id| normalize_addr(id)).collect::<HashSet<_>>();
     let mut best: Option<(ObjectRef, u64)> = None;
     for object in owned_objects {
         if excluded.contains(&normalize_addr(&object.id)) {
@@ -39,11 +36,7 @@ pub(crate) fn select_native_gas_payment(
             Some((_, current)) if *current <= balance => {}
             _ => {
                 best = Some((
-                    ObjectRef::new(
-                        object.id.clone(),
-                        Some(object.version),
-                        object.digest.clone(),
-                    ),
+                    ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
                     balance,
                 ))
             }
@@ -114,10 +107,8 @@ pub(crate) fn select_gas_payment_with_table(
     table: &kanari_types::gas_market::GasPriceTable,
 ) -> anyhow::Result<(GasPayment, u64)> {
     let native_required = gas_limit.saturating_mul(effective_gas_price(gas_price));
-    let excluded: HashSet<String> = exclude_object_ids
-        .iter()
-        .map(|id| normalize_addr(id))
-        .collect();
+    let excluded: HashSet<String> =
+        exclude_object_ids.iter().map(|id| normalize_addr(id)).collect();
     let mut balances = std::collections::BTreeMap::<String, u64>::new();
     for object in owned_objects {
         if excluded.contains(&normalize_addr(&object.id)) {
@@ -171,11 +162,7 @@ pub(crate) fn select_gas_payment_with_table(
         .filter_map(|object| {
             CoinModule::read_balance(&object.data).map(|balance| {
                 (
-                    ObjectRef::new(
-                        object.id.clone(),
-                        Some(object.version),
-                        object.digest.clone(),
-                    ),
+                    ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
                     balance,
                 )
             })
@@ -237,11 +224,7 @@ pub(crate) fn select_native_transfer_and_gas_payment(
         .filter_map(|object| {
             CoinModule::read_balance(&object.data).map(|balance| {
                 (
-                    ObjectRef::new(
-                        object.id.clone(),
-                        Some(object.version),
-                        object.digest.clone(),
-                    ),
+                    ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
                     balance,
                 )
             })
@@ -273,9 +256,8 @@ pub(crate) fn select_native_transfer_and_gas_payment(
     }
 
     let mut best_pair: Option<((ObjectRef, u64), (ObjectRef, u64))> = None;
-    for (transfer_ref, transfer_balance) in native_coins
-        .iter()
-        .filter(|(_, balance)| *balance >= transfer_amount)
+    for (transfer_ref, transfer_balance) in
+        native_coins.iter().filter(|(_, balance)| *balance >= transfer_amount)
     {
         let Some((gas_ref, gas_balance)) = native_coins
             .iter()
@@ -288,10 +270,7 @@ pub(crate) fn select_native_transfer_and_gas_payment(
             continue;
         };
 
-        let candidate = (
-            (transfer_ref.clone(), *transfer_balance),
-            (gas_ref, gas_balance),
-        );
+        let candidate = ((transfer_ref.clone(), *transfer_balance), (gas_ref, gas_balance));
         // Keep the smallest sufficient coin as the long-lived gas reserve.
         // Preferring the smallest transfer coin can consume it completely and
         // strand the wallet with one funded coin plus one zero-balance coin,
@@ -299,11 +278,8 @@ pub(crate) fn select_native_transfer_and_gas_payment(
         // policy.
         match &best_pair {
             Some(((best_transfer_ref, best_transfer_balance), (_, best_gas_balance)))
-                if (
-                    *best_gas_balance,
-                    *best_transfer_balance,
-                    &best_transfer_ref.object_id,
-                ) <= (candidate.1.1, candidate.0.1, &candidate.0.0.object_id) => {}
+                if (*best_gas_balance, *best_transfer_balance, &best_transfer_ref.object_id)
+                    <= (candidate.1.1, candidate.0.1, &candidate.0.0.object_id) => {}
             _ => best_pair = Some(candidate),
         }
     }
@@ -322,9 +298,7 @@ pub(crate) fn select_native_transfer_and_gas_payment(
         ));
     }
 
-    let has_transfer_coin = native_coins
-        .iter()
-        .any(|(_, balance)| *balance >= transfer_amount);
+    let has_transfer_coin = native_coins.iter().any(|(_, balance)| *balance >= transfer_amount);
     if !has_transfer_coin {
         anyhow::bail!(
             "No single Coin<{}> object can cover requested amount {}",
@@ -333,9 +307,7 @@ pub(crate) fn select_native_transfer_and_gas_payment(
         );
     }
 
-    let has_gas_coin = native_coins
-        .iter()
-        .any(|(_, balance)| *balance >= required_gas);
+    let has_gas_coin = native_coins.iter().any(|(_, balance)| *balance >= required_gas);
     if !has_gas_coin {
         anyhow::bail!(
             "No spendable native gas coin object found with at least {} Mist",
@@ -355,11 +327,7 @@ pub(crate) fn select_native_coin_consolidation_step(
     required_amount: u64,
     gas_limit: u64,
     gas_price: u64,
-) -> anyhow::Result<(
-    kanari_rpc_api::ObjectInfo,
-    kanari_rpc_api::ObjectInfo,
-    GasPayment,
-)> {
+) -> anyhow::Result<(kanari_rpc_api::ObjectInfo, kanari_rpc_api::ObjectInfo, GasPayment)> {
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
     let required_gas = gas_limit.saturating_mul(effective_gas_price(gas_price));
     let native_coins: Vec<(kanari_rpc_api::ObjectInfo, u64)> = owned_objects
@@ -379,23 +347,16 @@ pub(crate) fn select_native_coin_consolidation_step(
         );
     }
 
-    let mut gas_candidates: Vec<(kanari_rpc_api::ObjectInfo, u64)> = native_coins
-        .iter()
-        .filter(|(_, balance)| *balance >= required_gas)
-        .cloned()
-        .collect();
+    let mut gas_candidates: Vec<(kanari_rpc_api::ObjectInfo, u64)> =
+        native_coins.iter().filter(|(_, balance)| *balance >= required_gas).cloned().collect();
     gas_candidates.sort_by_key(|(_, balance)| *balance);
 
     for (gas_object, _) in gas_candidates {
-        let mut remaining: Vec<(kanari_rpc_api::ObjectInfo, u64)> = native_coins
-            .iter()
-            .filter(|(object, _)| object.id != gas_object.id)
-            .cloned()
-            .collect();
+        let mut remaining: Vec<(kanari_rpc_api::ObjectInfo, u64)> =
+            native_coins.iter().filter(|(object, _)| object.id != gas_object.id).cloned().collect();
 
-        let remaining_total = remaining
-            .iter()
-            .fold(0u64, |sum, (_, balance)| sum.saturating_add(*balance));
+        let remaining_total =
+            remaining.iter().fold(0u64, |sum, (_, balance)| sum.saturating_add(*balance));
         if remaining_total < required_amount || remaining.len() < 2 {
             continue;
         }
@@ -448,11 +409,8 @@ pub(crate) fn select_coin_object_for_token(
         let Some(balance) = CoinModule::read_balance(&object.data) else {
             continue;
         };
-        let object_ref = ObjectRef::new(
-            object.id.clone(),
-            Some(object.version),
-            object.digest.clone(),
-        );
+        let object_ref =
+            ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone());
         if balance >= required_amount {
             match &best {
                 Some((_, current)) if *current <= balance => {}

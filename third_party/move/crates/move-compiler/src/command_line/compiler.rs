@@ -127,12 +127,7 @@ impl Compiler {
             mut find_move_files: impl FnMut(&Path) -> bool,
         ) -> anyhow::Result<Vec<IndexedPhysicalPackagePath>> {
             let mut idx_paths = vec![];
-            for PackagePaths {
-                name,
-                paths,
-                named_address_map,
-            } in all_pkgs
-            {
+            for PackagePaths { name, paths, named_address_map } in all_pkgs {
                 let name = if let Some((name, config)) = name {
                     let prev = package_configs.insert(name, config);
                     anyhow::ensure!(prev.is_none(), "Duplicate package entry for '{name}'");
@@ -166,13 +161,10 @@ impl Compiler {
         }
         let mut maps = NamedAddressMaps::new();
         let mut package_configs = BTreeMap::new();
-        let targets = indexed_scopes(
-            &mut maps,
-            &mut package_configs,
-            &vfs_root,
-            targets,
-            |path| extension_equals(path, MOVE_EXTENSION),
-        )?;
+        let targets =
+            indexed_scopes(&mut maps, &mut package_configs, &vfs_root, targets, |path| {
+                extension_equals(path, MOVE_EXTENSION)
+            })?;
         let deps = indexed_scopes(&mut maps, &mut package_configs, &vfs_root, deps, |path| {
             extension_equals(path, MOVE_EXTENSION)
                 || extension_equals(path, MOVE_COMPILED_EXTENSION)
@@ -206,11 +198,7 @@ impl Compiler {
             paths: targets,
             named_address_map: named_address_map.clone(),
         }];
-        let deps = vec![PackagePaths {
-            name: None,
-            paths: deps,
-            named_address_map,
-        }];
+        let deps = vec![PackagePaths { name: None, paths: deps, named_address_map }];
         Self::from_package_paths(vfs_root, targets, deps).unwrap()
     }
 
@@ -279,8 +267,7 @@ impl Compiler {
         prefix: Option<impl Into<Symbol>>,
         filters: Vec<WarningFilter>,
     ) -> Self {
-        self.known_warning_filters
-            .push((prefix.map(|s| s.into()), filters));
+        self.known_warning_filters.push((prefix.map(|s| s.into()), filters));
         self
     }
 
@@ -340,11 +327,7 @@ impl Compiler {
 
         for path in targets.iter().chain(&deps) {
             if !path.path.is_file().unwrap_or(false) {
-                debug_assert!(
-                    false,
-                    "Specified path is not a file: {}",
-                    path.path.as_str()
-                );
+                debug_assert!(false, "Specified path is not a file: {}", path.path.as_str());
                 anyhow::bail!(
                     "Specified path is not a file: {}.\
                     If vfs_root is set, all specified paths must be files",
@@ -454,19 +437,9 @@ impl<const P: Pass> SteppedCompiler<P> {
         assert!(P > EMPTY_COMPILER);
         assert!(self.program.is_some());
         assert!(self.program.as_ref().unwrap().equivalent_pass() == P);
-        assert!(
-            P <= PASS_COMPILATION,
-            "Invalid pass for run_to. Initial pass is too large."
-        );
-        assert!(
-            P <= TARGET,
-            "Invalid pass for run_to. Target pass precedes the current pass"
-        );
-        let Self {
-            mut compilation_env,
-            pre_compiled_lib,
-            program,
-        } = self;
+        assert!(P <= PASS_COMPILATION, "Invalid pass for run_to. Initial pass is too large.");
+        assert!(P <= TARGET, "Invalid pass for run_to. Target pass precedes the current pass");
+        let Self { mut compilation_env, pre_compiled_lib, program } = self;
         let new_prog = run(
             &mut compilation_env,
             pre_compiled_lib.clone(),
@@ -475,11 +448,7 @@ impl<const P: Pass> SteppedCompiler<P> {
             |_, _| (),
         )?;
         assert!(new_prog.equivalent_pass() == TARGET);
-        Ok(SteppedCompiler {
-            compilation_env,
-            pre_compiled_lib,
-            program: Some(new_prog),
-        })
+        Ok(SteppedCompiler { compilation_env, pre_compiled_lib, program: Some(new_prog) })
     }
 
     pub fn compilation_env(&mut self) -> &mut CompilationEnv {
@@ -578,13 +547,7 @@ macro_rules! ast_stepped_compilers {
 
 ast_stepped_compilers!(
     (PASS_PARSER, parser, Parser, at_parser, new_at_parser),
-    (
-        PASS_EXPANSION,
-        expansion,
-        Expansion,
-        at_expansion,
-        new_at_expansion
-    ),
+    (PASS_EXPANSION, expansion, Expansion, at_expansion, new_at_expansion),
     (PASS_NAMING, naming, Naming, at_naming, new_at_naming),
     (PASS_TYPING, typing, Typing, at_typing, new_at_typing),
     (PASS_HLIR, hlir, Hlir, at_hlir, new_at_hlir),
@@ -593,11 +556,7 @@ ast_stepped_compilers!(
 
 impl SteppedCompiler<PASS_COMPILATION> {
     pub fn into_compiled_units(self) -> (Vec<AnnotatedCompiledUnit>, Diagnostics) {
-        let Self {
-            compilation_env: _,
-            pre_compiled_lib: _,
-            program,
-        } = self;
+        let Self { compilation_env: _, pre_compiled_lib: _, program } = self;
         match program {
             Some(PassResult::Compilation(units, warnings)) => (units, warnings),
             _ => panic!(),
@@ -667,13 +626,7 @@ pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol
             compiled = Some(units.clone())
         }
     };
-    match run(
-        &mut compilation_env,
-        None,
-        start,
-        PASS_COMPILATION,
-        save_result,
-    ) {
+    match run(&mut compilation_env, None, start, PASS_COMPILATION, save_result) {
         Err((_pass, errors)) => Ok(Err((files, errors))),
         Ok(_) => Ok(Ok(FullyCompiledProgram {
             files,
@@ -796,11 +749,8 @@ pub fn generate_interface_files(
     let mv_files: Vec<_> = mv_file_locations
         .iter()
         .filter(|s| {
-            let is_file = s
-                .path
-                .metadata()
-                .map(|d| d.file_type == VfsFileType::File)
-                .unwrap_or(false);
+            let is_file =
+                s.path.metadata().map(|d| d.file_type == VfsFileType::File).unwrap_or(false);
             is_file && has_compiled_module_magic_number(&s.path)
         })
         .cloned()
@@ -841,12 +791,7 @@ pub fn generate_interface_files(
     // generation is still read from the "regular" virtual file system, that is `vfs`)
     let deps_out_vfs = VfsPath::new(MemoryFS::new());
     let mut result = vec![];
-    for IndexedVfsPackagePath {
-        package,
-        path,
-        named_address_map,
-    } in mv_files
-    {
+    for IndexedVfsPackagePath { package, path, named_address_map } in mv_files {
         let (id, interface_contents) =
             interface_generator::write_file_to_string(module_to_named_address, &path)?;
         let addr_dir = dir_path!(all_addr_dir.clone(), format!("{}", id.address()));
@@ -857,15 +802,9 @@ pub fn generate_interface_files(
         );
         let vfs_path = deps_out_vfs.join(file_path)?;
         vfs_path.parent().create_dir_all()?;
-        vfs_path
-            .create_file()?
-            .write_all(interface_contents.as_bytes())?;
+        vfs_path.create_file()?.write_all(interface_contents.as_bytes())?;
 
-        result.push(IndexedVfsPackagePath {
-            package,
-            path: vfs_path,
-            named_address_map,
-        });
+        result.push(IndexedVfsPackagePath { package, path: vfs_path, named_address_map });
     }
 
     Ok(result)
@@ -1011,13 +950,7 @@ fn run(
                     .map_err(|diags| (cur_pass, diags))?;
                 let hprog =
                     hlir::translate::program(compilation_env, pre_compiled_lib.clone(), tprog);
-                rec(
-                    compilation_env,
-                    pre_compiled_lib,
-                    PassResult::Hlir(hprog),
-                    until,
-                    result_check,
-                )
+                rec(compilation_env, pre_compiled_lib, PassResult::Hlir(hprog), until, result_check)
             }
             PassResult::Hlir(hprog) => {
                 let cprog =

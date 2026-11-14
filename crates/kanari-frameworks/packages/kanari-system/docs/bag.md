@@ -132,6 +132,7 @@ Types K and V can be different for every entry.
 
 ## Function `borrow_mut`
 
+Mutably borrows the value associated with <code>k</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_borrow_mut">borrow_mut</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(<a href="bag.md#0x2_bag">bag</a>: &<b>mut</b> <a href="bag.md#0x2_bag_Bag">bag::Bag</a>, k: K): &<b>mut</b> V
@@ -156,6 +157,7 @@ Types K and V can be different for every entry.
 
 ## Function `borrow`
 
+Immutably borrows the value associated with <code>k</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="borrow.md#0x2_borrow">borrow</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(<a href="bag.md#0x2_bag">bag</a>: &<a href="bag.md#0x2_bag_Bag">bag::Bag</a>, k: K): &V
@@ -180,6 +182,7 @@ Types K and V can be different for every entry.
 
 ## Function `remove`
 
+Removes the key-value pair for <code>k</code> and returns the value.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_remove">remove</a>&lt;K: <b>copy</b>, drop, store, V: store&gt;(<a href="bag.md#0x2_bag">bag</a>: &<b>mut</b> <a href="bag.md#0x2_bag_Bag">bag::Bag</a>, k: K): V
@@ -206,6 +209,7 @@ Types K and V can be different for every entry.
 
 ## Function `contains`
 
+Returns true if the bag contains key <code>k</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_contains">contains</a>&lt;K: <b>copy</b>, drop, store&gt;(<a href="bag.md#0x2_bag">bag</a>: &<a href="bag.md#0x2_bag_Bag">bag::Bag</a>, k: K): bool
@@ -230,6 +234,7 @@ Types K and V can be different for every entry.
 
 ## Function `length`
 
+Returns the number of entries in the bag.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_length">length</a>(<a href="bag.md#0x2_bag">bag</a>: &<a href="bag.md#0x2_bag_Bag">bag::Bag</a>): u64
@@ -254,6 +259,7 @@ Types K and V can be different for every entry.
 
 ## Function `destroy_empty`
 
+Destroys the bag, aborting if it is not empty.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bag.md#0x2_bag_destroy_empty">destroy_empty</a>(<a href="bag.md#0x2_bag">bag</a>: <a href="bag.md#0x2_bag_Bag">bag::Bag</a>)

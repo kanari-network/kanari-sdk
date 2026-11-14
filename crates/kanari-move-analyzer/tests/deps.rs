@@ -15,10 +15,7 @@ fn move_home_respects_move_home_env() {
     // Save old value
     let old = std::env::var("MOVE_HOME").ok();
     unsafe { std::env::set_var("MOVE_HOME", "/tmp/custom-move-home") };
-    assert_eq!(
-        move_home(),
-        std::path::PathBuf::from("/tmp/custom-move-home")
-    );
+    assert_eq!(move_home(), std::path::PathBuf::from("/tmp/custom-move-home"));
     match old {
         Some(v) => unsafe { std::env::set_var("MOVE_HOME", v) },
         None => unsafe { std::env::remove_var("MOVE_HOME") },

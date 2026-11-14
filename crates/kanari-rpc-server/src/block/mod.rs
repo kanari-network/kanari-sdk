@@ -154,14 +154,9 @@ pub async fn handle_get_canonical_state_snapshot(
         }
     };
 
-    let limit = req
-        .limit
-        .unwrap_or(MAX_CANONICAL_SNAPSHOT_ENTRIES)
-        .min(MAX_CANONICAL_SNAPSHOT_ENTRIES);
-    match state
-        .engine
-        .canonical_state_snapshot_response(Some(limit), req.prefix.as_deref())
-    {
+    let limit =
+        req.limit.unwrap_or(MAX_CANONICAL_SNAPSHOT_ENTRIES).min(MAX_CANONICAL_SNAPSHOT_ENTRIES);
+    match state.engine.canonical_state_snapshot_response(Some(limit), req.prefix.as_deref()) {
         Ok(snapshot) => respond_with_serialize(request.id, snapshot),
         Err(error) => internal_error_response(
             request.id,

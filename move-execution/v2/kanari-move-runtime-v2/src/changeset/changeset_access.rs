@@ -53,11 +53,7 @@ impl ChangeSet {
             access.write(format!("nft:{token_type}"));
         }
         for (owner, token_type, _) in &self.token_balance_sets {
-            access.write(format!(
-                "token_balance:{}:{}",
-                owner.to_hex_literal(),
-                token_type
-            ));
+            access.write(format!("token_balance:{}:{}", owner.to_hex_literal(), token_type));
         }
         for (object_id, _) in &self.created_objects {
             access.write(Self::object_access_key(object_id));
@@ -83,10 +79,8 @@ impl ChangeSet {
             if CollectionModule::is_mint_log_type(&event.type_tag)
                 && let Some((_, collection_id)) = CollectionModule::mint_log_ids(&event.event_data)
             {
-                access.write(format!(
-                    "collection_members:0x{}",
-                    hex::encode(collection_id.as_ref())
-                ));
+                access
+                    .write(format!("collection_members:0x{}", hex::encode(collection_id.as_ref())));
             }
         }
         access
@@ -135,10 +129,6 @@ impl ChangeSet {
 
     /// Deterministic-access key for one dynamic-field record.
     pub(crate) fn dynamic_field_access_key(object_id: &str, name: &[u8]) -> String {
-        format!(
-            "dynamic:{}:{}",
-            Self::canonicalize_object_id(object_id),
-            hex::encode(name)
-        )
+        format!("dynamic:{}:{}", Self::canonicalize_object_id(object_id), hex::encode(name))
     }
 }

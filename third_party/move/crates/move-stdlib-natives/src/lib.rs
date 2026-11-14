@@ -74,10 +74,7 @@ impl GasParameters {
                 },
             },
             type_name: type_name::GasParameters {
-                get: type_name::GetGasParameters {
-                    base: 0.into(),
-                    per_byte: 0.into(),
-                },
+                get: type_name::GetGasParameters { base: 0.into(), per_byte: 0.into() },
             },
             signer: signer::GasParameters {
                 borrow_address: signer::BorrowAddressGasParameters { base: 0.into() },
@@ -85,15 +82,9 @@ impl GasParameters {
                 address_to_u64: signer::AddressToU64GasParameters { base: 0.into() },
             },
             string: string::GasParameters {
-                check_utf8: string::CheckUtf8GasParameters {
-                    base: 0.into(),
-                    per_byte: 0.into(),
-                },
+                check_utf8: string::CheckUtf8GasParameters { base: 0.into(), per_byte: 0.into() },
                 is_char_boundary: string::IsCharBoundaryGasParameters { base: 0.into() },
-                sub_string: string::SubStringGasParameters {
-                    base: 0.into(),
-                    per_byte: 0.into(),
-                },
+                sub_string: string::SubStringGasParameters { base: 0.into(), per_byte: 0.into() },
                 index_of: string::IndexOfGasParameters {
                     base: 0.into(),
                     per_byte_pattern: 0.into(),
@@ -118,9 +109,7 @@ impl GasParameters {
                     base_cost: 0.into(),
                     unit_cost: 0.into(),
                 },
-                poison: unit_test::PoisonGasParameters {
-                    base_cost: 0.into(),
-                },
+                poison: unit_test::PoisonGasParameters { base_cost: 0.into() },
             },
         }
     }
@@ -163,12 +152,8 @@ impl NurseryGasParameters {
     pub fn zeros() -> Self {
         Self {
             debug: debug::GasParameters {
-                print: debug::PrintGasParameters {
-                    base_cost: 0.into(),
-                },
-                print_stack_trace: debug::PrintStackTraceGasParameters {
-                    base_cost: 0.into(),
-                },
+                print: debug::PrintGasParameters { base_cost: 0.into() },
+                print_stack_trace: debug::PrintStackTraceGasParameters { base_cost: 0.into() },
             },
         }
     }
@@ -189,10 +174,7 @@ pub fn nursery_natives(
         };
     }
 
-    add_natives!(
-        "debug",
-        debug::make_all(silent, gas_params.debug, move_std_addr)
-    );
+    add_natives!("debug", debug::make_all(silent, gas_params.debug, move_std_addr));
 
     make_table_from_iter(move_std_addr, natives)
 }

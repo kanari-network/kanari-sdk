@@ -46,11 +46,9 @@ impl FunctionTargetProcessor for CleanAndOptimizeProcessor {
         // Run optimizer
         let options = ProverOptions::get(func_env.module_env.env);
         let instrs = std::mem::take(&mut data.code);
-        let new_instrs = Optimizer {
-            options: &options,
-            target: &FunctionTarget::new(func_env, &data),
-        }
-        .run(instrs);
+        let new_instrs =
+            Optimizer { options: &options, target: &FunctionTarget::new(func_env, &data) }
+                .run(instrs);
         data.code = new_instrs;
         data
     }
@@ -74,11 +72,7 @@ impl AbstractDomain for AnalysisState {
     fn join(&mut self, other: &Self) -> JoinResult {
         let n = self.unwritten.len();
         self.unwritten.extend(other.unwritten.iter().cloned());
-        if self.unwritten.len() == n {
-            JoinResult::Unchanged
-        } else {
-            JoinResult::Changed
-        }
+        if self.unwritten.len() == n { JoinResult::Unchanged } else { JoinResult::Changed }
     }
 }
 
@@ -106,10 +100,8 @@ impl<'a> TransferFunctions for Optimizer<'a> {
                     }
                 }
                 Function(mid, fid, _) => {
-                    let callee_env = &self
-                        .target
-                        .global_env()
-                        .get_function_qid(mid.qualified(*fid));
+                    let callee_env =
+                        &self.target.global_env().get_function_qid(mid.qualified(*fid));
                     let has_effect = if !self.options.for_interpretation && callee_env.is_native() {
                         // Exploit knowledge about builtin functions
                         !(callee_env.is_well_known(VECTOR_BORROW_MUT)

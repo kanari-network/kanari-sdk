@@ -83,7 +83,8 @@ module james::nft {
     public entry fun burn(
         cap: &mut collection::NftCap,
         coll: &collection::Collection,
-        nft: Nft
+        nft: Nft,
+        _ctx: &mut TxContext
     ) {
         krc_721::burn(cap, coll, nft);
     }

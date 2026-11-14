@@ -119,12 +119,8 @@ impl AuthManager {
         let wallet_address = wallet.address.to_hex_literal();
 
         // Create user record with hashed password
-        let mut user_record = UserRecord::new(
-            normalized_email.clone(),
-            password,
-            wallet_address,
-            curve.to_string(),
-        )?;
+        let mut user_record =
+            UserRecord::new(normalized_email.clone(), password, wallet_address, curve.to_string())?;
 
         let encrypted_private_key = encrypt_private_key(keypair.private_key.as_ref(), password)?;
         user_record.set_encrypted_private_key(encrypted_private_key);
@@ -196,11 +192,7 @@ impl AuthManager {
             let curve_type = CurveType::from_str(&user.curve_type)
                 .map_err(|e| AuthError::CryptoError(format!("Invalid stored curve type: {e}")))?;
 
-            (
-                user.wallet_address.clone(),
-                curve_type,
-                decrypted_private_key,
-            )
+            (user.wallet_address.clone(), curve_type, decrypted_private_key)
         };
 
         // Create session (outside the borrow scope)
@@ -233,8 +225,7 @@ impl AuthManager {
     /// * `email` - User's email address
     pub fn logout_all(&mut self, email: &str) -> AuthResult<()> {
         let normalized_email = email_validator::normalize_email(email);
-        self.session_manager
-            .invalidate_all_user_sessions(&normalized_email);
+        self.session_manager.invalidate_all_user_sessions(&normalized_email);
         log::info!("All sessions invalidated for: {}", normalized_email);
         Ok(())
     }
@@ -310,9 +301,7 @@ impl AuthManager {
 
         // Sign the transaction
         let mut signed_tx = SignedTransaction::new(transaction);
-        let signing_curve = wallet
-            .validated_signing_curve()
-            .map_err(AuthError::WalletError)?;
+        let signing_curve = wallet.validated_signing_curve().map_err(AuthError::WalletError)?;
         signed_tx
             .sign(&wallet.private_key, signing_curve)
             .map_err(|e| AuthError::SigningError(format!("Transaction signing failed: {}", e)))?;
@@ -399,10 +388,8 @@ impl AuthManager {
         &self,
         email: &str,
     ) -> AuthResult<(String, String, String, Option<String>)> {
-        let user = self
-            .user_store
-            .get_user(email)?
-            .ok_or(AuthError::UserNotFound(email.to_string()))?;
+        let user =
+            self.user_store.get_user(email)?.ok_or(AuthError::UserNotFound(email.to_string()))?;
 
         if !user.is_active {
             return Err(AuthError::AccountLocked);
@@ -542,9 +529,7 @@ impl AuthManager {
             .ok_or(AuthError::UserNotFound(normalized_email.clone()))?;
 
         if user.totp_secret.is_none() {
-            return Err(AuthError::ValidationError(
-                "No pending 2FA setup found".to_string(),
-            ));
+            return Err(AuthError::ValidationError("No pending 2FA setup found".to_string()));
         }
 
         user.enable_two_factor();
@@ -645,19 +630,13 @@ mod tests {
 
         // Register user
         let wallet = auth
-            .register_user(
-                "test@example.com",
-                "SecurePass123!",
-                Some(CurveType::Ed25519),
-            )
+            .register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519))
             .unwrap();
 
         assert!(!wallet.address.to_string().is_empty());
 
         // Login
-        let session = auth
-            .login("test@example.com", "SecurePass123!", None)
-            .unwrap();
+        let session = auth.login("test@example.com", "SecurePass123!", None).unwrap();
 
         assert!(!session.session_id.is_empty());
         assert_eq!(session.email, "test@example.com");
@@ -667,19 +646,11 @@ mod tests {
     fn test_duplicate_registration() {
         let mut auth = AuthManager::new();
 
-        auth.register_user(
-            "test@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519)).unwrap();
 
         // Second registration should fail
-        let result = auth.register_user(
-            "test@example.com",
-            "AnotherPass456!",
-            Some(CurveType::Ed25519),
-        );
+        let result =
+            auth.register_user("test@example.com", "AnotherPass456!", Some(CurveType::Ed25519));
 
         assert!(result.is_err());
     }
@@ -688,12 +659,7 @@ mod tests {
     fn test_invalid_login() {
         let mut auth = AuthManager::new();
 
-        auth.register_user(
-            "test@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519)).unwrap();
 
         // Wrong password
         let result = auth.login("test@example.com", "WrongPassword", None);
@@ -708,16 +674,9 @@ mod tests {
     fn test_logout() {
         let mut auth = AuthManager::new();
 
-        auth.register_user(
-            "test@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519)).unwrap();
 
-        let session = auth
-            .login("test@example.com", "SecurePass123!", None)
-            .unwrap();
+        let session = auth.login("test@example.com", "SecurePass123!", None).unwrap();
 
         let session_id = session.session_id.clone();
 
@@ -732,24 +691,13 @@ mod tests {
     fn test_password_change() {
         let mut auth = AuthManager::new();
 
-        auth.register_user(
-            "test@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519)).unwrap();
 
         // Change password
-        assert!(
-            auth.change_password("test@example.com", "SecurePass123!", "NewPass456!")
-                .is_ok()
-        );
+        assert!(auth.change_password("test@example.com", "SecurePass123!", "NewPass456!").is_ok());
 
         // Old password should fail
-        assert!(
-            auth.login("test@example.com", "SecurePass123!", None)
-                .is_err()
-        );
+        assert!(auth.login("test@example.com", "SecurePass123!", None).is_err());
 
         // New password should work
         assert!(auth.login("test@example.com", "NewPass456!", None).is_ok());
@@ -758,45 +706,28 @@ mod tests {
     #[test]
     fn test_legacy_totp_secret_is_migrated_after_password_verification() {
         let mut auth = AuthManager::new();
-        auth.register_user(
-            "legacy@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
-
-        let mut user = auth
-            .user_store
-            .get_user("legacy@example.com")
-            .unwrap()
+        auth.register_user("legacy@example.com", "SecurePass123!", Some(CurveType::Ed25519))
             .unwrap();
+
+        let mut user = auth.user_store.get_user("legacy@example.com").unwrap().unwrap();
         user.totp_secret = Some("LEGACYPLAINTEXT".to_string());
         user.totp_enabled = true;
         auth.user_store.update_user(&user).unwrap();
         assert!(auth.has_legacy_two_factor_secrets().unwrap());
 
-        assert!(
-            auth.get_two_factor_status("legacy@example.com", "WrongPassword123!")
-                .is_err()
-        );
+        assert!(auth.get_two_factor_status("legacy@example.com", "WrongPassword123!").is_err());
         assert!(auth.has_legacy_two_factor_secrets().unwrap());
 
-        let status = auth
-            .get_two_factor_status("legacy@example.com", "SecurePass123!")
-            .unwrap()
-            .unwrap();
+        let status =
+            auth.get_two_factor_status("legacy@example.com", "SecurePass123!").unwrap().unwrap();
         assert_eq!(status.secret, "LEGACYPLAINTEXT");
         assert!(!auth.has_legacy_two_factor_secrets().unwrap());
     }
     #[test]
     fn test_enabled_two_factor_cannot_be_overwritten() {
         let mut auth = AuthManager::new();
-        auth.register_user(
-            "protected@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("protected@example.com", "SecurePass123!", Some(CurveType::Ed25519))
+            .unwrap();
         auth.save_two_factor_setup(
             "protected@example.com",
             "ORIGINALSECRET".to_string(),
@@ -813,22 +744,15 @@ mod tests {
             "SecurePass123!",
         );
         assert!(matches!(result, Err(AuthError::ValidationError(_))));
-        let status = auth
-            .get_two_factor_status("protected@example.com", "SecurePass123!")
-            .unwrap()
-            .unwrap();
+        let status =
+            auth.get_two_factor_status("protected@example.com", "SecurePass123!").unwrap().unwrap();
         assert_eq!(status.secret, "ORIGINALSECRET");
         assert!(status.enabled);
     }
     #[test]
     fn test_persisted_two_factor_lifecycle() {
         let mut auth = AuthManager::new();
-        auth.register_user(
-            "test@example.com",
-            "SecurePass123!",
-            Some(CurveType::Ed25519),
-        )
-        .unwrap();
+        auth.register_user("test@example.com", "SecurePass123!", Some(CurveType::Ed25519)).unwrap();
 
         auth.save_two_factor_setup(
             "test@example.com",
@@ -838,30 +762,19 @@ mod tests {
         )
         .unwrap();
 
-        let status = auth
-            .get_two_factor_status("test@example.com", "SecurePass123!")
-            .unwrap()
-            .unwrap();
+        let status =
+            auth.get_two_factor_status("test@example.com", "SecurePass123!").unwrap().unwrap();
         assert!(!status.enabled);
         assert_eq!(status.secret, "BASE32SECRET");
 
         auth.enable_two_factor("test@example.com").unwrap();
 
-        assert!(
-            auth.consume_backup_code("test@example.com", "CODE1234")
-                .unwrap()
-        );
-        assert!(
-            !auth
-                .consume_backup_code("test@example.com", "CODE1234")
-                .unwrap()
-        );
+        assert!(auth.consume_backup_code("test@example.com", "CODE1234").unwrap());
+        assert!(!auth.consume_backup_code("test@example.com", "CODE1234").unwrap());
 
         assert!(auth.disable_two_factor("test@example.com").unwrap());
         assert!(
-            auth.get_two_factor_status("test@example.com", "SecurePass123!")
-                .unwrap()
-                .is_none()
+            auth.get_two_factor_status("test@example.com", "SecurePass123!").unwrap().is_none()
         );
     }
 }

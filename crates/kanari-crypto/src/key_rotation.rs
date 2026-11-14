@@ -48,10 +48,7 @@ impl KeyRotationManager {
 
     /// Create new key rotation manager with custom policy
     pub fn with_policy(policy: KeyRotationPolicy) -> Self {
-        Self {
-            policy,
-            key_metadata: std::collections::HashMap::new(),
-        }
+        Self { policy, key_metadata: std::collections::HashMap::new() }
     }
 
     /// Register a new key for rotation tracking
@@ -84,10 +81,7 @@ impl KeyRotationManager {
             metadata.record_rotation();
             Ok(())
         } else {
-            Err(KeyRotationError::RotationFailed(format!(
-                "Key not found: {}",
-                key_id
-            )))
+            Err(KeyRotationError::RotationFailed(format!("Key not found: {}", key_id)))
         }
     }
 
@@ -119,11 +113,8 @@ impl KeyRotationManager {
                 .map(|m| m.age_days() as u64) // Convert u32 to u64 before sum
                 .filter(|&age| age != u32::MAX as u64) // Filter out invalid timestamps
                 .sum();
-            let valid_count = self
-                .key_metadata
-                .values()
-                .filter(|m| m.age_days() != u32::MAX)
-                .count();
+            let valid_count =
+                self.key_metadata.values().filter(|m| m.age_days() != u32::MAX).count();
 
             if valid_count > 0 {
                 sum / (valid_count as u64)

@@ -66,10 +66,6 @@ pub fn optimize(
         }
 
         // reset the count if something has changed
-        if optimization(signature, locals, constants, cfg) {
-            count = 0
-        } else {
-            count += 1
-        }
+        if optimization(signature, locals, constants, cfg) { count = 0 } else { count += 1 }
     }
 }

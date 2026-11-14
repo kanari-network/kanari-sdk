@@ -202,9 +202,7 @@ impl ObjectStorage {
 
     fn new() -> Self {
         Self {
-            state: Arc::new(RwLock::new(InnerState {
-                objects: BTreeMap::new(),
-            })),
+            state: Arc::new(RwLock::new(InnerState { objects: BTreeMap::new() })),
             persistent: None,
         }
     }
@@ -240,9 +238,7 @@ impl ObjectStorage {
         }
 
         Ok(Self {
-            state: Arc::new(RwLock::new(InnerState {
-                objects: objects_map,
-            })),
+            state: Arc::new(RwLock::new(InnerState { objects: objects_map })),
             persistent: Some(store),
         })
     }
@@ -261,10 +257,7 @@ impl ObjectStorage {
         let owner = obj.owner;
         let mut old_owner = None;
         let mut old_owner_kind = None;
-        let transaction_guard = self
-            .persistent
-            .as_ref()
-            .map(|store| store.transaction_guard());
+        let transaction_guard = self.persistent.as_ref().map(|store| store.transaction_guard());
 
         {
             let state = self.state.read().unwrap_or_else(|e| e.into_inner());
@@ -284,10 +277,8 @@ impl ObjectStorage {
         }
 
         if let Some(store) = &self.persistent {
-            let mut updates = vec![Self::encode_update(
-                crate::common::keys::object_key(&id),
-                &obj,
-            )?];
+            let mut updates =
+                vec![Self::encode_update(crate::common::keys::object_key(&id), &obj)?];
             let mut deletes = Vec::new();
 
             let new_is_owned = matches!(obj.owner_kind, ObjectOwnerKind::AddressOwner(_));
@@ -324,20 +315,14 @@ impl ObjectStorage {
 
             let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
             if Self::add_index_id(&mut ids, &id) {
-                updates.push(Self::encode_update(
-                    Self::OBJECT_INDEX_KEY.as_bytes().to_vec(),
-                    &ids,
-                )?);
+                updates
+                    .push(Self::encode_update(Self::OBJECT_INDEX_KEY.as_bytes().to_vec(), &ids)?);
             }
             store.apply_raw_changes(&updates, &deletes)?;
         }
 
         // Publish to the live cache only after every persistent write succeeded.
-        self.state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .objects
-            .insert(id, obj);
+        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.insert(id, obj);
 
         drop(transaction_guard);
         Ok(())
@@ -349,11 +334,7 @@ impl ObjectStorage {
     fn refresh_cached_object(&self, mut obj: StoredObject) {
         obj.normalize_owner();
         let id = obj.id.clone();
-        self.state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .objects
-            .insert(id, obj);
+        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.insert(id, obj);
     }
 
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
@@ -410,10 +391,7 @@ impl ObjectStorage {
 
     fn delete_object(&self, id: &str) -> Result<(), ObjectStorageError> {
         let mut old_object = None;
-        let transaction_guard = self
-            .persistent
-            .as_ref()
-            .map(|store| store.transaction_guard());
+        let transaction_guard = self.persistent.as_ref().map(|store| store.transaction_guard());
 
         {
             let state = self.state.read().unwrap_or_else(|e| e.into_inner());
@@ -441,20 +419,14 @@ impl ObjectStorage {
 
             let mut ids = Self::load_id_index(store, Self::OBJECT_INDEX_KEY.as_bytes())?;
             if Self::remove_index_id(&mut ids, id) {
-                updates.push(Self::encode_update(
-                    Self::OBJECT_INDEX_KEY.as_bytes().to_vec(),
-                    &ids,
-                )?);
+                updates
+                    .push(Self::encode_update(Self::OBJECT_INDEX_KEY.as_bytes().to_vec(), &ids)?);
             }
             store.apply_raw_changes(&updates, &deletes)?;
         }
 
         // Keep the old cache entry available if persistence failed above.
-        self.state
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .objects
-            .remove(id);
+        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.remove(id);
 
         drop(transaction_guard);
         Ok(())
@@ -462,11 +434,7 @@ impl ObjectStorage {
 
     #[cfg(test)]
     fn count(&self) -> usize {
-        self.state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .objects
-            .len()
+        self.state.read().unwrap_or_else(|e| e.into_inner()).objects.len()
     }
 
     fn clear(&self) -> Result<(), ObjectStorageError> {

@@ -90,9 +90,7 @@ impl AnnotatedCompiledModule {
     pub fn verify(&self) -> Diagnostics {
         let AnnotatedCompiledModule {
             loc,
-            named_module: NamedCompiledModule {
-                module, source_map, ..
-            },
+            named_module: NamedCompiledModule { module, source_map, .. },
             ..
         } = self;
         verify_module(source_map, *loc, module)
@@ -126,9 +124,7 @@ impl NamedCompiledModule {
 
     pub fn serialize(&self, bytecode_version: Option<u32>) -> Vec<u8> {
         let mut serialized = Vec::<u8>::new();
-        self.module
-            .serialize_for_version(bytecode_version, &mut serialized)
-            .unwrap();
+        self.module.serialize_for_version(bytecode_version, &mut serialized).unwrap();
         serialized
     }
 

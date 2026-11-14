@@ -21,10 +21,7 @@ pub struct ModelBuilder {
 
 impl ModelBuilder {
     pub fn create(resolution_graph: ResolvedGraph, model_config: ModelConfig) -> Self {
-        Self {
-            resolution_graph,
-            model_config,
-        }
+        Self { resolution_graph, model_config }
     }
 
     // NOTE: If there are now renamings, then the root package has the global resolution of all named
@@ -55,9 +52,8 @@ impl ModelBuilder {
                 if *nm == root_name {
                     return None;
                 }
-                let mut dep_source_paths = pkg
-                    .get_sources(&self.resolution_graph.build_options)
-                    .unwrap();
+                let mut dep_source_paths =
+                    pkg.get_sources(&self.resolution_graph.build_options).unwrap();
                 let mut source_available = true;
                 // If source is empty, search bytecode(mv) files
                 if dep_source_paths.is_empty() {
@@ -98,12 +94,7 @@ impl ModelBuilder {
             Some(filter) => {
                 let mut new_targets = vec![];
                 let mut new_deps = all_deps.into_iter().map(|(p, _)| p).collect_vec();
-                for PackagePaths {
-                    name,
-                    paths,
-                    named_address_map,
-                } in all_targets
-                {
+                for PackagePaths { name, paths, named_address_map } in all_targets {
                     let (true_targets, false_targets): (Vec<_>, Vec<_>) =
                         paths.into_iter().partition(|t| t.contains(filter));
                     if !true_targets.is_empty() {
@@ -123,10 +114,7 @@ impl ModelBuilder {
                 }
                 (new_targets, new_deps)
             }
-            None => (
-                all_targets,
-                all_deps.into_iter().map(|(p, _)| p).collect_vec(),
-            ),
+            None => (all_targets, all_deps.into_iter().map(|(p, _)| p).collect_vec()),
         };
 
         run_model_builder_with_options(all_targets, all_deps, ModelBuilderOptions::default(), None)

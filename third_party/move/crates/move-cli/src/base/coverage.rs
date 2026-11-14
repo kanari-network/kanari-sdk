@@ -58,20 +58,14 @@ impl Coverage {
             CoverageSummaryOptions::Source { module_name } => {
                 let unit = package.get_module_by_name_from_root(&module_name)?;
                 let source_path = &unit.source_path;
-                let NamedCompiledModule {
-                    module, source_map, ..
-                } = &unit.unit;
+                let NamedCompiledModule { module, source_map, .. } = &unit.unit;
                 let source_coverage = SourceCoverageBuilder::new(module, &coverage_map, source_map);
                 source_coverage
                     .compute_source_coverage(source_path)
                     .output_source_coverage(&mut std::io::stdout())
                     .unwrap();
             }
-            CoverageSummaryOptions::Summary {
-                functions,
-                output_csv,
-                ..
-            } => {
+            CoverageSummaryOptions::Summary { functions, output_csv, .. } => {
                 let coverage_map = coverage_map.to_unified_exec_map();
                 if output_csv {
                     format_csv_summary(

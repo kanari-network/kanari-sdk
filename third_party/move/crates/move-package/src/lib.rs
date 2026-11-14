@@ -109,17 +109,10 @@ pub struct BuildConfig {
     pub lint_flag: LintFlag,
 }
 
-#[derive(
-    Parser, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Default,
-)]
+#[derive(Parser, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Default)]
 pub struct LintFlag {
     /// If `true`, disable linters
-    #[clap(
-        name = "no-lint",
-        long = "no-lint",
-        global = true,
-        group = "lint-level"
-    )]
+    #[clap(name = "no-lint", long = "no-lint", global = true, group = "lint-level")]
     no_lint: bool,
 
     /// If `true`, enables extra linters
@@ -128,18 +121,9 @@ pub struct LintFlag {
 }
 
 impl LintFlag {
-    pub const LEVEL_NONE: Self = Self {
-        no_lint: true,
-        lint: false,
-    };
-    pub const LEVEL_DEFAULT: Self = Self {
-        no_lint: false,
-        lint: false,
-    };
-    pub const LEVEL_ALL: Self = Self {
-        no_lint: false,
-        lint: true,
-    };
+    pub const LEVEL_NONE: Self = Self { no_lint: true, lint: false };
+    pub const LEVEL_DEFAULT: Self = Self { no_lint: false, lint: false };
+    pub const LEVEL_ALL: Self = Self { no_lint: false, lint: true };
 
     pub fn get(self) -> LintLevel {
         match self {
@@ -303,26 +287,14 @@ impl BuildConfig {
             }
         }
 
-        let DependencyGraphBuilder {
-            mut dependency_cache,
-            progress_output,
-            ..
-        } = dep_graph_builder;
+        let DependencyGraphBuilder { mut dependency_cache, progress_output, .. } =
+            dep_graph_builder;
 
-        ResolvedGraph::resolve(
-            dependency_graph,
-            self,
-            &mut dependency_cache,
-            progress_output,
-        )
+        ResolvedGraph::resolve(dependency_graph, self, &mut dependency_cache, progress_output)
     }
 
     pub fn compiler_flags(&self) -> Flags {
-        let flags = if self.test_mode {
-            Flags::testing()
-        } else {
-            Flags::empty()
-        };
+        let flags = if self.test_mode { Flags::testing() } else { Flags::empty() };
         flags
             .set_warnings_are_errors(self.warnings_are_errors)
             .set_silence_warnings(self.silence_warnings)
@@ -344,16 +316,8 @@ impl BuildConfig {
             std::fs::read_to_string(path.join(SourcePackageLayout::Manifest.path()))?;
         let toml_manifest = parse_move_manifest_string(manifest_string.clone())?;
         let root_manifest = parse_source_manifest(toml_manifest)?;
-        let edition = root_manifest
-            .package
-            .edition
-            .or(self.default_edition)
-            .unwrap_or_default();
-        let flavor = root_manifest
-            .package
-            .flavor
-            .or(self.default_flavor)
-            .unwrap_or_default();
+        let edition = root_manifest.package.edition.or(self.default_edition).unwrap_or_default();
+        let flavor = root_manifest.package.flavor.or(self.default_flavor).unwrap_or_default();
 
         let install_dir = self.install_dir.as_ref().unwrap_or(path).to_owned();
         let mut lock = LockFile::from(install_dir, lock_file)?;

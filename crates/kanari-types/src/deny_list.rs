@@ -17,9 +17,7 @@ pub struct DenyListRecord {
 impl DenyListRecord {
     /// Create a new empty deny list
     pub fn new() -> Self {
-        Self {
-            addresses: Vec::new(),
-        }
+        Self { addresses: Vec::new() }
     }
 
     /// Create from a vector of addresses

@@ -14,14 +14,12 @@ use super::{
 #[test]
 fn checkpoint_recovery_control_messages_outrank_best_effort_gossip() {
     assert!(
-        outbound_priority(&P2PMessage::TargetedCheckpointRequest(
-            super::CheckpointRequestMsg {
-                sequence: 1,
-                timestamp: 1,
-                requester_peer_id: "requester".to_owned(),
-                responder_peer_id: "responder".to_owned(),
-            },
-        )) < outbound_priority(&P2PMessage::PeerInfo(super::PeerInfoMsg {
+        outbound_priority(&P2PMessage::TargetedCheckpointRequest(super::CheckpointRequestMsg {
+            sequence: 1,
+            timestamp: 1,
+            requester_peer_id: "requester".to_owned(),
+            responder_peer_id: "responder".to_owned(),
+        },)) < outbound_priority(&P2PMessage::PeerInfo(super::PeerInfoMsg {
             height: 0,
             peer_id: "peer".to_owned(),
             timestamp: 0,
@@ -36,9 +34,7 @@ fn checkpoint_recovery_control_messages_outrank_best_effort_gossip() {
 fn chaos_does_not_delay_checkpoint_recovery_control_messages() {
     let request = P2PMessage::CheckpointRequest(7, 1);
     assert!(is_recovery_control_message(&request));
-    assert!(!is_recovery_control_message(&P2PMessage::NewTransaction(
-        "transaction".to_owned(),
-    )));
+    assert!(!is_recovery_control_message(&P2PMessage::NewTransaction("transaction".to_owned(),)));
 }
 
 fn test_handler() -> P2PEventHandler {
@@ -98,9 +94,7 @@ async fn chunk_reassembly_accepts_out_of_order_payload_once() {
     chunks.reverse();
 
     assert!(handler.accept_chunk(peer, chunks[0].clone()).is_none());
-    let result = handler
-        .accept_chunk(peer, chunks[1].clone())
-        .expect("complete valid payload");
+    let result = handler.accept_chunk(peer, chunks[1].clone()).expect("complete valid payload");
     assert!(matches!(result, P2PMessage::CheckpointRequest(42, 7)));
     assert!(handler.chunk_assemblies.is_empty());
 }
@@ -120,9 +114,7 @@ async fn chunk_reassembly_rejects_mixed_topics_and_clears_memory() {
 #[test]
 fn decompression_bomb_is_rejected_at_configured_limit() {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
-    encoder
-        .write_all(&vec![b'x'; MAX_DECOMPRESSED_PAYLOAD_SIZE + 1])
-        .unwrap();
+    encoder.write_all(&vec![b'x'; MAX_DECOMPRESSED_PAYLOAD_SIZE + 1]).unwrap();
     let compressed = encoder.finish().unwrap();
 
     let error = decompress_payload(compressed).unwrap_err();
@@ -143,11 +135,8 @@ proptest! {
 fn long_run_malformed_compressed_payloads_are_bounded() {
     use proptest::test_runner::{Config, TestRunner};
 
-    let mut runner = TestRunner::new(Config {
-        cases: 2_048,
-        max_shrink_iters: 0,
-        ..Config::default()
-    });
+    let mut runner =
+        TestRunner::new(Config { cases: 2_048, max_shrink_iters: 0, ..Config::default() });
     let strategy = prop::collection::vec(any::<u8>(), 0..16_384);
 
     runner

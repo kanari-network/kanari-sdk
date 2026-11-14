@@ -118,11 +118,7 @@ impl<'a> CodeUnitVerifier<'a> {
         }
 
         // verify
-        let code_unit_verifier = CodeUnitVerifier {
-            module,
-            function_context,
-            name_def_map,
-        };
+        let code_unit_verifier = CodeUnitVerifier { module, function_context, name_def_map };
         code_unit_verifier.verify_common(verifier_config, meter)?;
         AcquiresVerifier::verify(module, index, function_definition, meter)?;
 
@@ -139,11 +135,6 @@ impl<'a> CodeUnitVerifier<'a> {
         StackUsageVerifier::verify(verifier_config, self.module, &self.function_context, meter)?;
         type_safety::verify(self.module, &self.function_context, meter)?;
         locals_safety::verify(self.module, &self.function_context, meter)?;
-        reference_safety::verify(
-            self.module,
-            &self.function_context,
-            self.name_def_map,
-            meter,
-        )
+        reference_safety::verify(self.module, &self.function_context, self.name_def_map, meter)
     }
 }

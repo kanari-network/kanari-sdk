@@ -72,9 +72,7 @@ static DB_GENESIS_LOCKS: OnceLock<Mutex<HashMap<usize, Weak<Mutex<()>>>>> = Once
 fn genesis_lock_for_db(db: &Arc<DB>) -> Arc<Mutex<()>> {
     let key = Arc::as_ptr(db) as usize;
     let registry = DB_GENESIS_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut registry = registry
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut registry = registry.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     registry.retain(|_, lock| lock.strong_count() > 0);
     if let Some(lock) = registry.get(&key).and_then(Weak::upgrade) {
         return lock;
@@ -101,16 +99,12 @@ pub struct PersistentStore {
 impl PersistentStore {
     /// Serialize read-modify-write transactions that maintain secondary indexes.
     pub(crate) fn transaction_guard(&self) -> MutexGuard<'_, ()> {
-        self.transaction_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.transaction_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Serialize first-time genesis initialization for this store's database.
     pub(crate) fn genesis_init_guard(&self) -> MutexGuard<'_, ()> {
-        self.genesis_init_lock
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.genesis_init_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Open default store path (same behavior as previous implementation).
@@ -143,15 +137,11 @@ impl PersistentStore {
     }
 
     fn read_memory_store(store: &MemoryStore) -> RwLockReadGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
-        store
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        store.read().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn write_memory_store(store: &MemoryStore) -> RwLockWriteGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
-        store
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        store.write().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn read_raw(&self, key: &[u8]) -> std::result::Result<Option<Vec<u8>>, PersistentStoreError> {

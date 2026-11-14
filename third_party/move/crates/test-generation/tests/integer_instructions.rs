@@ -47,10 +47,7 @@ fn bytecode_bin_ops() {
 
 #[test]
 fn bytecode_shl_shr() {
-    for (op, ty) in [Bytecode::Shl, Bytecode::Shr]
-        .iter()
-        .cartesian_product(INTEGER_TYPES.iter())
-    {
+    for (op, ty) in [Bytecode::Shl, Bytecode::Shr].iter().cartesian_product(INTEGER_TYPES.iter()) {
         let mut state1 = AbstractState::new();
         state1.stack_push(AbstractValue::new_primitive(ty.clone()));
         state1.stack_push(AbstractValue::new_primitive(SignatureToken::U8));
@@ -77,52 +74,16 @@ fn bytecode_casting_ops() {
         (Bytecode::CastU64, SignatureToken::U64, SignatureToken::U32),
         (Bytecode::CastU64, SignatureToken::U64, SignatureToken::U64),
         (Bytecode::CastU128, SignatureToken::U128, SignatureToken::U8),
-        (
-            Bytecode::CastU128,
-            SignatureToken::U128,
-            SignatureToken::U16,
-        ),
-        (
-            Bytecode::CastU128,
-            SignatureToken::U128,
-            SignatureToken::U32,
-        ),
-        (
-            Bytecode::CastU128,
-            SignatureToken::U128,
-            SignatureToken::U64,
-        ),
-        (
-            Bytecode::CastU128,
-            SignatureToken::U128,
-            SignatureToken::U128,
-        ),
+        (Bytecode::CastU128, SignatureToken::U128, SignatureToken::U16),
+        (Bytecode::CastU128, SignatureToken::U128, SignatureToken::U32),
+        (Bytecode::CastU128, SignatureToken::U128, SignatureToken::U64),
+        (Bytecode::CastU128, SignatureToken::U128, SignatureToken::U128),
         (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U8),
-        (
-            Bytecode::CastU256,
-            SignatureToken::U256,
-            SignatureToken::U16,
-        ),
-        (
-            Bytecode::CastU256,
-            SignatureToken::U256,
-            SignatureToken::U32,
-        ),
-        (
-            Bytecode::CastU256,
-            SignatureToken::U256,
-            SignatureToken::U64,
-        ),
-        (
-            Bytecode::CastU256,
-            SignatureToken::U256,
-            SignatureToken::U128,
-        ),
-        (
-            Bytecode::CastU256,
-            SignatureToken::U256,
-            SignatureToken::U256,
-        ),
+        (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U16),
+        (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U32),
+        (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U64),
+        (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U128),
+        (Bytecode::CastU256, SignatureToken::U256, SignatureToken::U256),
     ]
     .iter()
     {

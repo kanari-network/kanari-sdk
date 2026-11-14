@@ -108,9 +108,7 @@ pub fn verify_batch_ed25519_native(
 
 fn ed25519_verifying_key_from_cache(raw_key: &str) -> Result<Ed25519VerifyingKey, SignatureError> {
     if raw_key.len() > MAX_PUBLIC_KEY_OR_ADDRESS_SIZE {
-        return Err(SignatureError::InvalidPublicKey(
-            "Public key too large".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Public key too large".to_string()));
     }
 
     if let Some(key) =
@@ -123,9 +121,7 @@ fn ed25519_verifying_key_from_cache(raw_key: &str) -> Result<Ed25519VerifyingKey
         .map_err(|_| SignatureError::InvalidPublicKey("Invalid address format".to_string()))?;
 
     if decoded_hex.len() != ED25519_PUBLIC_KEY_LEN {
-        return Err(SignatureError::InvalidPublicKey(
-            "Invalid address format".to_string(),
-        ));
+        return Err(SignatureError::InvalidPublicKey("Invalid address format".to_string()));
     }
 
     let mut key_array = [0u8; ED25519_PUBLIC_KEY_LEN];
@@ -181,9 +177,7 @@ pub fn sign_message_ed25519(
 
     if private_key_bytes.len() != 32 {
         private_key_bytes.zeroize();
-        return Err(SignatureError::InvalidPrivateKey(
-            "Invalid private key".to_string(),
-        ));
+        return Err(SignatureError::InvalidPrivateKey("Invalid private key".to_string()));
     }
 
     let mut key_array = [0u8; 32];

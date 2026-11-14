@@ -1030,6 +1030,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 ## Function `propose_transfer`
 
+Propose a token transfer. Caller must be an owner; proposer auto-approves.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_propose_transfer">propose_transfer</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, target_address: <b>address</b>, amount: u64, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, ttl_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>
@@ -1071,6 +1072,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 ## Function `propose_add_owner`
 
+Propose adding a new owner. Caller must be an owner; proposer auto-approves.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_propose_add_owner">propose_add_owner</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, new_owner: <b>address</b>, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, ttl_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>
@@ -1112,6 +1114,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 ## Function `propose_remove_owner`
 
+Propose removing an owner. Caller must be an owner; proposer auto-approves.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_propose_remove_owner">propose_remove_owner</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, owner_to_remove: <b>address</b>, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, ttl_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>
@@ -1153,6 +1156,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 ## Function `propose_change_threshold`
 
+Propose changing the threshold. Caller must be an owner; proposer auto-approves.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_propose_change_threshold">propose_change_threshold</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, new_threshold: u64, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, ttl_ms: u64, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>): <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>
@@ -1194,6 +1198,7 @@ Shared constructor: owner-only, proposer auto-approves, TTL enforced.
 
 ## Function `approve_transaction`
 
+Approve a pending proposal. Caller must be an owner who has not already approved.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_approve_transaction">approve_transaction</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<b>mut</b> <a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
@@ -1904,6 +1909,7 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 ## Function `is_owner`
 
+Returns true if <code>addr</code> is an owner of the wallet.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_is_owner">is_owner</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, addr: <b>address</b>): bool
@@ -1935,6 +1941,7 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 ## Function `owner_count`
 
+Returns the number of owners in the wallet.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_owner_count">owner_count</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;): u64
@@ -1959,6 +1966,7 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 ## Function `get_threshold`
 
+Returns the current threshold.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_threshold">get_threshold</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;): u64
@@ -1983,6 +1991,7 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 ## Function `get_transaction_count`
 
+Returns the number of executed transactions.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_transaction_count">get_transaction_count</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;): u64
@@ -2007,6 +2016,7 @@ Borrowed-ref variant of <code>cancel_proposal</code> for entry calls.
 
 ## Function `has_enough_approvals`
 
+Returns true if the proposal has enough approvals to meet the threshold.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_has_enough_approvals">has_enough_approvals</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): bool
@@ -2038,6 +2048,7 @@ Approvals that still count: approvals cast by CURRENT owners only.
 An owner removed after approving no longer contributes, so a proposal
 approved under an old owner set cannot execute against a changed one.
 Execution gates use this; <code>has_enough_approvals</code> stays as the raw read.
+Returns the number of approvals from current owners only.
 
 
 <pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_count_current_approvals">count_current_approvals</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u64
@@ -2072,6 +2083,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `has_enough_current_approvals`
 
+Returns true if current owner approvals meet the threshold.
 
 
 <pre><code><b>fun</b> <a href="multisig.md#0x2_multisig_has_enough_current_approvals">has_enough_current_approvals</a>&lt;T&gt;(wallet: &<a href="multisig.md#0x2_multisig_MultisigWallet">multisig::MultisigWallet</a>&lt;T&gt;, proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): bool
@@ -2099,6 +2111,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_approval_count`
 
+Returns the number of approvers on the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_approval_count">get_approval_count</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u64
@@ -2123,6 +2136,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `is_executed`
 
+Returns true if the proposal has been executed (tombstoned).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_is_executed">is_executed</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): bool
@@ -2147,6 +2161,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_proposer`
 
+Returns the proposer address of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_proposer">get_proposer</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): <b>address</b>
@@ -2171,6 +2186,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_tx_type`
 
+Returns the transaction type of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_tx_type">get_tx_type</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u8
@@ -2195,6 +2211,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_target_address`
 
+Returns the target address of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_target_address">get_target_address</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): <b>address</b>
@@ -2219,6 +2236,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_amount`
 
+Returns the transfer amount of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_amount">get_amount</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u64
@@ -2243,6 +2261,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_description`
 
+Returns the description of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_description">get_description</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): &<a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>
@@ -2267,6 +2286,7 @@ Execution gates use this; <code>has_enough_approvals</code> stays as the raw rea
 
 ## Function `get_expires_at_ms`
 
+Returns the expiry timestamp of the proposal.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="multisig.md#0x2_multisig_get_expires_at_ms">get_expires_at_ms</a>(proposal: &<a href="multisig.md#0x2_multisig_TransactionProposal">multisig::TransactionProposal</a>): u64

@@ -64,9 +64,7 @@ pub enum VerificationMethod {
 impl TotpManager {
     /// Create a new TOTP manager
     pub fn new(issuer: Option<String>) -> Self {
-        Self {
-            issuer: issuer.unwrap_or_else(|| "Kanari Auth".to_string()),
-        }
+        Self { issuer: issuer.unwrap_or_else(|| "Kanari Auth".to_string()) }
     }
 
     /// Generate a new TOTP secret and setup information
@@ -77,29 +75,21 @@ impl TotpManager {
         // Generate random secret bytes
         let mut rng = SysRng;
         let mut secret_bytes = [0u8; 20];
-        rng.try_fill_bytes(&mut secret_bytes)
-            .expect("Failed to generate random bytes");
+        rng.try_fill_bytes(&mut secret_bytes).expect("Failed to generate random bytes");
 
         // Create TOTP instance with raw bytes.
-        let totp = build_totp(
-            secret_bytes.to_vec(),
-            Some(self.issuer.clone()),
-            email.to_string(),
-        )
-        .expect("Failed to create TOTP");
+        let totp = build_totp(secret_bytes.to_vec(), Some(self.issuer.clone()), email.to_string())
+            .expect("Failed to create TOTP");
 
         // Generate backup codes (10 codes)
         let backup_codes = (0..10)
             .map(|_| {
                 // Generate random 8-character alphanumeric code
                 let mut code_bytes = [0u8; 8];
-                rng.try_fill_bytes(&mut code_bytes)
-                    .expect("Failed to generate random bytes");
+                rng.try_fill_bytes(&mut code_bytes).expect("Failed to generate random bytes");
                 let chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-                let code: String = code_bytes
-                    .iter()
-                    .map(|&b| chars[(b as usize) % chars.len()] as char)
-                    .collect();
+                let code: String =
+                    code_bytes.iter().map(|&b| chars[(b as usize) % chars.len()] as char).collect();
                 code
             })
             .collect();
@@ -110,11 +100,7 @@ impl TotpManager {
         // Encode secret as base32 for display
         let secret_b32 = data_encoding::BASE32_NOPAD.encode(&secret_bytes);
 
-        TwoFactorSetup {
-            secret: secret_b32,
-            otpauth_url,
-            backup_codes,
-        }
+        TwoFactorSetup { secret: secret_b32, otpauth_url, backup_codes }
     }
 
     /// Verify a TOTP code against a secret
@@ -224,30 +210,20 @@ mod tests {
         let manager = TotpManager::new(Some("Test".to_string()));
         let setup = manager.generate_setup("test@example.com");
 
-        let secret_bytes = data_encoding::BASE32_NOPAD
-            .decode(setup.secret.as_bytes())
-            .unwrap();
-        let totp = build_totp(
-            secret_bytes,
-            Some("Test".to_string()),
-            "test@example.com".to_string(),
-        )
-        .unwrap();
+        let secret_bytes = data_encoding::BASE32_NOPAD.decode(setup.secret.as_bytes()).unwrap();
+        let totp =
+            build_totp(secret_bytes, Some("Test".to_string()), "test@example.com".to_string())
+                .unwrap();
         let code = totp.generate_current().to_string();
 
         assert!(manager.verify_code(&setup.secret, &code));
 
         let mut backup_codes = setup.backup_codes.clone();
-        let method = manager
-            .consume_backup_code(&mut backup_codes, &setup.backup_codes[0])
-            .unwrap();
+        let method =
+            manager.consume_backup_code(&mut backup_codes, &setup.backup_codes[0]).unwrap();
         assert!(matches!(method, VerificationMethod::BackupCode));
         assert_eq!(backup_codes.len(), 9);
-        assert!(
-            manager
-                .consume_backup_code(&mut backup_codes, &setup.backup_codes[0])
-                .is_err()
-        );
+        assert!(manager.consume_backup_code(&mut backup_codes, &setup.backup_codes[0]).is_err());
     }
 
     #[test]

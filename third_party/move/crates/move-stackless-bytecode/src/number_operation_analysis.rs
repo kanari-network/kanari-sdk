@@ -175,11 +175,7 @@ impl<'a> NumberOperationAnalysis<'a> {
 
     /// Check whether oper_1 and oper_2 conflict
     fn check_conflict(&self, oper_1: &NumOperation, oper_2: &NumOperation) -> bool {
-        if self.ban_int_2_bv_conversion {
-            oper_1.conflict(oper_2)
-        } else {
-            false
-        }
+        if self.ban_int_2_bv_conversion { oper_1.conflict(oper_2) } else { false }
     }
 
     /// Check whether operation of dest and src conflict, if not propagate the merged operation
@@ -195,12 +191,8 @@ impl<'a> NumberOperationAnalysis<'a> {
         baseline_flag: bool,
     ) {
         // Each TempIndex has a default operation in the map, can unwrap
-        let dest_oper = global_state
-            .get_temp_index_oper(mid, fid, *dest, baseline_flag)
-            .unwrap();
-        let src_oper = global_state
-            .get_temp_index_oper(mid, fid, *src, baseline_flag)
-            .unwrap();
+        let dest_oper = global_state.get_temp_index_oper(mid, fid, *dest, baseline_flag).unwrap();
+        let src_oper = global_state.get_temp_index_oper(mid, fid, *src, baseline_flag).unwrap();
         if self.check_conflict(dest_oper, src_oper) {
             self.func_target
                 .func_env
@@ -212,12 +204,10 @@ impl<'a> NumberOperationAnalysis<'a> {
             if merged_oper != *dest_oper || merged_oper != *src_oper {
                 state.changed = true;
             }
-            *global_state
-                .get_mut_temp_index_oper(mid, fid, *dest, baseline_flag)
-                .unwrap() = merged_oper;
-            *global_state
-                .get_mut_temp_index_oper(mid, fid, *src, baseline_flag)
-                .unwrap() = merged_oper;
+            *global_state.get_mut_temp_index_oper(mid, fid, *dest, baseline_flag).unwrap() =
+                merged_oper;
+            *global_state.get_mut_temp_index_oper(mid, fid, *src, baseline_flag).unwrap() =
+                merged_oper;
         }
     }
 
@@ -234,15 +224,10 @@ impl<'a> NumberOperationAnalysis<'a> {
         global_state: &mut GlobalNumberOperationState,
         baseline_flag: bool,
     ) {
-        let op_srcs_0 = global_state
-            .get_temp_index_oper(mid, fid, srcs[0], baseline_flag)
-            .unwrap();
-        let op_srcs_1 = global_state
-            .get_temp_index_oper(mid, fid, srcs[1], baseline_flag)
-            .unwrap();
-        let op_dests_0 = global_state
-            .get_temp_index_oper(mid, fid, dests[0], baseline_flag)
-            .unwrap();
+        let op_srcs_0 = global_state.get_temp_index_oper(mid, fid, srcs[0], baseline_flag).unwrap();
+        let op_srcs_1 = global_state.get_temp_index_oper(mid, fid, srcs[1], baseline_flag).unwrap();
+        let op_dests_0 =
+            global_state.get_temp_index_oper(mid, fid, dests[0], baseline_flag).unwrap();
         // Check conflicts among dests and srcs
         let mut state_set = BTreeSet::new();
         state_set.insert(op_srcs_0);
@@ -259,15 +244,9 @@ impl<'a> NumberOperationAnalysis<'a> {
         if oper != *op_srcs_0 || oper != *op_srcs_1 || oper != *op_dests_0 {
             state.changed = true;
         }
-        *global_state
-            .get_mut_temp_index_oper(mid, fid, srcs[0], baseline_flag)
-            .unwrap() = oper;
-        *global_state
-            .get_mut_temp_index_oper(mid, fid, srcs[1], baseline_flag)
-            .unwrap() = oper;
-        *global_state
-            .get_mut_temp_index_oper(mid, fid, dests[0], baseline_flag)
-            .unwrap() = oper;
+        *global_state.get_mut_temp_index_oper(mid, fid, srcs[0], baseline_flag).unwrap() = oper;
+        *global_state.get_mut_temp_index_oper(mid, fid, srcs[1], baseline_flag).unwrap() = oper;
+        *global_state.get_mut_temp_index_oper(mid, fid, dests[0], baseline_flag).unwrap() = oper;
     }
 
     fn check_and_update_oper_dest(
@@ -280,15 +259,12 @@ impl<'a> NumberOperationAnalysis<'a> {
         global_state: &mut GlobalNumberOperationState,
         baseline_flag: bool,
     ) {
-        let op_dests_0 = global_state
-            .get_temp_index_oper(mid, fid, dests[0], baseline_flag)
-            .unwrap();
+        let op_dests_0 =
+            global_state.get_temp_index_oper(mid, fid, dests[0], baseline_flag).unwrap();
         if oper != *op_dests_0 {
             state.changed = true;
         }
-        *global_state
-            .get_mut_temp_index_oper(mid, fid, dests[0], baseline_flag)
-            .unwrap() = oper;
+        *global_state.get_mut_temp_index_oper(mid, fid, dests[0], baseline_flag).unwrap() = oper;
     }
 
     /// Generate default num_oper for all non-parameter locals
@@ -298,13 +274,8 @@ impl<'a> NumberOperationAnalysis<'a> {
         let non_param_range = self.func_target.get_non_parameter_locals();
         let baseline_flag = self.func_target.data.variant == FunctionVariant::Baseline;
         for i in non_param_range {
-            if !global_state
-                .get_non_param_local_map(mid, fid, baseline_flag)
-                .contains_key(&i)
-            {
-                global_state
-                    .get_mut_non_param_local_map(mid, fid, baseline_flag)
-                    .insert(i, Bottom);
+            if !global_state.get_non_param_local_map(mid, fid, baseline_flag).contains_key(&i) {
+                global_state.get_mut_non_param_local_map(mid, fid, baseline_flag).insert(i, Bottom);
             }
         }
     }
@@ -318,10 +289,8 @@ impl<'a> TransferFunctions for NumberOperationAnalysis<'a> {
     fn execute(&self, state: &mut NumberOperationState, instr: &Bytecode, _offset: CodeOffset) {
         use Bytecode::*;
         use Operation::*;
-        let mut global_state = self
-            .func_target
-            .global_env()
-            .get_cloned_extension::<GlobalNumberOperationState>();
+        let mut global_state =
+            self.func_target.global_env().get_cloned_extension::<GlobalNumberOperationState>();
         self.populate_non_param_oper(&mut global_state);
         let baseline_flag = self.func_target.data.variant == FunctionVariant::Baseline;
         let cur_mid = self.func_target.func_env.module_env.get_id();
@@ -480,11 +449,8 @@ impl<'a> TransferFunctions for NumberOperationAnalysis<'a> {
                     }
                     // Checking and operations in the struct_operation_map when packing
                     Pack(msid, sid, _) => {
-                        let struct_env = self
-                            .func_target
-                            .global_env()
-                            .get_module(*msid)
-                            .into_struct(*sid);
+                        let struct_env =
+                            self.func_target.global_env().get_module(*msid).into_struct(*sid);
                         for (i, field) in struct_env.get_fields().enumerate() {
                             let current_field_oper = global_state
                                 .struct_operation_map
@@ -523,11 +489,8 @@ impl<'a> TransferFunctions for NumberOperationAnalysis<'a> {
                     }
                     // Checking and operations in the struct_operation_map when unpacking
                     Unpack(msid, sid, _) => {
-                        let struct_env = self
-                            .func_target
-                            .global_env()
-                            .get_module(*msid)
-                            .into_struct(*sid);
+                        let struct_env =
+                            self.func_target.global_env().get_module(*msid).into_struct(*sid);
                         for (i, field) in struct_env.get_fields().enumerate() {
                             let current_field_oper = global_state
                                 .struct_operation_map

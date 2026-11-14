@@ -540,11 +540,7 @@ pub enum Exp_ {
 
     // vector [ e1, ..., e_n ]
     // vector<t> [e1, ..., en ]
-    Vector(
-        /* name loc */ Loc,
-        Option<Vec<Type>>,
-        Spanned<Vec<Exp>>,
-    ),
+    Vector(/* name loc */ Loc, Option<Vec<Type>>, Spanned<Vec<Exp>>),
 
     // if (eb) et else ef
     IfElse(Box<Exp>, Box<Exp>, Option<Box<Exp>>),
@@ -565,13 +561,7 @@ pub enum Exp_ {
     // |lv1, ..., lvn| -> { e }
     Lambda(LambdaBindings, Option<Type>, Box<Exp>),
     // forall/exists x1 : e1, ..., xn [{ t1, .., tk } *] [where cond]: en.
-    Quant(
-        QuantKind,
-        BindWithRangeList,
-        Vec<Vec<Exp>>,
-        Option<Box<Exp>>,
-        Box<Exp>,
-    ), // spec only
+    Quant(QuantKind, BindWithRangeList, Vec<Vec<Exp>>, Option<Box<Exp>>, Box<Exp>), // spec only
     // (e1, ..., en)
     ExpList(Vec<Exp>),
     // ()
@@ -605,13 +595,7 @@ pub enum Exp_ {
     // e.f
     Dot(Box<Exp>, Name),
     // e.f(earg,*)
-    DotCall(
-        Box<Exp>,
-        Name,
-        /* is_macro */ Option<Loc>,
-        Option<Vec<Type>>,
-        Spanned<Vec<Exp>>,
-    ),
+    DotCall(Box<Exp>, Name, /* is_macro */ Option<Loc>, Option<Vec<Type>>, Spanned<Vec<Exp>>),
     // e[e']
     Index(Box<Exp>, Spanned<Vec<Exp>>), // spec only
 
@@ -632,12 +616,7 @@ pub type Exp = Spanned<Exp_>;
 // { e1; ... ; en }
 // { e1; ... ; en; }
 // The Loc field holds the source location of the final semicolon, if there is one.
-pub type Sequence = (
-    Vec<UseDecl>,
-    Vec<SequenceItem>,
-    Option<Loc>,
-    Box<Option<Exp>>,
-);
+pub type Sequence = (Vec<UseDecl>, Vec<SequenceItem>, Option<Loc>, Box<Option<Exp>>);
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum SequenceItem_ {
@@ -672,10 +651,7 @@ pub enum MatchPattern_ {
     // T<t1, ..., tn>(pat1, ..., patn)
     PositionalConstructor(NameAccessChain, Spanned<Vec<Ellipsis<MatchPattern>>>),
     // T<t1, ..., tn> { x1: pat1, ..., xn: patn }
-    FieldConstructor(
-        NameAccessChain,
-        Spanned<Vec<Ellipsis<(Field, MatchPattern)>>>,
-    ),
+    FieldConstructor(NameAccessChain, Spanned<Vec<Ellipsis<(Field, MatchPattern)>>>),
     // T<t1, ..., tn>
     Name(Mutability, NameAccessChain),
     // 0 | true | ...
@@ -745,18 +721,11 @@ impl LeadingNameAccess_ {
 
 impl NameAccessChain_ {
     pub fn single(name: Name) -> Self {
-        NameAccessChain_::Single(PathEntry {
-            name,
-            tyargs: None,
-            is_macro: None,
-        })
+        NameAccessChain_::Single(PathEntry { name, tyargs: None, is_macro: None })
     }
 
     pub fn path(root: RootPathEntry) -> NamePath {
-        NamePath {
-            root,
-            entries: vec![],
-        }
+        NamePath { root, entries: vec![] }
     }
 }
 
@@ -839,10 +808,7 @@ impl NameAccess for NamePath {
     }
 
     fn tyargs(&self) -> Option<&Spanned<Vec<Type>>> {
-        self.root
-            .tyargs
-            .as_ref()
-            .or_else(|| self.entries.iter().find_map(|e| e.tyargs.as_ref()))
+        self.root.tyargs.as_ref().or_else(|| self.entries.iter().find_map(|e| e.tyargs.as_ref()))
     }
 
     fn push_path_entry(
@@ -858,10 +824,7 @@ impl NameAccess for NamePath {
         if let (Some(prev_loc), Some(sp!(new_loc, _))) = (self.tyargs_loc(), &final_tyargs) {
             let mut diag = diag!(
                 Syntax::InvalidName,
-                (
-                    *new_loc,
-                    "Paths cannot include type arguments more than once"
-                ),
+                (*new_loc, "Paths cannot include type arguments more than once"),
                 (prev_loc, "Previous type arguments appeared here")
             );
             diag.add_note("Type arguments should only appear on module members");
@@ -873,10 +836,7 @@ impl NameAccess for NamePath {
         if let Some(prev_loc) = self.is_macro() {
             let diag = diag!(
                 Syntax::InvalidName,
-                (
-                    name.loc,
-                    "A macro call cannot have name access entries after it"
-                ),
+                (name.loc, "A macro call cannot have name access entries after it"),
                 (*prev_loc, "Macro invocation given here")
             );
             diags.push(diag);
@@ -894,11 +854,7 @@ impl NameAccess for NamePath {
             );
             diags.push(diag);
         } else {
-            let path_entry = PathEntry {
-                name,
-                tyargs: final_tyargs,
-                is_macro,
-            };
+            let path_entry = PathEntry { name, tyargs: final_tyargs, is_macro };
             self.entries.push(path_entry);
         }
         diags
@@ -1284,11 +1240,7 @@ impl fmt::Display for Type_ {
 
 impl AstDebug for Program {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            named_address_maps,
-            source_definitions,
-            lib_definitions,
-        } = self;
+        let Self { named_address_maps, source_definitions, lib_definitions } = self;
         w.writeln("------ Lib Defs: ------");
         for def in lib_definitions {
             ast_debug_package_definition(w, named_address_maps, def)
@@ -1306,11 +1258,7 @@ fn ast_debug_package_definition(
     named_address_maps: &NamedAddressMaps,
     pkg: &PackageDefinition,
 ) {
-    let PackageDefinition {
-        package,
-        named_address_map,
-        def,
-    } = pkg;
+    let PackageDefinition { package, named_address_map, def } = pkg;
     match package {
         Some(n) => w.writeln(format!("package: {}", n)),
         None => w.writeln("no package"),
@@ -1339,12 +1287,7 @@ impl AstDebug for Definition {
 
 impl AstDebug for AddressDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let AddressDefinition {
-            attributes,
-            loc: _loc,
-            addr,
-            modules,
-        } = self;
+        let AddressDefinition { attributes, loc: _loc, addr, modules } = self;
         attributes.ast_debug(w);
         w.write(format!("address {}", addr));
         w.writeln(" {{");
@@ -1408,21 +1351,13 @@ impl AstDebug for Vec<Attributes> {
 
 impl AstDebug for ModuleDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let ModuleDefinition {
-            attributes,
-            loc: _loc,
-            address,
-            name,
-            is_spec_module,
-            members,
-        } = self;
+        let ModuleDefinition { attributes, loc: _loc, address, name, is_spec_module, members } =
+            self;
         attributes.ast_debug(w);
         match address {
-            None => w.write(format!(
-                "module {}{}",
-                if *is_spec_module { "spec " } else { "" },
-                name
-            )),
+            None => {
+                w.write(format!("module {}{}", if *is_spec_module { "spec " } else { "" }, name))
+            }
             Some(addr) => w.write(format!("module {}::{}", addr, name)),
         };
         w.block(|w| {
@@ -1449,11 +1384,7 @@ impl AstDebug for ModuleMember {
 
 impl AstDebug for UseDecl {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let UseDecl {
-            attributes,
-            loc: _,
-            use_,
-        } = self;
+        let UseDecl { attributes, loc: _, use_ } = self;
         attributes.ast_debug(w);
         use_.ast_debug(w);
     }
@@ -1492,12 +1423,7 @@ impl AstDebug for Use {
                     })
                 })
             }
-            Use::Fun {
-                visibility,
-                function,
-                ty,
-                method,
-            } => {
+            Use::Fun { visibility, function, ty, method } => {
                 visibility.ast_debug(w);
                 w.write(" use fun ");
                 function.ast_debug(w);
@@ -1512,11 +1438,7 @@ impl AstDebug for Use {
 
 impl AstDebug for FriendDecl {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let FriendDecl {
-            attributes,
-            loc: _,
-            friend,
-        } = self;
+        let FriendDecl { attributes, loc: _, friend } = self;
         attributes.ast_debug(w);
         w.write(format!("friend {}", friend));
     }
@@ -1524,14 +1446,8 @@ impl AstDebug for FriendDecl {
 
 impl AstDebug for EnumDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let EnumDefinition {
-            attributes,
-            loc: _loc,
-            abilities,
-            name,
-            type_parameters,
-            variants,
-        } = self;
+        let EnumDefinition { attributes, loc: _loc, abilities, name, type_parameters, variants } =
+            self;
         attributes.ast_debug(w);
 
         if !abilities.is_empty() {
@@ -1556,11 +1472,7 @@ impl AstDebug for EnumDefinition {
 
 impl AstDebug for VariantDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let VariantDefinition {
-            loc: _,
-            name,
-            fields,
-        } = self;
+        let VariantDefinition { loc: _, name, fields } = self;
         w.write(format!("{}", name));
         match fields {
             VariantFields::Named(fields) => w.block(|w| {
@@ -1582,14 +1494,8 @@ impl AstDebug for VariantDefinition {
 
 impl AstDebug for StructDefinition {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let StructDefinition {
-            attributes,
-            loc: _loc,
-            abilities,
-            name,
-            type_parameters,
-            fields,
-        } = self;
+        let StructDefinition { attributes, loc: _loc, abilities, name, type_parameters, fields } =
+            self;
         attributes.ast_debug(w);
 
         w.list(abilities, " ", |w, ab_mod| {
@@ -1623,16 +1529,8 @@ impl AstDebug for StructDefinition {
 
 impl AstDebug for Function {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Function {
-            attributes,
-            loc: _loc,
-            visibility,
-            entry,
-            macro_,
-            signature,
-            name,
-            body,
-        } = self;
+        let Function { attributes, loc: _loc, visibility, entry, macro_, signature, name, body } =
+            self;
         attributes.ast_debug(w);
         visibility.ast_debug(w);
         if entry.is_some() {
@@ -1661,11 +1559,7 @@ impl AstDebug for Visibility {
 
 impl AstDebug for FunctionSignature {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let FunctionSignature {
-            type_parameters,
-            parameters,
-            return_type,
-        } = self;
+        let FunctionSignature { type_parameters, parameters, return_type } = self;
         type_parameters.ast_debug(w);
         w.write("(");
         w.comma(parameters, |w, (mut_, v, st)| {
@@ -1683,13 +1577,7 @@ impl AstDebug for FunctionSignature {
 
 impl AstDebug for Constant {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Constant {
-            attributes,
-            loc: _loc,
-            name,
-            signature,
-            value,
-        } = self;
+        let Constant { attributes, loc: _loc, name, signature, value } = self;
         attributes.ast_debug(w);
         w.write(format!("const {}:", name));
         signature.ast_debug(w);
@@ -1729,11 +1617,7 @@ impl AstDebug for Vec<DatatypeTypeParameter> {
 
 impl AstDebug for DatatypeTypeParameter {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let Self {
-            is_phantom,
-            name,
-            constraints,
-        } = self;
+        let Self { is_phantom, name, constraints } = self;
         if *is_phantom {
             w.write("phantom ");
         }
@@ -1796,11 +1680,7 @@ impl AstDebug for Vec<Type> {
 
 impl AstDebug for RootPathEntry {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let RootPathEntry {
-            name,
-            tyargs,
-            is_macro,
-        } = self;
+        let RootPathEntry { name, tyargs, is_macro } = self;
         w.write(format!("{}", name));
         if is_macro.is_some() {
             w.write("!");
@@ -1815,11 +1695,7 @@ impl AstDebug for RootPathEntry {
 
 impl AstDebug for PathEntry {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let PathEntry {
-            name,
-            tyargs,
-            is_macro,
-        } = self;
+        let PathEntry { name, tyargs, is_macro } = self;
         w.write(format!("{}", name));
         if is_macro.is_some() {
             w.write("!");
@@ -1852,14 +1728,7 @@ impl AstDebug for NameAccessChain_ {
     }
 }
 
-impl AstDebug
-    for (
-        Vec<UseDecl>,
-        Vec<SequenceItem>,
-        Option<Loc>,
-        Box<Option<Exp>>,
-    )
-{
+impl AstDebug for (Vec<UseDecl>, Vec<SequenceItem>, Option<Loc>, Box<Option<Exp>>) {
     fn ast_debug(&self, w: &mut AstWriter) {
         let (uses, seq, _, last_e) = self;
         for u in uses {
@@ -2118,11 +1987,7 @@ impl AstDebug for Exp_ {
 
 impl AstDebug for MatchArm_ {
     fn ast_debug(&self, w: &mut AstWriter) {
-        let MatchArm_ {
-            pattern,
-            guard,
-            rhs,
-        } = self;
+        let MatchArm_ { pattern, guard, rhs } = self;
         pattern.ast_debug(w);
         if let Some(exp) = guard.as_ref() {
             w.write(" if ");

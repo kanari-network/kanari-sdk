@@ -41,6 +41,7 @@
 
 ## Function `address_of`
 
+Copies the address of the signer
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/move-stdlib/signer.md#0x1_signer_address_of">address_of</a>(s: &<a href="../../dependencies/move-stdlib/signer.md#0x1_signer">signer</a>): <b>address</b>

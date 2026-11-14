@@ -56,11 +56,7 @@ pub(crate) fn resolve_custom_dependency(
 }
 
 pub(crate) fn custom_dependency_key() -> Option<String> {
-    if let Some(hooks) = &*HOOKS.lock().unwrap() {
-        hooks.custom_dependency_key()
-    } else {
-        None
-    }
+    if let Some(hooks) = &*HOOKS.lock().unwrap() { hooks.custom_dependency_key() } else { None }
 }
 
 /// Calls any registered hook to return custom package fields.

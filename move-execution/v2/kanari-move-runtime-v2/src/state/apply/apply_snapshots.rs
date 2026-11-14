@@ -29,11 +29,7 @@ impl StateManager {
 
     pub(crate) fn visible_supply_snapshot(&self, token_type: &str) -> Result<u64> {
         let token_type = CoinModule::normalize_token_type(token_type);
-        let cached = self
-            .global_token_supplies
-            .get(&token_type)
-            .copied()
-            .unwrap_or(0);
+        let cached = self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
         Ok(cached.max(self.indexed_wallet_supply(&token_type)?))
     }
 
@@ -45,14 +41,8 @@ impl StateManager {
         let mut visible = BTreeMap::new();
 
         for token_type in token_types {
-            issued.insert(
-                token_type.clone(),
-                self.issued_supply_for_token(&token_type)?,
-            );
-            visible.insert(
-                token_type.clone(),
-                self.visible_supply_snapshot(&token_type)?,
-            );
+            issued.insert(token_type.clone(), self.issued_supply_for_token(&token_type)?);
+            visible.insert(token_type.clone(), self.visible_supply_snapshot(&token_type)?);
         }
 
         Ok((issued, visible))
@@ -151,11 +141,8 @@ impl StateManager {
             records.retain(|record| !deleted_ids.contains(&record.holder_object_id));
         }
 
-        let token_types: BTreeSet<String> = issued_before
-            .keys()
-            .chain(visible_before.keys())
-            .cloned()
-            .collect();
+        let token_types: BTreeSet<String> =
+            issued_before.keys().chain(visible_before.keys()).cloned().collect();
 
         for token_type in token_types {
             let issued_before_value = issued_before.get(&token_type).copied().unwrap_or(0);
@@ -177,9 +164,7 @@ impl StateManager {
                     )?;
                 }
             } else if locked_delta < 0
-                && let Some(_record) = records
-                    .iter()
-                    .find(|record| record.token_type == token_type)
+                && let Some(_record) = records.iter().find(|record| record.token_type == token_type)
             {
                 Self::release_locked_coin_records(
                     &mut records,

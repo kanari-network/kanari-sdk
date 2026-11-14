@@ -29,10 +29,9 @@ where
         use self::ParseError::*;
         match *self {
             User { ref error, .. } => write!(f, "{}", error),
-            InvalidToken {
-                ref location,
-                ref message,
-            } => write!(f, "Invalid token at {}: {}", location, message),
+            InvalidToken { ref location, ref message } => {
+                write!(f, "Invalid token at {}: {}", location, message)
+            }
         }
     }
 }
@@ -43,18 +42,11 @@ fn make_loc(file_hash: FileHash, start: usize, end: usize) -> Loc {
 
 fn current_token_loc(tokens: &Lexer) -> Loc {
     let start_loc = tokens.start_loc();
-    make_loc(
-        tokens.file_hash(),
-        start_loc,
-        start_loc + tokens.content().len(),
-    )
+    make_loc(tokens.file_hash(), start_loc, start_loc + tokens.content().len())
 }
 
 fn spanned<T>(file_hash: FileHash, start: usize, end: usize, value: T) -> Spanned<T> {
-    Spanned {
-        loc: make_loc(file_hash, start, end),
-        value,
-    }
+    Spanned { loc: make_loc(file_hash, start, end), value }
 }
 
 // Check for the specified token and consume it if it matches.
@@ -239,11 +231,7 @@ fn parse_field_ident(tokens: &mut Lexer) -> Result<FieldIdent, ParseError<Loc, a
         tokens.file_hash(),
         start_loc,
         end_loc,
-        FieldIdent_ {
-            struct_name: StructName(name),
-            type_actuals,
-            field,
-        },
+        FieldIdent_ { struct_name: StructName(name), type_actuals, field },
     ))
 }
 
@@ -483,10 +471,7 @@ fn parse_qualified_function_name(
         t => {
             return Err(ParseError::InvalidToken {
                 location: current_token_loc(tokens),
-                message: format!(
-                    "unrecognized token kind for qualified function name {:?}",
-                    t
-                ),
+                message: format!("unrecognized token kind for qualified function name {:?}", t),
             });
         }
     };
@@ -519,22 +504,13 @@ fn parse_borrow_field_(
         let name = parse_name(tokens)?;
         let end_loc = tokens.previous_end_loc();
         let type_actuals: Vec<Type> = vec![];
-        spanned(
-            tokens.file_hash(),
-            start_loc,
-            end_loc,
-            parse_pack_(tokens, name, type_actuals)?,
-        )
+        spanned(tokens.file_hash(), start_loc, end_loc, parse_pack_(tokens, name, type_actuals)?)
     } else {
         parse_unary_exp(tokens)?
     };
     consume_token(tokens, Tok::Period)?;
     let field = parse_field_ident(tokens)?;
-    Ok(Exp_::Borrow {
-        is_mutable: mutable,
-        exp: Box::new(e),
-        field,
-    })
+    Ok(Exp_::Borrow { is_mutable: mutable, exp: Box::new(e), field })
 }
 
 fn parse_unary_exp_(tokens: &mut Lexer) -> Result<Exp_, ParseError<Loc, anyhow::Error>> {
@@ -577,12 +553,7 @@ fn parse_call(tokens: &mut Lexer) -> Result<Exp, ParseError<Loc, anyhow::Error>>
     let f = parse_qualified_function_name(tokens)?;
     let exp = parse_call_or_term(tokens)?;
     let end_loc = tokens.previous_end_loc();
-    Ok(spanned(
-        tokens.file_hash(),
-        start_loc,
-        end_loc,
-        Exp_::FunctionCall(f, Box::new(exp)),
-    ))
+    Ok(spanned(tokens.file_hash(), start_loc, end_loc, Exp_::FunctionCall(f, Box::new(exp))))
 }
 
 // CallOrTerm: Exp = {
@@ -652,11 +623,7 @@ fn parse_pack_(
     consume_token(tokens, Tok::LBrace)?;
     let fs = parse_comma_list(tokens, &[Tok::RBrace], parse_field_exp, true)?;
     consume_token(tokens, Tok::RBrace)?;
-    Ok(Exp_::Pack(
-        StructName(name),
-        type_actuals,
-        fs.into_iter().collect::<Vec<_>>(),
-    ))
+    Ok(Exp_::Pack(StructName(name), type_actuals, fs.into_iter().collect::<Vec<_>>()))
 }
 
 fn parse_term_(tokens: &mut Lexer) -> Result<Exp_, ParseError<Loc, anyhow::Error>> {
@@ -869,13 +836,7 @@ fn parse_field_bindings(
         let v = parse_var(tokens)?;
         Ok((f, v))
     } else {
-        Ok((
-            f.clone(),
-            Spanned {
-                loc: f.loc,
-                value: Var_(f.value.0),
-            },
-        ))
+        Ok((f.clone(), Spanned { loc: f.loc, value: Var_(f.value.0) }))
     }
 }
 
@@ -961,10 +922,7 @@ fn parse_statement_(tokens: &mut Lexer) -> Result<Statement_, ParseError<Loc, an
             consume_token(tokens, Tok::LParen)?;
             let cond = parse_exp(tokens)?;
             consume_token(tokens, Tok::RParen)?;
-            Ok(Statement_::JumpIfFalse(
-                Box::new(cond),
-                parse_label(tokens)?,
-            ))
+            Ok(Statement_::JumpIfFalse(Box::new(cond), parse_label(tokens)?))
         }
         Tok::NameValue => {
             // This could be either an LValue for an assignment or
@@ -1473,11 +1431,7 @@ fn parse_function_decl(
     let args = parse_comma_list(tokens, &[Tok::RParen], parse_arg_decl, true)?;
     consume_token(tokens, Tok::RParen)?;
 
-    let ret = if tokens.peek() == Tok::Colon {
-        Some(parse_return_type(tokens)?)
-    } else {
-        None
-    };
+    let ret = if tokens.peek() == Tok::Colon { Some(parse_return_type(tokens)?) } else { None };
 
     let func_name = FunctionName(name);
     let func = Function_::new(
@@ -1496,10 +1450,7 @@ fn parse_function_decl(
     );
 
     let end_loc = tokens.previous_end_loc();
-    Ok((
-        func_name,
-        spanned(tokens.file_hash(), start_loc, end_loc, func),
-    ))
+    Ok((func_name, spanned(tokens.file_hash(), start_loc, end_loc, func)))
 }
 
 // FieldDecl : (Field_, Type) = {
@@ -1605,10 +1556,7 @@ fn parse_import_alias(tokens: &mut Lexer) -> Result<ModuleName, ParseError<Loc, 
     consume_token(tokens, Tok::As)?;
     let alias = parse_module_name(tokens)?;
     if alias == ModuleName::module_self() {
-        panic!(
-            "Invalid use of reserved module alias '{}'",
-            ModuleName::self_name()
-        );
+        panic!("Invalid use of reserved module alias '{}'", ModuleName::self_name());
     }
     Ok(alias)
 }
@@ -1622,11 +1570,7 @@ fn parse_import_decl(
 ) -> Result<ImportDefinition, ParseError<Loc, anyhow::Error>> {
     consume_token(tokens, Tok::Import)?;
     let ident = parse_module_ident(tokens)?;
-    let alias = if tokens.peek() == Tok::As {
-        Some(parse_import_alias(tokens)?)
-    } else {
-        None
-    };
+    let alias = if tokens.peek() == Tok::As { Some(parse_import_alias(tokens)?) } else { None };
     consume_token(tokens, Tok::Semicolon)?;
     Ok(ImportDefinition::new(ident, alias))
 }
@@ -1674,16 +1618,7 @@ fn parse_module(tokens: &mut Lexer) -> Result<ModuleDefinition, ParseError<Loc, 
     let end_loc = tokens.previous_end_loc();
     let loc = make_loc(tokens.file_hash(), start_loc, end_loc);
 
-    Ok(ModuleDefinition::new(
-        loc,
-        identifier,
-        friends,
-        imports,
-        vec![],
-        structs,
-        vec![],
-        functions,
-    ))
+    Ok(ModuleDefinition::new(loc, identifier, friends, imports, vec![], structs, vec![], functions))
 }
 
 // pub ScriptOrModule: ScriptOrModule = {

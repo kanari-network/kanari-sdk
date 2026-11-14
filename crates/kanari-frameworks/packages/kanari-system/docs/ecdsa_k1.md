@@ -174,6 +174,7 @@ built-in functions
 
 ## Function `uncompressed_public_key_length`
 
+Returns the uncompressed public key length for secp256k1 ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_uncompressed_public_key_length">uncompressed_public_key_length</a>(): u64
@@ -198,6 +199,7 @@ built-in functions
 
 ## Function `keccak256`
 
+Returns the scheme selector for Keccak256 hashing.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_keccak256">keccak256</a>(): u8
@@ -222,6 +224,7 @@ built-in functions
 
 ## Function `sha256`
 
+Returns the scheme selector for SHA256 hashing.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_sha256">sha256</a>(): u8
@@ -246,6 +249,7 @@ built-in functions
 
 ## Function `ecdsa`
 
+Returns the scheme selector for ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_ecdsa">ecdsa</a>(): u8
@@ -270,6 +274,7 @@ built-in functions
 
 ## Function `schnorr`
 
+Returns the scheme selector for Schnorr.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_k1.md#0x2_ecdsa_k1_schnorr">schnorr</a>(): u8

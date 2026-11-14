@@ -19,14 +19,8 @@ mod tests {
         assert!(keypair.verify(message, &signature).unwrap());
         assert!(!keypair.verify(b"wrong message", &signature).unwrap());
 
-        assert_eq!(
-            CryptoSigner::metadata(&keypair).curve_type,
-            CurveType::Ed25519
-        );
-        assert_eq!(
-            CryptoVerifier::metadata(&keypair).usage_profile,
-            UsageProfile::HotWallet
-        );
+        assert_eq!(CryptoSigner::metadata(&keypair).curve_type, CurveType::Ed25519);
+        assert_eq!(CryptoVerifier::metadata(&keypair).usage_profile, UsageProfile::HotWallet);
     }
 
     #[test]
@@ -60,15 +54,8 @@ mod tests {
         let metadata = all_algorithm_metadata();
         assert_eq!(metadata.len(), CurveType::ALL.len());
         assert_eq!(metadata[0].curve_type, CurveType::K256);
-        assert_eq!(
-            metadata.last().unwrap().curve_type,
-            CurveType::K256Dilithium3
-        );
-        assert!(
-            metadata
-                .iter()
-                .all(|entry| entry.signature_size_hint.is_some())
-        );
+        assert_eq!(metadata.last().unwrap().curve_type, CurveType::K256Dilithium3);
+        assert!(metadata.iter().all(|entry| entry.signature_size_hint.is_some()));
     }
 
     #[test]
@@ -80,10 +67,7 @@ mod tests {
         assert_eq!(cold, vec![CurveType::SphincsPlusSha256Robust]);
 
         let interop = recommended_curves_for_usage(UsageProfile::Interoperability);
-        assert!(
-            interop.is_empty(),
-            "interop curves require app-specific choice"
-        );
+        assert!(interop.is_empty(), "interop curves require app-specific choice");
     }
 
     #[test]
@@ -111,10 +95,8 @@ mod tests {
         assert!(verify_batch_with_curve(&items, CurveType::Ed25519).unwrap());
         assert!(verify_batch_with_curve(&[], CurveType::Ed25519).is_err());
 
-        let tagged_addresses: Vec<String> = keypairs
-            .iter()
-            .map(|keypair| keypair.tagged_address())
-            .collect();
+        let tagged_addresses: Vec<String> =
+            keypairs.iter().map(|keypair| keypair.tagged_address()).collect();
         let tagged_items: Vec<BatchVerificationItem<'_>> = tagged_addresses
             .iter()
             .zip(messages)
@@ -127,11 +109,8 @@ mod tests {
 
         let mut bad_signature = signatures[0].clone();
         bad_signature[0] ^= 0x80;
-        let bad_items = [BatchVerificationItem::new(
-            &keypairs[0].public_key,
-            messages[0],
-            &bad_signature,
-        )];
+        let bad_items =
+            [BatchVerificationItem::new(&keypairs[0].public_key, messages[0], &bad_signature)];
         assert!(!verify_batch_with_curve(&bad_items, CurveType::Ed25519).unwrap());
     }
 

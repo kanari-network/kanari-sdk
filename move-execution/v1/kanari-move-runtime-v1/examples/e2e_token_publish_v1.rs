@@ -107,17 +107,12 @@ fn main() {
         println!(" id={} owner={:#x} type={}", id, obj.owner, obj.type_);
     }
     println!("Publish treasuries: {:?}", publish_cs.treasuries);
-    println!(
-        "Publish token_balance_sets: {:?}",
-        publish_cs.token_balance_sets
-    );
+    println!("Publish token_balance_sets: {:?}", publish_cs.token_balance_sets);
 
     // Apply ChangeSets to StateManager to observe state changes (supply, balances)
     let mut state = StateManager::new_in_memory();
     if !publish_cs.is_empty() {
-        state
-            .apply_changeset(&publish_cs)
-            .expect("apply publish changeset");
+        state.apply_changeset(&publish_cs).expect("apply publish changeset");
     }
 
     // StateManager in DB mode doesn't expose public maps anymore.
@@ -142,11 +137,7 @@ fn main() {
     // Also print events for debugging
     println!("Publish events:");
     for ev in publish_cs.events.iter() {
-        println!(
-            " event type={} data(hex)={}",
-            ev.type_tag,
-            hex::encode(&ev.event_data)
-        );
+        println!(" event type={} data(hex)={}", ev.type_tag, hex::encode(&ev.event_data));
     }
 
     // Try robust treasury detection by inspecting both `type_` and decoded native data
@@ -349,9 +340,7 @@ fn main() {
                         match transfer_res {
                             Ok(t_cs) => {
                                 println!("Transfer successful!");
-                                state
-                                    .apply_changeset(&t_cs)
-                                    .expect("apply transfer changeset");
+                                state.apply_changeset(&t_cs).expect("apply transfer changeset");
 
                                 // Verify Recipient received the coin
                                 let mut recipient_coin_found = false;

@@ -97,17 +97,11 @@ impl ModuleType {
     fn with_original_mident(self, mident: ModuleIdent) -> ModuleType {
         match self {
             ModuleType::Struct(stype) => {
-                let st = StructType {
-                    original_mident: mident,
-                    ..*stype
-                };
+                let st = StructType { original_mident: mident, ..*stype };
                 ModuleType::Struct(Box::new(st))
             }
             ModuleType::Enum(etype) => {
-                let et = EnumType {
-                    original_mident: mident,
-                    ..*etype
-                };
+                let et = EnumType { original_mident: mident, ..*etype };
                 ModuleType::Enum(Box::new(et))
             }
         }
@@ -166,12 +160,7 @@ impl FieldInfo {
 #[derive(Debug, Clone)]
 pub(super) enum ResolvedConstructor {
     Struct(DatatypeName, Box<StructType>),
-    Variant(
-        Box<EnumType>,
-        VariantName,
-        /* variant decl loc */ Loc,
-        Box<FieldInfo>,
-    ),
+    Variant(Box<EnumType>, VariantName, /* variant decl loc */ Loc, Box<FieldInfo>),
 }
 
 impl ResolvedConstructor {
@@ -269,15 +258,13 @@ impl<'env> Context<'env> {
     ) -> Self {
         use ResolvedType as RT;
         let all_modules = || {
-            prog.modules
-                .key_cloned_iter()
-                .chain(pre_compiled_lib.iter().flat_map(|pre_compiled| {
-                    pre_compiled
-                        .expansion
-                        .modules
-                        .key_cloned_iter()
-                        .filter(|(mident, _m)| !prog.modules.contains_key(mident))
-                }))
+            prog.modules.key_cloned_iter().chain(pre_compiled_lib.iter().flat_map(|pre_compiled| {
+                pre_compiled
+                    .expansion
+                    .modules
+                    .key_cloned_iter()
+                    .filter(|(mident, _m)| !prog.modules.contains_key(mident))
+            }))
         };
         let scoped_types = all_modules()
             .map(|(mident, mdef)| {
@@ -348,21 +335,13 @@ impl<'env> Context<'env> {
             .collect();
         let scoped_functions = all_modules()
             .map(|(mident, mdef)| {
-                let mems = mdef
-                    .functions
-                    .iter()
-                    .map(|(nloc, n, _)| (*n, nloc))
-                    .collect();
+                let mems = mdef.functions.iter().map(|(nloc, n, _)| (*n, nloc)).collect();
                 (mident, mems)
             })
             .collect();
         let scoped_constants = all_modules()
             .map(|(mident, mdef)| {
-                let mems = mdef
-                    .constants
-                    .iter()
-                    .map(|(nloc, n, _)| (*n, nloc))
-                    .collect();
+                let mems = mdef.constants.iter().map(|(nloc, n, _)| (*n, nloc)).collect();
                 (mident, mems)
             })
             .collect();
@@ -420,12 +399,9 @@ impl<'env> Context<'env> {
         };
         match types.get(&n.value) {
             None => {
-                let msg = format!(
-                    "Invalid module access. Unbound struct '{}' in module '{}'",
-                    n, m
-                );
-                self.env
-                    .add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
+                let msg =
+                    format!("Invalid module access. Unbound struct '{}' in module '{}'", n, m);
+                self.env.add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
                 None
             }
             Some(module_type) => Some(module_type.clone()),
@@ -450,12 +426,9 @@ impl<'env> Context<'env> {
         };
         match functions.get(&n.value).cloned() {
             None => {
-                let msg = format!(
-                    "Invalid module access. Unbound function '{}' in module '{}'",
-                    n, m
-                );
-                self.env
-                    .add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
+                let msg =
+                    format!("Invalid module access. Unbound function '{}' in module '{}'", n, m);
+                self.env.add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
                 None
             }
             Some(_) => Some(FunctionName(*n)),
@@ -480,12 +453,9 @@ impl<'env> Context<'env> {
         };
         match constants.get(&n.value).cloned() {
             None => {
-                let msg = format!(
-                    "Invalid module access. Unbound constant '{}' in module '{}'",
-                    n, m
-                );
-                self.env
-                    .add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
+                let msg =
+                    format!("Invalid module access. Unbound constant '{}' in module '{}'", n, m);
+                self.env.add_diag(diag!(NameResolution::UnboundModuleMember, (loc, msg)));
                 None
             }
             Some(_) => Some(ConstantName(n)),
@@ -497,8 +467,7 @@ impl<'env> Context<'env> {
         match ma_ {
             EN::Name(sp!(_, n)) if n == symbol!("_") => {
                 let current_package = self.current_package;
-                self.env
-                    .check_feature(current_package, FeatureGate::TypeHoles, nloc);
+                self.env.check_feature(current_package, FeatureGate::TypeHoles, nloc);
                 ResolvedType::Hole
             }
             EN::Name(n) => self.resolve_unscoped_type(nloc, n),
@@ -526,8 +495,7 @@ impl<'env> Context<'env> {
         {
             None => {
                 let msg = format!("Unbound type '{}' in current scope", n);
-                self.env
-                    .add_diag(diag!(NameResolution::UnboundType, (loc, msg)));
+                self.env.add_diag(diag!(NameResolution::UnboundType, (loc, msg)));
                 ResolvedType::Unbound
             }
             Some(rn) => rn.clone(),
@@ -559,16 +527,12 @@ impl<'env> Context<'env> {
                     ResolvedType::BuiltinType(n) => {
                         (ma.loc, format!("But '{n}' is a builtin type"))
                     }
-                    ResolvedType::Hole => (
-                        ma.loc,
-                        "The '_' is a placeholder for type inference".to_owned(),
-                    ),
+                    ResolvedType::Hole => {
+                        (ma.loc, "The '_' is a placeholder for type inference".to_owned())
+                    }
                     _ => unreachable!(),
                 };
-                let msg = if self
-                    .env
-                    .supports_feature(self.current_package, FeatureGate::Enums)
-                {
+                let msg = if self.env.supports_feature(self.current_package, FeatureGate::Enums) {
                     format!("Invalid {}. Expected a datatype name", verb)
                 } else {
                     format!("Invalid {}. Expected a struct name", verb)
@@ -581,20 +545,12 @@ impl<'env> Context<'env> {
                 None
             }
             ResolvedType::ModuleType(mt) => {
-                let ResolvedModuleType {
-                    module_type,
-                    original_type_name: name,
-                    ..
-                } = *mt;
+                let ResolvedModuleType { module_type, original_type_name: name, .. } = *mt;
                 let mident_name = module_type.original_mident();
                 match (&ma.value, module_type) {
                     (EN::Name(_) | EN::ModuleAccess(_, _), ModuleType::Struct(struct_type)) => {
                         let dname = DatatypeName(name);
-                        Some((
-                            mident_name,
-                            dname,
-                            ResolvedConstructor::Struct(dname, struct_type),
-                        ))
+                        Some((mident_name, dname, ResolvedConstructor::Struct(dname, struct_type)))
                     }
                     (EN::Variant(_, variant_name), ModuleType::Enum(enum_type)) => {
                         let vname = VariantName(*variant_name);
@@ -651,16 +607,12 @@ impl<'env> Context<'env> {
                 .rev()
                 .find_map(|unscoped_types| unscoped_types.get(&n.value))
                 .is_some_and(|rt| rt.is_struct() || matches!(rt, ResolvedType::BuiltinType(_))),
-            EA::ModuleAccess(m, n) => self
-                .scoped_types
-                .get(m)
-                .and_then(|types| types.get(&n.value))
-                .is_some(),
-            EA::Variant(sp!(_, (m, n)), _) => self
-                .scoped_types
-                .get(m)
-                .and_then(|types| types.get(&n.value))
-                .is_some(),
+            EA::ModuleAccess(m, n) => {
+                self.scoped_types.get(m).and_then(|types| types.get(&n.value)).is_some()
+            }
+            EA::Variant(sp!(_, (m, n)), _) => {
+                self.scoped_types.get(m).and_then(|types| types.get(&n.value)).is_some()
+            }
         }
     }
 
@@ -690,10 +642,9 @@ impl<'env> Context<'env> {
                     ResolvedType::BuiltinType(n) => {
                         (ma.loc, format!("But '{n}' is a builtin type"))
                     }
-                    ResolvedType::Hole => (
-                        ma.loc,
-                        "The '_' is a placeholder for type inference".to_owned(),
-                    ),
+                    ResolvedType::Hole => {
+                        (ma.loc, "The '_' is a placeholder for type inference".to_owned())
+                    }
                     _ => unreachable!(),
                 };
                 self.env.add_diag(diag!(
@@ -704,11 +655,7 @@ impl<'env> Context<'env> {
                 None
             }
             ResolvedType::ModuleType(mt) => {
-                let ResolvedModuleType {
-                    module_type,
-                    original_type_name: n,
-                    ..
-                } = *mt;
+                let ResolvedModuleType { module_type, original_type_name: n, .. } = *mt;
                 match module_type {
                     ModuleType::Struct(struct_type) => {
                         let m = struct_type.original_mident;
@@ -784,11 +731,7 @@ impl<'env> Context<'env> {
 
     fn declare_local(&mut self, is_parameter: bool, sp!(vloc, name): Name) -> N::Var {
         let default = if is_parameter { 0 } else { 1 };
-        let id = *self
-            .local_count
-            .entry(name)
-            .and_modify(|c| *c += 1)
-            .or_insert(default);
+        let id = *self.local_count.entry(name).and_modify(|c| *c += 1).or_insert(default);
         self.local_scopes.last_mut().unwrap().insert(name, id);
         // all locals start at color zero
         // they will be incremented when substituted for macros
@@ -803,11 +746,7 @@ impl<'env> Context<'env> {
         variable_msg: impl FnOnce(Symbol) -> S,
         sp!(vloc, name): Name,
     ) -> Option<N::Var> {
-        let id_opt = self
-            .local_scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(&name).copied());
+        let id_opt = self.local_scopes.iter().rev().find_map(|scope| scope.get(&name).copied());
         match id_opt {
             None => {
                 let msg = variable_msg(name);
@@ -848,10 +787,7 @@ impl<'env> Context<'env> {
         name: Option<P::BlockLabel>,
         name_type: NominalBlockType,
     ) {
-        debug_assert!(
-            self.nominal_blocks.len() < 100,
-            "Nominal block list exceeded 100."
-        );
+        debug_assert!(self.nominal_blocks.len() < 100, "Nominal block list exceeded 100.");
         let id = self.nominal_block_id;
         self.nominal_block_id += 1;
         let name = name.map(|n| n.value());
@@ -862,18 +798,14 @@ impl<'env> Context<'env> {
     fn current_loop(&mut self, loc: Loc, usage: NominalBlockUsage) -> Option<BlockLabel> {
         let Some((_name, label, name_type)) =
             self.nominal_blocks.iter().rev().find(|(_, _, name_type)| {
-                matches!(
-                    name_type,
-                    NominalBlockType::Loop(_) | NominalBlockType::LambdaLoopCapture
-                )
+                matches!(name_type, NominalBlockType::Loop(_) | NominalBlockType::LambdaLoopCapture)
             })
         else {
             let msg = format!(
                 "Invalid usage of '{usage}'. \
                 '{usage}' can only be used inside a loop body or lambda",
             );
-            self.env
-                .add_diag(diag!(TypeSafety::InvalidLoopControl, (loc, msg)));
+            self.env.add_diag(diag!(TypeSafety::InvalidLoopControl, (loc, msg)));
             return None;
         };
         if *name_type == NominalBlockType::LambdaLoopCapture {
@@ -887,16 +819,13 @@ impl<'env> Context<'env> {
             );
             // suggest adding a label to the loop
             let most_recent_loop_opt =
-                self.nominal_blocks
-                    .iter()
-                    .rev()
-                    .find_map(|(name, label, name_type)| {
-                        if let NominalBlockType::Loop(loop_type) = name_type {
-                            Some((name, label, *loop_type))
-                        } else {
-                            None
-                        }
-                    });
+                self.nominal_blocks.iter().rev().find_map(|(name, label, name_type)| {
+                    if let NominalBlockType::Loop(loop_type) = name_type {
+                        Some((name, label, *loop_type))
+                    } else {
+                        None
+                    }
+                });
             if let Some((name, loop_label, loop_type)) = most_recent_loop_opt {
                 let msg = if let Some(loop_label) = name {
                     format!(
@@ -972,8 +901,7 @@ impl<'env> Context<'env> {
             }
         } else {
             let msg = format!("Invalid {usage}. Unbound label '{name}");
-            self.env
-                .add_diag(diag!(NameResolution::UnboundLabel, (loc, msg)));
+            self.env.add_diag(diag!(NameResolution::UnboundLabel, (loc, msg)));
             None
         }
     }
@@ -1086,17 +1014,9 @@ fn module(
     let mut use_funs = use_funs(context, euse_funs);
     let mut syntax_methods = N::SyntaxMethods::new();
     let friends = efriends.filter_map(|mident, f| friend(context, mident, f));
-    let struct_names = estructs
-        .key_cloned_iter()
-        .map(|(k, _)| k)
-        .collect::<BTreeSet<_>>();
-    let enum_names = eenums
-        .key_cloned_iter()
-        .map(|(k, _)| k)
-        .collect::<BTreeSet<_>>();
-    let enum_struct_intersection = enum_names
-        .intersection(&struct_names)
-        .collect::<BTreeSet<_>>();
+    let struct_names = estructs.key_cloned_iter().map(|(k, _)| k).collect::<BTreeSet<_>>();
+    let enum_names = eenums.key_cloned_iter().map(|(k, _)| k).collect::<BTreeSet<_>>();
+    let enum_struct_intersection = enum_names.intersection(&struct_names).collect::<BTreeSet<_>>();
     let structs = estructs.map(|name, s| {
         context.push_unscoped_types_scope();
         let s = struct_def(context, name, s);
@@ -1160,15 +1080,10 @@ fn module(
 //**************************************************************************************************
 
 fn use_funs(context: &mut Context, eufs: E::UseFuns) -> N::UseFuns {
-    let E::UseFuns {
-        explicit: eexplicit,
-        implicit: eimplicit,
-    } = eufs;
+    let E::UseFuns { explicit: eexplicit, implicit: eimplicit } = eufs;
     let mut resolved = N::ResolvedUseFuns::new();
-    let resolved_vec: Vec<_> = eexplicit
-        .into_iter()
-        .flat_map(|e| explicit_use_fun(context, e))
-        .collect();
+    let resolved_vec: Vec<_> =
+        eexplicit.into_iter().flat_map(|e| explicit_use_fun(context, e)).collect();
     for (tn, method, nuf) in resolved_vec {
         let methods = resolved.entry(tn.clone()).or_default();
         let nuf_loc = nuf.loc;
@@ -1192,30 +1107,17 @@ fn explicit_use_fun(
     context: &mut Context,
     e: E::ExplicitUseFun,
 ) -> Option<(N::TypeName, Name, N::UseFun)> {
-    let E::ExplicitUseFun {
-        loc,
-        attributes,
-        is_public,
-        function,
-        ty,
-        method,
-    } = e;
+    let E::ExplicitUseFun { loc, attributes, is_public, function, ty, method } = e;
     let m_f_opt = match resolve_function(context, ResolveFunctionCase::UseFun, loc, function, None)
     {
         ResolvedFunction::Module(mf) => {
-            let ResolvedModuleFunction {
-                module,
-                function,
-                ty_args,
-            } = *mf;
+            let ResolvedModuleFunction { module, function, ty_args } = *mf;
             assert!(ty_args.is_none());
             Some((module, function))
         }
         ResolvedFunction::Builtin(_) => {
             let msg = "Invalid 'use fun'. Cannot use a builtin function as a method";
-            context
-                .env
-                .add_diag(diag!(Declarations::InvalidUseFun, (loc, msg)));
+            context.env.add_diag(diag!(Declarations::InvalidUseFun, (loc, msg)));
             None
         }
         ResolvedFunction::Var(_) => {
@@ -1235,24 +1137,14 @@ fn explicit_use_fun(
         ResolvedType::Hole => {
             let msg = "Invalid 'use fun'. Cannot associate a method with an inferred type";
             let tmsg = "The '_' type is a placeholder for type inference";
-            context.env.add_diag(diag!(
-                Declarations::InvalidUseFun,
-                (loc, msg),
-                (ty_loc, tmsg)
-            ));
+            context.env.add_diag(diag!(Declarations::InvalidUseFun, (loc, msg), (ty_loc, tmsg)));
             None
         }
         ResolvedType::TParam(tloc, tp) => {
             let msg = "Invalid 'use fun'. Cannot associate a method with a type parameter";
-            let tmsg = format!(
-                "But '{}' was declared as a type parameter here",
-                tp.user_specified_name
-            );
-            context.env.add_diag(diag!(
-                Declarations::InvalidUseFun,
-                (loc, msg,),
-                (tloc, tmsg)
-            ));
+            let tmsg =
+                format!("But '{}' was declared as a type parameter here", tp.user_specified_name);
+            context.env.add_diag(diag!(Declarations::InvalidUseFun, (loc, msg,), (tloc, tmsg)));
             None
         }
         ResolvedType::BuiltinType(bt_) => Some(N::TypeName_::Builtin(sp(ty.loc, bt_))),
@@ -1323,12 +1215,7 @@ fn use_fun_module_defines(
             if specified.as_ref().is_some_and(|n| n == m) {
                 Ok(())
             } else {
-                let mod_type = context
-                    .scoped_types
-                    .get(m)
-                    .unwrap()
-                    .get(&n.value())
-                    .unwrap();
+                let mod_type = context.scoped_types.get(m).unwrap().get(&n.value()).unwrap();
                 Err(Some(mod_type.decl_loc()))
             }
         }
@@ -1345,11 +1232,7 @@ fn use_fun_module_defines(
 }
 
 fn mark_all_use_funs_as_used(use_funs: &mut N::UseFuns) {
-    let N::UseFuns {
-        color: _,
-        resolved,
-        implicit_candidates,
-    } = use_funs;
+    let N::UseFuns { color: _, resolved, implicit_candidates } = use_funs;
     for methods in resolved.values_mut() {
         for (_, _, uf) in methods {
             uf.used = true;
@@ -1440,9 +1323,7 @@ fn function(
             if !context.used_fun_tparams.contains(&tparam.id) {
                 let sp!(loc, n) = tparam.user_specified_name;
                 let msg = format!("Unused type parameter '{}'.", n);
-                context
-                    .env
-                    .add_diag(diag!(UnusedItem::FunTypeParam, (loc, msg)))
+                context.env.add_diag(diag!(UnusedItem::FunTypeParam, (loc, msg)))
             }
         }
     }
@@ -1518,11 +1399,7 @@ fn function_signature(
         })
         .collect();
     let return_type = type_(context, case, sig.return_type);
-    N::FunctionSignature {
-        type_parameters,
-        parameters,
-        return_type,
-    }
+    N::FunctionSignature { type_parameters, parameters, return_type }
 }
 
 fn function_body(context: &mut Context, sp!(loc, b_): E::FunctionBody) -> N::FunctionBody {
@@ -1557,14 +1434,7 @@ fn struct_def(
     let type_parameters = datatype_type_parameters(context, type_parameters);
     let fields = struct_fields(context, fields);
     context.env.pop_warning_filter_scope();
-    N::StructDefinition {
-        warning_filter,
-        index,
-        attributes,
-        abilities,
-        type_parameters,
-        fields,
-    }
+    N::StructDefinition { warning_filter, index, attributes, abilities, type_parameters, fields }
 }
 
 fn positional_field_name(loc: Loc, idx: usize) -> Field {
@@ -1614,34 +1484,21 @@ fn enum_def(
     let type_parameters = datatype_type_parameters(context, type_parameters);
     let variants = enum_variants(context, variants);
     context.env.pop_warning_filter_scope();
-    N::EnumDefinition {
-        warning_filter,
-        index,
-        attributes,
-        abilities,
-        type_parameters,
-        variants,
-    }
+    N::EnumDefinition { warning_filter, index, attributes, abilities, type_parameters, variants }
 }
 
 fn enum_variants(
     context: &mut Context,
     evariants: UniqueMap<VariantName, E::VariantDefinition>,
 ) -> UniqueMap<VariantName, N::VariantDefinition> {
-    let variants = evariants
-        .into_iter()
-        .map(|(key, defn)| (key, variant_def(context, defn)));
+    let variants = evariants.into_iter().map(|(key, defn)| (key, variant_def(context, defn)));
     UniqueMap::maybe_from_iter(variants).unwrap()
 }
 
 fn variant_def(context: &mut Context, variant: E::VariantDefinition) -> N::VariantDefinition {
     let E::VariantDefinition { loc, index, fields } = variant;
 
-    N::VariantDefinition {
-        index,
-        loc,
-        fields: variant_fields(context, fields),
-    }
+    N::VariantDefinition { index, loc, fields: variant_fields(context, fields) }
 }
 
 fn variant_fields(context: &mut Context, efields: E::VariantFields) -> N::VariantFields {
@@ -1690,14 +1547,7 @@ fn constant(context: &mut Context, _name: ConstantName, econstant: E::Constant) 
     context.used_locals = BTreeSet::new();
     context.nominal_block_id = 0;
     context.env.pop_warning_filter_scope();
-    N::Constant {
-        warning_filter,
-        index,
-        attributes,
-        loc,
-        signature,
-        value,
-    }
+    N::Constant { warning_filter, index, attributes, loc, signature, value }
 }
 
 //**************************************************************************************************
@@ -1738,11 +1588,7 @@ fn type_parameter(
 ) -> N::TParam {
     let id = N::TParamID::next();
     let user_specified_name = name;
-    let tp = N::TParam {
-        id,
-        user_specified_name,
-        abilities,
-    };
+    let tp = N::TParam { id, user_specified_name, abilities };
     let loc = name.loc;
     context.bind_type(name.value, ResolvedType::TParam(loc, tp.clone()));
     if let Err((name, old_loc)) = unique_tparams.add(name, ()) {
@@ -1780,10 +1626,9 @@ fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -
     use ResolvedType as RT;
     let ty_ = match ety_ {
         ET::Unit => NT::Unit,
-        ET::Multiple(tys) => NT::multiple_(
-            loc,
-            tys.into_iter().map(|t| type_(context, case, t)).collect(),
-        ),
+        ET::Multiple(tys) => {
+            NT::multiple_(loc, tys.into_iter().map(|t| type_(context, case, t)).collect())
+        }
         ET::Ref(mut_, inner) => NT::Ref(mut_, Box::new(type_(context, case, *inner))),
         ET::UnresolvedError => {
             assert!(context.env.has_errors());
@@ -1799,10 +1644,9 @@ fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -
                     TypeAnnotation::StructField => {
                         Some(("Struct fields", " or consider adding a new type parameter"))
                     }
-                    TypeAnnotation::VariantField => Some((
-                        "Enum variant fields",
-                        " or consider adding a new type parameter",
-                    )),
+                    TypeAnnotation::VariantField => {
+                        Some(("Enum variant fields", " or consider adding a new type parameter"))
+                    }
                     TypeAnnotation::ConstantSignature => Some(("Constants", "")),
                     TypeAnnotation::FunctionSignature => {
                         Some(("Functions", " or consider adding a new type parameter"))
@@ -1847,11 +1691,7 @@ fn type_(context: &mut Context, case: TypeAnnotation, sp!(loc, ety_): E::Type) -
                 }
             }
             RT::ModuleType(mt) => {
-                let ResolvedModuleType {
-                    original_loc,
-                    original_type_name,
-                    module_type,
-                } = *mt;
+                let ResolvedModuleType { original_loc, original_type_name, module_type } = *mt;
                 let (tn, arity) = match module_type {
                     ModuleType::Struct(stype) => {
                         let tn = sp(
@@ -2000,9 +1840,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
             }
         }
         EE::Name(ma @ sp!(_, E::ModuleAccess_::Variant(_, _)), etys_opt) => {
-            context
-                .env
-                .check_feature(context.current_package, FeatureGate::Enums, eloc);
+            context.env.check_feature(context.current_package, FeatureGate::Enums, eloc);
             let Some((m, n, ty)) = context.resolve_datatype_constructor(ma, "construction") else {
                 assert!(context.env.has_errors());
                 return Box::new(sp(eloc, NE::UnresolvedError));
@@ -2032,19 +1870,12 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
         EE::Match(esubject, sp!(_aloc, arms)) if arms.is_empty() => {
             exp(context, esubject); // for error effect
             let msg = "Invalid 'match' form. 'match' must have at least one arm";
-            context
-                .env
-                .add_diag(diag!(Syntax::InvalidMatch, (eloc, msg)));
+            context.env.add_diag(diag!(Syntax::InvalidMatch, (eloc, msg)));
             NE::UnresolvedError
         }
         EE::Match(esubject, sp!(aloc, arms)) => NE::Match(
             exp(context, esubject),
-            sp(
-                aloc,
-                arms.into_iter()
-                    .map(|arm| match_arm(context, arm))
-                    .collect(),
-            ),
+            sp(aloc, arms.into_iter().map(|arm| match_arm(context, arm)).collect()),
         ),
         EE::While(name_opt, eb, el) => {
             let cond = exp(context, eb);
@@ -2066,11 +1897,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
             let seq = sequence(context, eseq);
             let (label, name_type) = context.exit_nominal_block();
             assert_eq!(name_type, NominalBlockType::Block);
-            NE::Block(N::Block {
-                name: Some(label),
-                from_macro_argument: None,
-                seq,
-            })
+            NE::Block(N::Block { name: Some(label), from_macro_argument: None, seq })
         }
         EE::Block(None, eseq) => NE::Block(N::Block {
             name: None,
@@ -2234,19 +2061,13 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
             Some(ndot) => NE::ExpDotted(case, ndot),
         },
 
-        EE::Cast(e, t) => NE::Cast(
-            exp(context, e),
-            type_(context, TypeAnnotation::Expression, t),
-        ),
-        EE::Annotate(e, t) => NE::Annotate(
-            exp(context, e),
-            type_(context, TypeAnnotation::Expression, t),
-        ),
+        EE::Cast(e, t) => NE::Cast(exp(context, e), type_(context, TypeAnnotation::Expression, t)),
+        EE::Annotate(e, t) => {
+            NE::Annotate(exp(context, e), type_(context, TypeAnnotation::Expression, t))
+        }
 
         EE::Call(ma, is_macro, etys_opt, rhs) if context.resolves_to_datatype(&ma) => {
-            context
-                .env
-                .check_feature(context.current_package, FeatureGate::PositionalFields, eloc);
+            context.env.check_feature(context.current_package, FeatureGate::PositionalFields, eloc);
             report_invalid_macro(context, is_macro, "Datatypes");
             let nes = call_args(context, rhs);
             let Some((m, n, ty)) = context.resolve_datatype_constructor(ma, "construction") else {
@@ -2314,9 +2135,7 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
                                    macro",
                             bf.value.display_name()
                         );
-                        context
-                            .env
-                            .add_diag(diag!(TypeSafety::InvalidCallTarget, (mloc, msg)));
+                        context.env.add_diag(diag!(TypeSafety::InvalidCallTarget, (mloc, msg)));
                     }
                     NE::Builtin(bf, nes)
                 }
@@ -2329,20 +2148,14 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
                             mloc,
                         );
                     }
-                    let ResolvedModuleFunction {
-                        module,
-                        function,
-                        ty_args,
-                    } = *mf;
+                    let ResolvedModuleFunction { module, function, ty_args } = *mf;
                     NE::ModuleCall(module, function, is_macro, ty_args, nes)
                 }
                 ResolvedFunction::Var(v) => {
                     if let Some(mloc) = is_macro {
                         let msg = "Unexpected macro invocation. Bound lambdas cannot be invoked as \
                             a macro";
-                        context
-                            .env
-                            .add_diag(diag!(TypeSafety::InvalidCallTarget, (mloc, msg)));
+                        context.env.add_diag(diag!(TypeSafety::InvalidCallTarget, (mloc, msg)));
                     }
                     NE::VarCall(v, nes)
                 }
@@ -2394,10 +2207,8 @@ fn exp(context: &mut Context, e: Box<E::Exp>) -> Box<N::Exp> {
         }
         // `Name` matches name variants only allowed in specs (we handle the allowed ones above)
         e @ (EE::Index(..) | EE::Quant(..) | EE::Name(_, Some(_))) => {
-            let mut diag = ice!((
-                eloc,
-                "ICE compiler should not have parsed this form as a specification"
-            ));
+            let mut diag =
+                ice!((eloc, "ICE compiler should not have parsed this form as a specification"));
             diag.add_note(format!("Compiler parsed: {}", debug_display!(e)));
             context.env.add_diag(diag);
             NE::UnresolvedError
@@ -2614,13 +2425,8 @@ fn check_constructor_form(
 
 fn report_invalid_macro(context: &mut Context, is_macro: Option<Loc>, kind: &str) {
     if let Some(mloc) = is_macro {
-        let msg = format!(
-            "Unexpected macro invocation. {} cannot be invoked as macros",
-            kind
-        );
-        context
-            .env
-            .add_diag(diag!(NameResolution::PositionalCallMismatch, (mloc, msg)));
+        let msg = format!("Unexpected macro invocation. {} cannot be invoked as macros", kind);
+        context.env.add_diag(diag!(NameResolution::PositionalCallMismatch, (mloc, msg)));
     }
 }
 
@@ -2629,11 +2435,7 @@ fn report_invalid_macro(context: &mut Context, is_macro: Option<Loc>, kind: &str
 //************************************************
 
 fn match_arm(context: &mut Context, sp!(aloc, arm): E::MatchArm) -> N::MatchArm {
-    let E::MatchArm_ {
-        pattern,
-        guard,
-        rhs,
-    } = arm;
+    let E::MatchArm_ { pattern, guard, rhs } = arm;
 
     let pat_binders = unique_pattern_binders(context, &pattern);
 
@@ -2644,10 +2446,7 @@ fn match_arm(context: &mut Context, sp!(aloc, arm): E::MatchArm) -> N::MatchArm 
         .clone()
         .into_iter()
         .map(|(mut_, binder)| {
-            (
-                mut_,
-                context.declare_local(/* is_parameter */ false, binder.0),
-            )
+            (mut_, context.declare_local(/* is_parameter */ false, binder.0))
         })
         .collect::<Vec<_>>();
 
@@ -2660,10 +2459,8 @@ fn match_arm(context: &mut Context, sp!(aloc, arm): E::MatchArm) -> N::MatchArm 
         .clone()
         .into_iter()
         .map(|(_, pat_var)| {
-            let guard_var = context.declare_local(
-                /* is_parameter */ false,
-                sp(pat_var.loc, pat_var.value.name),
-            );
+            let guard_var = context
+                .declare_local(/* is_parameter */ false, sp(pat_var.loc, pat_var.value.name));
             (pat_var, guard_var)
         })
         .collect::<Vec<_>>();
@@ -2679,9 +2476,7 @@ fn match_arm(context: &mut Context, sp!(aloc, arm): E::MatchArm) -> N::MatchArm 
     let mut guard_binders = UniqueMap::new();
     for (pat_var, guard_var) in guard_binder_pairs {
         if context.used_locals.contains(&guard_var.value) {
-            guard_binders
-                .add(pat_var, guard_var)
-                .expect("ICE guard pattern issue");
+            guard_binders.add(pat_var, guard_var).expect("ICE guard pattern issue");
         }
     }
     context.close_local_scope();
@@ -2707,14 +2502,7 @@ fn match_arm(context: &mut Context, sp!(aloc, arm): E::MatchArm) -> N::MatchArm 
 
     context.close_local_scope();
 
-    let arm = N::MatchArm_ {
-        pattern,
-        binders,
-        guard,
-        guard_binders,
-        rhs_binders,
-        rhs,
-    };
+    let arm = N::MatchArm_ { pattern, binders, guard, guard_binders, rhs_binders, rhs };
     sp(aloc, arm)
 }
 
@@ -2812,10 +2600,7 @@ fn unique_pattern_binders(
             EP::At(var, inner) => {
                 let mut bindings: Bindings = BTreeMap::new();
                 if !var.is_underscore() {
-                    bindings
-                        .entry(*var)
-                        .or_default()
-                        .push((Mutability::Imm, *ploc));
+                    bindings.entry(*var).or_default().push((Mutability::Imm, *ploc));
                 }
                 let new_bindings = check_duplicates(context, inner);
                 bindings = report_duplicates_and_combine(context, vec![bindings, new_bindings]);
@@ -2951,9 +2736,9 @@ fn expand_named_ellipsis<T>(
     let mut fields = match field_info {
         FieldInfo::Empty => BTreeSet::new(),
         FieldInfo::Named(fields) => fields.clone(),
-        FieldInfo::Positional(num_fields) => (0..*num_fields)
-            .map(|i| Field::add_loc(head_loc, format!("{i}").into()))
-            .collect(),
+        FieldInfo::Positional(num_fields) => {
+            (0..*num_fields).map(|i| Field::add_loc(head_loc, format!("{i}").into())).collect()
+        }
     };
 
     for (k, _) in args.key_cloned_iter() {
@@ -2962,11 +2747,7 @@ fn expand_named_ellipsis<T>(
 
     let start_idx = args.len();
     for (i, f) in fields.into_iter().enumerate() {
-        args.add(
-            Field(sp(eloc, f.value())),
-            (start_idx + i, replacement(eloc)),
-        )
-        .unwrap();
+        args.add(Field(sp(eloc, f.value())), (start_idx + i, replacement(eloc))).unwrap();
     }
 }
 
@@ -3092,11 +2873,7 @@ fn match_pattern(context: &mut Context, in_pat: Box<E::MatchPattern>) -> Box<N::
         EP::Or(lhs, rhs) => NP::Or(match_pattern(context, lhs), match_pattern(context, rhs)),
         EP::At(binder, body) => {
             if let Some(binder) = context.resolve_pattern_binder(binder.loc(), binder.0) {
-                NP::At(
-                    binder,
-                    /* unused_binding */ false,
-                    match_pattern(context, body),
-                )
+                NP::At(binder, /* unused_binding */ false, match_pattern(context, body))
             } else {
                 assert!(context.env.has_errors());
                 match_pattern(context, body).value
@@ -3147,15 +2924,10 @@ fn lvalue(
                             ((var.loc, msg), (prev_loc, "Previously assigned here"))
                         }
                     };
-                    context
-                        .env
-                        .add_diag(diag!(Declarations::DuplicateItem, primary, secondary));
+                    context.env.add_diag(diag!(Declarations::DuplicateItem, primary, secondary));
                 }
                 if v.is_syntax_identifier() {
-                    debug_assert!(
-                        matches!(case, C::Assign),
-                        "ICE this should fail during parsing"
-                    );
+                    debug_assert!(matches!(case, C::Assign), "ICE this should fail during parsing");
                     let msg = format!(
                         "Cannot assign to argument for parameter '{}'. \
                         Arguments must be used in value positions",
@@ -3196,17 +2968,13 @@ fn lvalue(
             if field_info.is_positional() && !matches!(efields, E::FieldBindings::Positional(_)) {
                 let msg = "Invalid deconstruction. Positional struct field declarations require \
                            positional deconstruction";
-                context
-                    .env
-                    .add_diag(diag!(NameResolution::PositionalCallMismatch, (loc, msg)));
+                context.env.add_diag(diag!(NameResolution::PositionalCallMismatch, (loc, msg)));
             }
 
             if !field_info.is_positional() && matches!(efields, E::FieldBindings::Positional(_)) {
                 let msg = "Invalid deconstruction. Named struct field declarations require \
                            named deconstruction";
-                context
-                    .env
-                    .add_diag(diag!(NameResolution::PositionalCallMismatch, (loc, msg)));
+                context.env.add_diag(diag!(NameResolution::PositionalCallMismatch, (loc, msg)));
             }
             let make_ignore = |loc| {
                 let var = sp(loc, Symbol::from("_"));
@@ -3239,18 +3007,11 @@ fn lvalue(
                 UniqueMap::maybe_from_opt_iter(efields.into_iter().map(|(k, (idx, inner))| {
                     Some((k, (idx, lvalue(context, seen_locals, case, inner)?)))
                 }))?;
-            NL::Unpack(
-                m,
-                sn,
-                tys_opt,
-                nfields.expect("ICE fields were already unique"),
-            )
+            NL::Unpack(m, sn, tys_opt, nfields.expect("ICE fields were already unique"))
         }
         e @ EL::Var(_, _, _) => {
-            let mut diag = ice!((
-                loc,
-                "ICE compiler should not have parsed this form as a specification"
-            ));
+            let mut diag =
+                ice!((loc, "ICE compiler should not have parsed this form as a specification"));
             diag.add_note(format!("Compiler parsed: {}", debug_display!(e)));
             context.env.add_diag(diag);
             NL::Ignore
@@ -3265,9 +3026,7 @@ fn check_mut_underscore(context: &mut Context, mut_: Option<Mutability>) {
         return;
     };
     let msg = "Invalid 'mut' declaration. 'mut' is applied to variables and cannot be applied to the '_' pattern";
-    context
-        .env
-        .add_diag(diag!(NameResolution::InvalidMut, (loc, msg)));
+    context.env.add_diag(diag!(NameResolution::InvalidMut, (loc, msg)));
 }
 
 fn bind_list(context: &mut Context, ls: E::LValueList) -> Option<N::LValueList> {
@@ -3447,9 +3206,7 @@ fn check_builtin_ty_args_impl(
             };
             let msg = msg_opt.get_or_insert_with(fmsg);
             let targs_msg = format!("Expected {} type argument(s) but got {}", arity, args_len);
-            context
-                .env
-                .add_diag(diag!(diag_code, (msg_loc, msg), (targs_loc, targs_msg)));
+            context.env.add_diag(diag!(diag_code, (msg_loc, msg), (targs_loc, targs_msg)));
         }
 
         while args.len() > arity {
@@ -3522,18 +3279,10 @@ fn remove_unused_bindings_lvalue(
 ) {
     match lvalue_ {
         N::LValue_::Ignore => (),
-        N::LValue_::Var {
-            var,
-            unused_binding,
-            ..
-        } if used.contains(&var.value) => {
+        N::LValue_::Var { var, unused_binding, .. } if used.contains(&var.value) => {
             debug_assert!(!*unused_binding);
         }
-        N::LValue_::Var {
-            var,
-            unused_binding,
-            ..
-        } => {
+        N::LValue_::Var { var, unused_binding, .. } => {
             debug_assert!(!*unused_binding);
             report_unused_local(context, var);
             *unused_binding = true;
@@ -3587,11 +3336,9 @@ fn remove_unused_bindings_exp(
             remove_unused_bindings_exp(context, used, econd);
             remove_unused_bindings_exp(context, used, ebody)
         }
-        N::Exp_::Block(N::Block {
-            name: _,
-            from_macro_argument: _,
-            seq,
-        }) => remove_unused_bindings_seq(context, used, seq),
+        N::Exp_::Block(N::Block { name: _, from_macro_argument: _, seq }) => {
+            remove_unused_bindings_seq(context, used, seq)
+        }
         N::Exp_::Lambda(N::Lambda {
             parameters: sp!(_, parameters),
             return_label: _,
@@ -3707,15 +3454,9 @@ fn report_unused_local(context: &mut Context, sp!(loc, unused_): &N::Var) {
     let N::Var_ { name, id, color } = unused_;
     debug_assert!(*color == 0);
     let is_parameter = *id == 0;
-    let kind = if is_parameter {
-        "parameter"
-    } else {
-        "local variable"
-    };
+    let kind = if is_parameter { "parameter" } else { "local variable" };
     let msg = format!(
         "Unused {kind} '{name}'. Consider removing or prefixing with an underscore: '_{name}'",
     );
-    context
-        .env
-        .add_diag(diag!(UnusedItem::Variable, (*loc, msg)));
+    context.env.add_diag(diag!(UnusedItem::Variable, (*loc, msg)));
 }

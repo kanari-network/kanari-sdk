@@ -32,9 +32,7 @@ impl<'a> BytecodeViewer<'a> {
             print_basic_blocks: true,
             ..Default::default()
         };
-        let disassembled_string = Disassembler::new(source_mapping, options)
-            .disassemble()
-            .unwrap();
+        let disassembled_string = Disassembler::new(source_mapping, options).disassemble().unwrap();
 
         let mut base_viewer = Self {
             lines: disassembled_string.lines().map(|x| x.to_string()).collect(),

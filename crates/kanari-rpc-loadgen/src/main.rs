@@ -21,11 +21,7 @@ use tokio::{sync::Semaphore, task::JoinSet};
 struct Args {
     /// RPC endpoint to target. Pass multiple --rpc-url values to distribute
     /// requests across a gateway pool or directly across multiple RPC nodes.
-    #[arg(
-        long = "rpc-url",
-        value_name = "URL",
-        default_value = "http://127.0.0.1:6767"
-    )]
+    #[arg(long = "rpc-url", value_name = "URL", default_value = "http://127.0.0.1:6767")]
     rpc_urls: Vec<String>,
 
     #[arg(long, default_value_t = 10_000)]
@@ -86,8 +82,7 @@ impl Sample {
     }
 
     fn client_rejected(&self) -> bool {
-        self.status
-            .is_some_and(|s| s.is_client_error() && s != StatusCode::TOO_MANY_REQUESTS)
+        self.status.is_some_and(|s| s.is_client_error() && s != StatusCode::TOO_MANY_REQUESTS)
     }
 
     fn server_error(&self) -> bool {
@@ -115,11 +110,7 @@ fn request_body(id: usize, args: &Args) -> String {
         .to_string();
     }
 
-    let method = if id.is_multiple_of(2) {
-        "kanari_health"
-    } else {
-        "kanari_getStats"
-    };
+    let method = if id.is_multiple_of(2) { "kanari_health" } else { "kanari_getStats" };
     json!({
         "jsonrpc": "2.0",
         "method": method,
@@ -136,12 +127,8 @@ async fn send_one(
     body: String,
 ) -> Sample {
     let started = Instant::now();
-    let result = client
-        .post(&rpc_url)
-        .header("content-type", "application/json")
-        .body(body)
-        .send()
-        .await;
+    let result =
+        client.post(&rpc_url).header("content-type", "application/json").body(body).send().await;
 
     let latency_ms = started.elapsed().as_millis();
     match result {
@@ -179,14 +166,8 @@ async fn main() -> Result<()> {
     if args.concurrency == 0 {
         bail!("--concurrency must be greater than zero");
     }
-    validate_percent(
-        "max-client-rejected-percent",
-        args.max_client_rejected_percent,
-    )?;
-    validate_percent(
-        "max-endpoint-imbalance-percent",
-        args.max_endpoint_imbalance_percent,
-    )?;
+    validate_percent("max-client-rejected-percent", args.max_client_rejected_percent)?;
+    validate_percent("max-endpoint-imbalance-percent", args.max_endpoint_imbalance_percent)?;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(args.timeout_secs))
@@ -232,11 +213,7 @@ async fn main() -> Result<()> {
     let started = Instant::now();
 
     for id in 0..args.requests {
-        let permit = semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .context("semaphore closed")?;
+        let permit = semaphore.clone().acquire_owned().await.context("semaphore closed")?;
         let client = client.clone();
         let endpoint_index = id % args.rpc_urls.len();
         let rpc_url = args.rpc_urls[endpoint_index].clone();
@@ -290,17 +267,10 @@ async fn main() -> Result<()> {
 
     let mut by_endpoint: BTreeMap<(usize, &str), usize> = BTreeMap::new();
     for sample in &samples {
-        *by_endpoint
-            .entry((sample.endpoint_index, sample.rpc_url.as_str()))
-            .or_default() += 1;
+        *by_endpoint.entry((sample.endpoint_index, sample.rpc_url.as_str())).or_default() += 1;
     }
     let endpoint_counts: Vec<usize> = (0..args.rpc_urls.len())
-        .map(|slot| {
-            samples
-                .iter()
-                .filter(|sample| sample.endpoint_index == slot)
-                .count()
-        })
+        .map(|slot| samples.iter().filter(|sample| sample.endpoint_index == slot).count())
         .collect();
     if args.rpc_urls.len() > 1 {
         println!("  endpoint_distribution:");

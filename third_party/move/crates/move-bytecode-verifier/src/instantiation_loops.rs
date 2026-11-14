@@ -98,12 +98,10 @@ impl<'a> InstantiationLoopChecker<'a> {
             Some((nodes, edges)) => {
                 let msg_edges = edges
                     .into_iter()
-                    .filter_map(
-                        |edge_idx| match checker.graph.edge_weight(edge_idx).unwrap() {
-                            Edge::TyConApp(_) => Some(checker.format_edge(edge_idx)),
-                            _ => None,
-                        },
-                    )
+                    .filter_map(|edge_idx| match checker.graph.edge_weight(edge_idx).unwrap() {
+                        Edge::TyConApp(_) => Some(checker.format_edge(edge_idx)),
+                        _ => None,
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let msg_nodes = nodes
@@ -111,10 +109,8 @@ impl<'a> InstantiationLoopChecker<'a> {
                     .map(|node_idx| checker.format_node(node_idx))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let msg = format!(
-                    "edges with constructors: [{}], nodes: [{}]",
-                    msg_edges, msg_nodes
-                );
+                let msg =
+                    format!("edges with constructors: [{}], nodes: [{}]", msg_edges, msg_nodes);
                 Err(PartialVMError::new(StatusCode::LOOP_IN_INSTANTIATION_GRAPH).with_message(msg))
             }
         }
@@ -229,12 +225,8 @@ impl<'a> InstantiationLoopChecker<'a> {
     ///     call.
     ///     - Each edge is labeled either `Identity` or `TyConApp`. See `Edge` for details.
     fn build_graph(&mut self) {
-        for (def_idx, func_def) in self
-            .module
-            .function_defs()
-            .iter()
-            .enumerate()
-            .filter(|(_, def)| !def.is_native())
+        for (def_idx, func_def) in
+            self.module.function_defs().iter().enumerate().filter(|(_, def)| !def.is_native())
         {
             self.build_graph_function_def(FunctionDefinitionIndex::new(def_idx as u16), func_def)
         }
@@ -254,21 +246,15 @@ impl<'a> InstantiationLoopChecker<'a> {
                     .iter()
                     .flat_map(|node_idx| {
                         self.graph.edges(*node_idx).filter_map(|edge| {
-                            if node_set.contains(&edge.target()) {
-                                Some(edge.id())
-                            } else {
-                                None
-                            }
+                            if node_set.contains(&edge.target()) { Some(edge.id()) } else { None }
                         })
                     })
                     .collect();
 
-                if edges.iter().any(
-                    |edge_idx| match self.graph.edge_weight(*edge_idx).unwrap() {
-                        Edge::Identity => false,
-                        Edge::TyConApp(_) => true,
-                    },
-                ) {
+                if edges.iter().any(|edge_idx| match self.graph.edge_weight(*edge_idx).unwrap() {
+                    Edge::Identity => false,
+                    Edge::TyConApp(_) => true,
+                }) {
                     Some((nodes, edges))
                 } else {
                     None

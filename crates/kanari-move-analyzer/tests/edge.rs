@@ -29,14 +29,8 @@ fn module_used_ignores_comment_and_use_and_module_lines() {
         "// tx_context::sender in comment\nuse kanari_system::tx_context;\nmodule x::m {}",
         "tx_context"
     ));
-    assert!(module_used_as_alias(
-        "fun f() { tx_context::sender(); }",
-        "tx_context"
-    ));
-    assert!(!module_used_as_alias(
-        "module tx_context::m { fun f() {} }",
-        "tx_context"
-    ));
+    assert!(module_used_as_alias("fun f() { tx_context::sender(); }", "tx_context"));
+    assert!(!module_used_as_alias("module tx_context::m { fun f() {} }", "tx_context"));
     // prefix collision: coin2:: must not count as coin::
     assert!(!module_used_as_alias("fun f() { coin2::value(); }", "coin"));
 }
@@ -77,9 +71,7 @@ fn scan_inline_struct_and_fun() {
 #[test]
 fn code_lenses_no_fun_name_skipped() {
     let params = lsp_types::CodeLensParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };

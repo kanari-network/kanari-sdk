@@ -33,11 +33,7 @@ use vfs::VfsPath;
 
 /// Constructs an `lsp_types::CompletionItem` with the given `label` and `kind`.
 fn completion_item(label: &str, kind: CompletionItemKind) -> CompletionItem {
-    CompletionItem {
-        label: label.to_owned(),
-        kind: Some(kind),
-        ..Default::default()
-    }
+    CompletionItem { label: label.to_owned(), kind: Some(kind), ..Default::default() }
 }
 
 /// Return a list of completion items corresponding to each one of Move's keywords.
@@ -72,10 +68,7 @@ fn primitive_types() -> Vec<CompletionItem> {
 
 /// Return a list of completion items corresponding to each one of Move's builtin functions.
 fn builtins() -> Vec<CompletionItem> {
-    BUILTINS
-        .iter()
-        .map(|label| completion_item(label, CompletionItemKind::FUNCTION))
-        .collect()
+    BUILTINS.iter().map(|label| completion_item(label, CompletionItemKind::FUNCTION)).collect()
 }
 
 /// Lexes the Move source file at the given path and returns a list of completion items
@@ -119,10 +112,7 @@ fn identifiers(buffer: &str, symbols: &Symbols, path: &Path) -> Vec<CompletionIt
     ids.iter()
         .map(|label| {
             if let Some(mods) = mods_opt {
-                if mods
-                    .iter()
-                    .any(|m| m.functions().contains_key(&Symbol::from(*label)))
-                {
+                if mods.iter().any(|m| m.functions().contains_key(&Symbol::from(*label))) {
                     completion_item(label, CompletionItemKind::FUNCTION)
                 } else {
                     completion_item(label, CompletionItemKind::TEXT)
@@ -177,12 +167,7 @@ fn context_specific_lbrace(
         let Some(use_file_mod_def) = use_file_mod_definition.first() else {
             continue;
         };
-        if !is_definition(
-            position.line,
-            u.col_start(),
-            use_file_mod_def.fhash(),
-            def_loc,
-        ) {
+        if !is_definition(position.line, u.col_start(), use_file_mod_def.fhash(), def_loc) {
             continue;
         }
         let Some(def_info) = symbols.def_info(&def_loc) else {
@@ -238,12 +223,7 @@ fn context_specific_no_trigger(
             let Some(use_file_mod_def) = use_file_mod_definition.first() else {
                 break;
             };
-            if is_definition(
-                position.line,
-                u.col_start(),
-                use_file_mod_def.fhash(),
-                def_loc,
-            ) {
+            if is_definition(position.line, u.col_start(), use_file_mod_def.fhash(), def_loc) {
                 // since it's a definition, there is no point in trying to suggest a name
                 // if one is about to create a fresh identifier
                 only_custom_items = true;
@@ -389,22 +369,15 @@ pub fn on_completion_request(
                 ),
             }
         }
-        None => completion_items(
-            parameters,
-            &path,
-            &context.symbols.lock().unwrap(),
-            &ide_files_root,
-        ),
+        None => {
+            completion_items(parameters, &path, &context.symbols.lock().unwrap(), &ide_files_root)
+        }
     };
 
     let result = serde_json::to_value(items).expect("could not serialize completion response");
     eprintln!("about to send completion response");
     let response = lsp_server::Response::new_ok(request.id.clone(), result);
-    if let Err(err) = context
-        .connection
-        .sender
-        .send(lsp_server::Message::Response(response))
-    {
+    if let Err(err) = context.connection.sender.send(lsp_server::Message::Response(response)) {
         eprintln!("could not send completion response: {:?}", err);
     }
 }
@@ -418,16 +391,10 @@ fn completion_items(
 ) -> Vec<CompletionItem> {
     let mut items = vec![];
     let mut buffer = String::new();
-    if let Ok(mut f) = ide_files_root
-        .join(path.to_string_lossy())
-        .unwrap()
-        .open_file()
+    if let Ok(mut f) = ide_files_root.join(path.to_string_lossy()).unwrap().open_file()
         && f.read_to_string(&mut buffer).is_err()
     {
-        eprintln!(
-            "Could not read '{:?}' when handling completion request",
-            path
-        );
+        eprintln!("Could not read '{:?}' when handling completion request", path);
     }
     if !buffer.is_empty() {
         let mut only_custom_items = false;

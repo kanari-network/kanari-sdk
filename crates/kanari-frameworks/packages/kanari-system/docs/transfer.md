@@ -26,6 +26,7 @@ Uses proper address types with validation
 
 <pre><code><b>use</b> <a href="math.md#0x2_math">0x2::math</a>;
 <b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
+<b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
 </code></pre>
 
 
@@ -203,6 +204,7 @@ Get transfer details
 
 ## Function `get_from`
 
+Get transfer sender address
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_get_from">get_from</a>(<a href="transfer.md#0x2_transfer">transfer</a>: &<a href="transfer.md#0x2_transfer_Transfer">transfer::Transfer</a>): <b>address</b>
@@ -227,6 +229,7 @@ Get transfer details
 
 ## Function `get_to`
 
+Get transfer recipient address
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer.md#0x2_transfer_get_to">get_to</a>(<a href="transfer.md#0x2_transfer">transfer</a>: &<a href="transfer.md#0x2_transfer_Transfer">transfer::Transfer</a>): <b>address</b>
@@ -402,7 +405,7 @@ direct-transfer path, the on-chain escape hatch equivalent of Sui
 <code>public_transfer</code> in a PTB.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: store, key&gt;(obj: T, recipient: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -411,8 +414,14 @@ direct-transfer path, the on-chain escape hatch equivalent of Sui
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: key + store&gt;(obj: T, recipient: <b>address</b>) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="transfer.md#0x2_transfer">transfer</a>&lt;T: key + store&gt;(
+    obj: T,
+    recipient: <b>address</b>,
+    ctx: &<b>mut</b> TxContext
+) {
+    <b>let</b> sender = kanari_system::tx_context::sender(ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">public_transfer</a>(obj, recipient);
+    <b>let</b> _ = sender;
 }
 </code></pre>
 

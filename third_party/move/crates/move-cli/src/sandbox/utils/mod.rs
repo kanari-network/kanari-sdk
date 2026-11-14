@@ -69,10 +69,7 @@ pub(crate) fn explain_publish_changeset(changeset: &ChangeSet) {
                 let bytes_written = addr.len() + name.len() + module_bytes.len();
                 total_bytes_written += bytes_written;
                 let module_id = ModuleId::new(addr, name.clone());
-                println!(
-                    "Publishing a new module {} (wrote {:?} bytes)",
-                    module_id, bytes_written
-                );
+                println!("Publishing a new module {} (wrote {:?} bytes)", module_id, bytes_written);
             }
             Op::Modify(module_bytes) => {
                 let bytes_written = addr.len() + name.len() + module_bytes.len();
@@ -88,10 +85,7 @@ pub(crate) fn explain_publish_changeset(changeset: &ChangeSet) {
             }
         }
     }
-    println!(
-        "Wrote {:?} bytes of module ID's and code",
-        total_bytes_written
-    )
+    println!("Wrote {:?} bytes of module ID's and code", total_bytes_written)
 }
 
 pub(crate) fn explain_type_error(
@@ -145,10 +139,7 @@ pub(crate) fn explain_publish_error(
     let file_hash = FileHash::new(&file_contents);
     files.insert(
         file_hash,
-        (
-            FileName::from(unit.source_path.to_string_lossy()),
-            Arc::from(file_contents),
-        ),
+        (FileName::from(unit.source_path.to_string_lossy()), Arc::from(file_contents)),
     );
 
     let module = &unit.unit.module;
@@ -204,10 +195,7 @@ pub(crate) fn explain_publish_error(
             }
         }
         CYCLIC_MODULE_DEPENDENCY => {
-            println!(
-                "Publishing module {} introduces cyclic dependencies.",
-                module_id
-            );
+            println!("Publishing module {} introduces cyclic dependencies.", module_id);
             // find all cycles with an iterative DFS
             let all_modules = state.get_all_modules()?;
             let code_cache = Modules::new(&all_modules);
@@ -303,10 +291,7 @@ pub(crate) fn explain_execution_error(
         (Location::Module(module_id), StatusCode::ABORTED, Some(abort_code)) => {
             // try to use move-explain to explain the abort
 
-            print!(
-                "Execution aborted with code {} in module {}.",
-                abort_code, module_id
-            );
+            print!("Execution aborted with code {} in module {}.", abort_code, module_id);
 
             if let Some(error_desc) = error_descriptions.get_explanation(module_id, abort_code) {
                 println!(
@@ -347,11 +332,7 @@ pub(crate) fn explain_execution_error(
             // TODO: map to source code location
             let location_explanation = match location {
                 Location::Module(id) => {
-                    format!(
-                        "{}::{}",
-                        id,
-                        state.resolve_function(id, function.0)?.unwrap()
-                    )
+                    format!("{}::{}", id, state.resolve_function(id, function.0)?.unwrap())
                 }
                 Location::Undefined => "UNDEFINED".to_owned(),
             };
@@ -385,8 +366,7 @@ pub(crate) fn explain_execution_error(
 
 /// Return `true` if `path` is a Move bytecode file based on its extension
 pub(crate) fn is_bytecode_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext == MOVE_COMPILED_EXTENSION)
+    path.extension().is_some_and(|ext| ext == MOVE_COMPILED_EXTENSION)
 }
 
 /// Return `true` if path contains a valid Move bytecode module

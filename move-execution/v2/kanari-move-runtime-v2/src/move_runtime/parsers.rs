@@ -18,11 +18,7 @@ impl super::MoveRuntime {
         debug!(
             "[PARSER] parse_move_changeset: owners={}, total_resources={}",
             move_cs.accounts().len(),
-            move_cs
-                .accounts()
-                .values()
-                .map(|a| a.resources().len())
-                .sum::<usize>()
+            move_cs.accounts().values().map(|a| a.resources().len()).sum::<usize>()
         );
 
         for (addr, account_changes) in move_cs.accounts() {

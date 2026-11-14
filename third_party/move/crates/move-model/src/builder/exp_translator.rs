@@ -84,10 +84,7 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
     }
 
     fn update_node_instantiation(&self, node_id: NodeId, instantiation: Vec<Type>) {
-        self.parent
-            .parent
-            .env
-            .update_node_instantiation(node_id, instantiation);
+        self.parent.parent.env.update_node_instantiation(node_id, instantiation);
     }
 
     /// Finalizes types in this build, producing errors if some could not be inferred
@@ -101,10 +98,7 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
                 self.update_node_type(node_id, ty);
             }
             if let Some(inst) = self.get_node_instantiation_opt(node_id) {
-                let inst = inst
-                    .iter()
-                    .map(|ty| self.finalize_type(node_id, ty))
-                    .collect_vec();
+                let inst = inst.iter().map(|ty| self.finalize_type(node_id, ty)).collect_vec();
                 self.update_node_instantiation(node_id, inst);
             }
         }
@@ -118,10 +112,7 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
             let loc = self.parent.parent.env.get_node_loc(node_id);
             self.error(
                 &loc,
-                &format!(
-                    "unable to infer type: `{}`",
-                    ty.display(&self.type_display_context())
-                ),
+                &format!("unable to infer type: `{}`", ty.display(&self.type_display_context())),
             );
         }
         ty
@@ -158,10 +149,8 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
             self.type_params.push((name, ty));
         } else {
             let param_name = name.display(self.symbol_pool());
-            let context = TypeDisplayContext::WithEnv {
-                env: self.parent.parent.env,
-                type_param_names: None,
-            };
+            let context =
+                TypeDisplayContext::WithEnv { env: self.parent.parent.env, type_param_names: None };
             self.parent.parent.error(
                 loc,
                 &format!(
@@ -182,11 +171,8 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
 
     fn internal_define_local(&mut self, loc: &Loc, name: Symbol) {
         let entry = LocalVarEntry { loc: loc.clone() };
-        if let Some(old) = self
-            .local_table
-            .front_mut()
-            .expect("symbol table empty")
-            .insert(name, entry)
+        if let Some(old) =
+            self.local_table.front_mut().expect("symbol table empty").insert(name, entry)
         {
             let display = name.display(self.symbol_pool());
             self.error(loc, &format!("duplicate declaration of `{}`", display));
@@ -309,10 +295,9 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
                 }
             }
             Ref(is_mut, ty) => Type::Reference(*is_mut, Box::new(self.translate_type(ty))),
-            Fun(args, result) => Type::Fun(
-                self.translate_types(args),
-                Box::new(self.translate_type(result)),
-            ),
+            Fun(args, result) => {
+                Type::Fun(self.translate_types(args), Box::new(self.translate_type(result)))
+            }
             Unit => Type::Tuple(vec![]),
             Multiple(vst) => Type::Tuple(self.translate_types(vst)),
             UnresolvedError => Type::Error,
@@ -355,10 +340,9 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
                 Value::Number(BigInt::from_u128(*x).unwrap()),
                 Type::new_prim(PrimitiveType::U128),
             )),
-            EA::Value_::InferredNum(x) | EA::Value_::U256(x) => Some((
-                Value::Number(BigInt::from(x)),
-                Type::new_prim(PrimitiveType::U256),
-            )),
+            EA::Value_::InferredNum(x) | EA::Value_::U256(x) => {
+                Some((Value::Number(BigInt::from(x)), Type::new_prim(PrimitiveType::U256)))
+            }
             EA::Value_::Bool(x) => Some((Value::Bool(*x), Type::new_prim(PrimitiveType::Bool))),
             EA::Value_::Bytearray(x) => {
                 let ty = Type::Vector(Box::new(Type::new_prim(PrimitiveType::U8)));
@@ -437,10 +421,7 @@ impl<'env, 'translator, 'module_translator> ExpTranslator<'env, 'translator, 'mo
             | (Type::Error, MoveValue::Struct(_))
             | (Type::Var(_), MoveValue::Vector(_))
             | (Type::Var(_), MoveValue::Struct(_)) => {
-                self.error(
-                    loc,
-                    &format!("Not yet supported constant value: {:?}", value),
-                );
+                self.error(loc, &format!("Not yet supported constant value: {:?}", value));
                 Value::Bool(false)
             }
         }

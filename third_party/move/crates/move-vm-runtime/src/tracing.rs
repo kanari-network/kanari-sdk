@@ -46,13 +46,7 @@ static DEBUGGING_ENABLED: Lazy<bool> =
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
 static LOGGING_FILE: Lazy<Mutex<File>> = Lazy::new(|| {
-    Mutex::new(
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&*FILE_PATH)
-            .unwrap(),
-    )
+    Mutex::new(OpenOptions::new().create(true).append(true).open(&*FILE_PATH).unwrap())
 });
 
 #[cfg(any(debug_assertions, feature = "debugging"))]
@@ -82,10 +76,7 @@ pub(crate) fn trace(
         .unwrap();
     }
     if *DEBUGGING_ENABLED {
-        DEBUG_CONTEXT
-            .lock()
-            .unwrap()
-            .debug_loop(function_desc, locals, pc, instr, loader, interp);
+        DEBUG_CONTEXT.lock().unwrap().debug_loop(function_desc, locals, pc, instr, loader, interp);
     }
 }
 
@@ -94,13 +85,6 @@ macro_rules! trace {
     ($function_desc:expr, $locals:expr, $pc:expr, $instr:tt, $resolver:expr, $interp:expr) => {
         // Only include this code in debug releases
         #[cfg(any(debug_assertions, feature = "debugging"))]
-        $crate::tracing::trace(
-            &$function_desc,
-            $locals,
-            $pc,
-            &$instr,
-            $resolver.loader(),
-            $interp,
-        )
+        $crate::tracing::trace(&$function_desc, $locals, $pc, &$instr, $resolver.loader(), $interp)
     };
 }

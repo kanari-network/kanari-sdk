@@ -72,20 +72,13 @@ fn encrypted_validator_backup_round_trips_all_recovery_material() {
     assert!(backup_bytes.starts_with(BACKUP_V2_MAGIC));
     let restored_data = tempfile::tempdir().unwrap();
     let restored_recovery = tempfile::tempdir().unwrap();
-    let imported = import_validator_backup(
-        &backup,
-        "devnet",
-        restored_data.path(),
-        restored_recovery.path(),
-    )
-    .unwrap();
+    let imported =
+        import_validator_backup(&backup, "devnet", restored_data.path(), restored_recovery.path())
+            .unwrap();
 
     assert_eq!(exported.checkpoint_height, imported.checkpoint_height);
     assert_eq!(exported.state_root, imported.state_root);
-    assert_eq!(
-        std::fs::read(restored_data.path().join("mysticeti-0.wal")).unwrap(),
-        b"wal"
-    );
+    assert_eq!(std::fs::read(restored_data.path().join("mysticeti-0.wal")).unwrap(), b"wal");
     assert_eq!(
         std::fs::read(restored_recovery.path().join("private-key.key")).unwrap(),
         b"private"
@@ -170,9 +163,7 @@ fn validator_backup_hash_mismatch_does_not_promote_restore() {
         serde_json::from_slice(&bytes[header_start..header_end]).unwrap();
     header.payload_sha3_256 = "00".repeat(32);
 
-    let tampered = source
-        .path()
-        .join("validator-backup-v2-header-hash-mismatch.bin");
+    let tampered = source.path().join("validator-backup-v2-header-hash-mismatch.bin");
     let mut rewritten = Vec::new();
     rewritten.extend_from_slice(BACKUP_V2_MAGIC);
     let header_json = serde_json::to_vec(&header).unwrap();
@@ -193,17 +184,11 @@ fn validator_backup_hash_mismatch_does_not_promote_restore() {
         .is_err()
     );
     assert!(
-        std::fs::read_dir(restored_data.path())
-            .unwrap()
-            .next()
-            .is_none(),
+        std::fs::read_dir(restored_data.path()).unwrap().next().is_none(),
         "hash mismatch must not promote restored data files"
     );
     assert!(
-        std::fs::read_dir(restored_recovery.path())
-            .unwrap()
-            .next()
-            .is_none(),
+        std::fs::read_dir(restored_recovery.path()).unwrap().next().is_none(),
         "hash mismatch must not promote restored recovery files"
     );
 }
@@ -219,9 +204,7 @@ fn legacy_v1_validator_backup_still_imports() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let temp = tempfile::tempdir().unwrap();
     let snapshot_path = temp.path().join("state-snapshot.json");
-    let snapshot = engine
-        .export_state_snapshot(&snapshot_path, "devnet")
-        .unwrap();
+    let snapshot = engine.export_state_snapshot(&snapshot_path, "devnet").unwrap();
     let files =
         super::required_backup_files(source.path(), &private_key, &public_keys, &genesis).unwrap();
     export_validator_backup_v1(
@@ -236,19 +219,12 @@ fn legacy_v1_validator_backup_still_imports() {
 
     let restored_data = tempfile::tempdir().unwrap();
     let restored_recovery = tempfile::tempdir().unwrap();
-    let imported = import_validator_backup(
-        &backup,
-        "devnet",
-        restored_data.path(),
-        restored_recovery.path(),
-    )
-    .unwrap();
+    let imported =
+        import_validator_backup(&backup, "devnet", restored_data.path(), restored_recovery.path())
+            .unwrap();
 
     assert_eq!(snapshot.checkpoint_height, imported.checkpoint_height);
-    assert_eq!(
-        std::fs::read(restored_recovery.path().join("genesis.json")).unwrap(),
-        b"genesis"
-    );
+    assert_eq!(std::fs::read(restored_recovery.path().join("genesis.json")).unwrap(), b"genesis");
 }
 
 fn write_backup_sources(

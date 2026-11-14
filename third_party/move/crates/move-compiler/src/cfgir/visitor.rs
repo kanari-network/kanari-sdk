@@ -55,11 +55,7 @@ pub enum UnavailableReason {
 pub enum LocalState<V: Clone + Debug + Default> {
     Unavailable(Loc, UnavailableReason),
     Available(Loc, V),
-    MaybeUnavailable {
-        available: Loc,
-        unavailable: Loc,
-        unavailable_reason: UnavailableReason,
-    },
+    MaybeUnavailable { available: Loc, unavailable: Loc, unavailable_reason: UnavailableReason },
 }
 
 /// A trait for a the context when visiting a `Command` in a block. At a minimum it must hold the diagnostics
@@ -138,11 +134,8 @@ impl<V: SimpleDomain> AbstractDomain for V {
                     result = JoinResult::Changed;
                     let available = *available;
                     let unavailable = *unavailable;
-                    let state = L::MaybeUnavailable {
-                        available,
-                        unavailable,
-                        unavailable_reason: *reason,
-                    };
+                    let state =
+                        L::MaybeUnavailable { available, unavailable, unavailable_reason: *reason };
                     self.locals_mut().insert(*local, state);
                 }
             }
@@ -272,9 +265,9 @@ pub trait SimpleAbsInt: Sized {
         values: Vec<<Self::State as SimpleDomain>::Value>,
     ) {
         // pad with defautl to account for errors
-        let padded_values = values.into_iter().chain(std::iter::repeat(
-            <Self::State as SimpleDomain>::Value::default(),
-        ));
+        let padded_values = values
+            .into_iter()
+            .chain(std::iter::repeat(<Self::State as SimpleDomain>::Value::default()));
         for (l, value) in ls.iter().zip(padded_values) {
             self.lvalue(context, state, l, value)
         }
@@ -358,10 +351,8 @@ pub trait SimpleAbsInt: Sized {
         match &parent_e.exp.value {
             E::Move { var, .. } => {
                 let locals = state.locals_mut();
-                let prev = locals.insert(
-                    *var,
-                    LocalState::Unavailable(*eloc, UnavailableReason::Moved),
-                );
+                let prev =
+                    locals.insert(*var, LocalState::Unavailable(*eloc, UnavailableReason::Moved));
                 match prev {
                     Some(LocalState::Available(_, value)) => {
                         vec![value]
@@ -395,11 +386,8 @@ pub trait SimpleAbsInt: Sized {
                 default_values(*n)
             }
             E::ModuleCall(mcall) => {
-                let evalues = mcall
-                    .arguments
-                    .iter()
-                    .flat_map(|arg| self.exp(context, state, arg))
-                    .collect();
+                let evalues =
+                    mcall.arguments.iter().flat_map(|arg| self.exp(context, state, arg)).collect();
                 if let Some(vs) =
                     self.call_custom(context, state, eloc, &parent_e.ty, mcall, evalues)
                 {
@@ -431,10 +419,7 @@ pub trait SimpleAbsInt: Sized {
                 }
                 default_values(1)
             }
-            E::Multiple(es) => es
-                .iter()
-                .flat_map(|e| self.exp(context, state, e))
-                .collect(),
+            E::Multiple(es) => es.iter().flat_map(|e| self.exp(context, state, e)).collect(),
             E::Unreachable => panic!("ICE should not analyze dead code"),
         }
     }

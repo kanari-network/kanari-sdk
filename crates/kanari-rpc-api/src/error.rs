@@ -116,17 +116,11 @@ pub struct TransactionErrorData {
 
 impl TransactionErrorData {
     pub fn new(reason: TransactionErrorReason) -> Self {
-        Self {
-            reason,
-            native_transfer_policy: None,
-        }
+        Self { reason, native_transfer_policy: None }
     }
 
     pub fn with_native_transfer_policy(reason: TransactionErrorReason) -> Self {
-        Self {
-            reason,
-            native_transfer_policy: Some(NativeTransferPolicyContract::kanari_native()),
-        }
+        Self { reason, native_transfer_policy: Some(NativeTransferPolicyContract::kanari_native()) }
     }
 }
 
@@ -141,59 +135,31 @@ pub struct RpcError {
 
 impl RpcError {
     pub fn internal_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32603,
-            message: msg.into(),
-            data: None,
-        }
+        Self { code: -32603, message: msg.into(), data: None }
     }
 
     pub fn invalid_params(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32602,
-            message: msg.into(),
-            data: None,
-        }
+        Self { code: -32602, message: msg.into(), data: None }
     }
 
     pub fn method_not_found(method: impl Into<String>) -> Self {
-        Self {
-            code: -32601,
-            message: format!("Method not found: {}", method.into()),
-            data: None,
-        }
+        Self { code: -32601, message: format!("Method not found: {}", method.into()), data: None }
     }
 
     pub fn parse_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32700,
-            message: msg.into(),
-            data: None,
-        }
+        Self { code: -32700, message: msg.into(), data: None }
     }
 
     pub fn invalid_request(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32600,
-            message: msg.into(),
-            data: None,
-        }
+        Self { code: -32600, message: msg.into(), data: None }
     }
 
     pub fn module_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32001,
-            message: format!("Module error: {}", msg.into()),
-            data: None,
-        }
+        Self { code: -32001, message: format!("Module error: {}", msg.into()), data: None }
     }
 
     pub fn transaction_error(msg: impl Into<String>) -> Self {
-        Self {
-            code: -32002,
-            message: format!("Transaction error: {}", msg.into()),
-            data: None,
-        }
+        Self { code: -32002, message: format!("Transaction error: {}", msg.into()), data: None }
     }
 
     pub fn transaction_error_with_data(msg: impl Into<String>, data: serde_json::Value) -> Self {
@@ -215,9 +181,7 @@ impl RpcError {
     }
 
     pub fn transaction_error_details(&self) -> Option<TransactionErrorData> {
-        self.data
-            .clone()
-            .and_then(|data| serde_json::from_value(data).ok())
+        self.data.clone().and_then(|data| serde_json::from_value(data).ok())
     }
 
     pub fn transaction_error_reason(&self) -> Option<TransactionErrorReason> {

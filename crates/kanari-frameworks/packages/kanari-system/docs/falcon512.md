@@ -47,6 +47,7 @@ FIPS 206 FN-DSA-512 / Falcon-512 verification.
 
 ## Function `public_key_length`
 
+Returns the public key length for Falcon-512.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="falcon512.md#0x2_falcon512_public_key_length">public_key_length</a>(): u64
@@ -71,6 +72,7 @@ FIPS 206 FN-DSA-512 / Falcon-512 verification.
 
 ## Function `max_signature_length`
 
+Returns the maximum signature length for Falcon-512.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="falcon512.md#0x2_falcon512_max_signature_length">max_signature_length</a>(): u64

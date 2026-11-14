@@ -25,9 +25,8 @@ impl StateManager {
         verified_root: &[u8],
         smt_changes: Option<PrecomputedSmtChanges>,
     ) -> Result<()> {
-        let root: [u8; 32] = verified_root
-            .try_into()
-            .context("Verified state root must be 32 bytes")?;
+        let root: [u8; 32] =
+            verified_root.try_into().context("Verified state root must be 32 bytes")?;
         self.commit_with_raw_updates_and_root(updates, deletes, Some(root), smt_changes)
     }
 

@@ -1,6 +1,6 @@
 // NEW FILE: c:\Users\Pukpuy\Desktop\kanari-sdk\example_move\kanari_kit\lib\src\ui\widgets\deal_card.dart
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // ignore: deprecated_member_use
 
 import '../../core/token_utils.dart' as token_utils;
 import 'app_ui.dart';

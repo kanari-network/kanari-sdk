@@ -57,9 +57,7 @@ fn leak_with_abort() {
     let mut module_bytes = vec![];
     m.serialize(&mut module_bytes).unwrap();
     let meter = &mut GasStatus::new_unmetered();
-    session
-        .publish_module(module_bytes, AccountAddress::ZERO, meter)
-        .unwrap();
+    session.publish_module(module_bytes, AccountAddress::ZERO, meter).unwrap();
 
     for _ in 0..100_000 {
         let _ = session.execute_entry_function(

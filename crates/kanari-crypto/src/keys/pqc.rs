@@ -27,35 +27,17 @@ use super::{
 
 pub(super) fn generate_dilithium2_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = generate_mldsa44_keypair_bytes();
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Dilithium2,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Dilithium2, true, KANAMLDSA_PREFIX)
 }
 
 pub(super) fn generate_dilithium3_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = generate_mldsa65_keypair_bytes();
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Dilithium3,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Dilithium3, true, KANAMLDSA_PREFIX)
 }
 
 pub(super) fn generate_dilithium5_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = generate_mldsa87_keypair_bytes();
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Dilithium5,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Dilithium5, true, KANAMLDSA_PREFIX)
 }
 
 pub(super) fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
@@ -82,25 +64,13 @@ pub(super) fn generate_sphincs_keypair() -> Result<KeyPair, KeyError> {
 pub(super) fn generate_falcon512_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = generate_falcon512_keypair_bytes()
         .map_err(|e| KeyError::GenerationFailed(e.to_string()))?;
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Falcon512,
-        true,
-        KANAFALCON_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Falcon512, true, KANAFALCON_PREFIX)
 }
 
 pub(super) fn generate_falcon1024_keypair() -> Result<KeyPair, KeyError> {
     let (public_key, secret_key) = generate_falcon1024_keypair_bytes()
         .map_err(|e| KeyError::GenerationFailed(e.to_string()))?;
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Falcon1024,
-        true,
-        KANAFALCON_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Falcon1024, true, KANAFALCON_PREFIX)
 }
 
 /// Seed length required by [`sphincs_keypair_from_seed`]: three 32-byte
@@ -120,13 +90,7 @@ pub(super) fn dilithium2_keypair_from_seed(seed: &[u8]) -> Result<KeyPair, KeyEr
         return Err(KeyError::InvalidPrivateKey);
     }
     let public_key = derive_mldsa44_public_key(seed).map_err(|_| KeyError::InvalidPrivateKey)?;
-    pqc_keypair_from_parts(
-        &public_key,
-        seed,
-        CurveType::Dilithium2,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, seed, CurveType::Dilithium2, true, KANAMLDSA_PREFIX)
 }
 
 /// Deterministically build a Dilithium3 (ML-DSA-65) keypair from a 32-byte seed.
@@ -135,13 +99,7 @@ pub(super) fn dilithium3_keypair_from_seed(seed: &[u8]) -> Result<KeyPair, KeyEr
         return Err(KeyError::InvalidPrivateKey);
     }
     let public_key = derive_mldsa65_public_key(seed).map_err(|_| KeyError::InvalidPrivateKey)?;
-    pqc_keypair_from_parts(
-        &public_key,
-        seed,
-        CurveType::Dilithium3,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, seed, CurveType::Dilithium3, true, KANAMLDSA_PREFIX)
 }
 
 /// Deterministically build a Dilithium5 (ML-DSA-87) keypair from a 32-byte seed.
@@ -150,13 +108,7 @@ pub(super) fn dilithium5_keypair_from_seed(seed: &[u8]) -> Result<KeyPair, KeyEr
         return Err(KeyError::InvalidPrivateKey);
     }
     let public_key = derive_mldsa87_public_key(seed).map_err(|_| KeyError::InvalidPrivateKey)?;
-    pqc_keypair_from_parts(
-        &public_key,
-        seed,
-        CurveType::Dilithium5,
-        true,
-        KANAMLDSA_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, seed, CurveType::Dilithium5, true, KANAMLDSA_PREFIX)
 }
 
 /// Deterministically build an SLH-DSA-SHA2-256f keypair from a 96-byte seed.
@@ -202,13 +154,7 @@ pub(super) fn falcon512_keypair_from_seed(seed: &[u8]) -> Result<KeyPair, KeyErr
     }
     let (public_key, secret_key) = generate_falcon512_keypair_bytes_from_seed(seed)
         .map_err(|e| KeyError::GenerationFailed(e.to_string()))?;
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Falcon512,
-        true,
-        KANAFALCON_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Falcon512, true, KANAFALCON_PREFIX)
 }
 
 /// Deterministically build an FN-DSA-1024 keypair from caller-supplied seed bytes.
@@ -218,13 +164,7 @@ pub(super) fn falcon1024_keypair_from_seed(seed: &[u8]) -> Result<KeyPair, KeyEr
     }
     let (public_key, secret_key) = generate_falcon1024_keypair_bytes_from_seed(seed)
         .map_err(|e| KeyError::GenerationFailed(e.to_string()))?;
-    pqc_keypair_from_parts(
-        &public_key,
-        &secret_key,
-        CurveType::Falcon1024,
-        true,
-        KANAFALCON_PREFIX,
-    )
+    pqc_keypair_from_parts(&public_key, &secret_key, CurveType::Falcon1024, true, KANAFALCON_PREFIX)
 }
 
 pub(super) fn keypair_from_pqc_private_key(
@@ -232,18 +172,10 @@ pub(super) fn keypair_from_pqc_private_key(
     raw_private_key: &str,
     curve_type: CurveType,
 ) -> Result<KeyPair, KeyError> {
-    let raw_for_pqc = raw_private_key
-        .strip_prefix(KANAMLDSA_PREFIX)
-        .unwrap_or(raw_private_key);
-    let raw_for_pqc = raw_for_pqc
-        .strip_prefix(KANASLHDSA_PREFIX)
-        .unwrap_or(raw_for_pqc);
-    let raw_for_pqc = raw_for_pqc
-        .strip_prefix(KANAFALCON_PREFIX)
-        .unwrap_or(raw_for_pqc);
-    let raw_for_pqc = raw_for_pqc
-        .strip_prefix(KANAPQC_PREFIX)
-        .unwrap_or(raw_for_pqc);
+    let raw_for_pqc = raw_private_key.strip_prefix(KANAMLDSA_PREFIX).unwrap_or(raw_private_key);
+    let raw_for_pqc = raw_for_pqc.strip_prefix(KANASLHDSA_PREFIX).unwrap_or(raw_for_pqc);
+    let raw_for_pqc = raw_for_pqc.strip_prefix(KANAFALCON_PREFIX).unwrap_or(raw_for_pqc);
+    let raw_for_pqc = raw_for_pqc.strip_prefix(KANAPQC_PREFIX).unwrap_or(raw_for_pqc);
     let Some((secret_hex, public_key_hex)) = raw_for_pqc.split_once(':') else {
         return Err(KeyError::InvalidPrivateKey);
     };
@@ -353,10 +285,7 @@ fn pqc_keypair_from_parts(
         address_from_pqc_public_key_hex(&public_key_hex)
     };
     let raw_private_key = secure_hex_encode(secret_key);
-    let private_key = format!(
-        "{}{}:{}",
-        private_key_prefix, *raw_private_key, public_key_hex
-    );
+    let private_key = format!("{}{}:{}", private_key_prefix, *raw_private_key, public_key_hex);
 
     Ok(KeyPair {
         private_key: Zeroizing::new(private_key),

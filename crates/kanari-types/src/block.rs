@@ -31,14 +31,7 @@ impl BlockHeader {
         tx_count: usize,
         timestamp: u64,
     ) -> Self {
-        Self {
-            height,
-            timestamp,
-            prev_hash,
-            state_root,
-            merkle_root,
-            tx_count,
-        }
+        Self { height, timestamp, prev_hash, state_root, merkle_root, tx_count }
     }
 
     pub fn hash(&self) -> Vec<u8> {
@@ -76,20 +69,10 @@ impl Block {
         let tx_hashes: Vec<Vec<u8>> = transactions.iter().map(|tx| tx.hash()).collect();
         let merkle_root = compute_transaction_merkle_root(&tx_hashes);
 
-        let header = BlockHeader::new(
-            height,
-            prev_hash,
-            state_root,
-            merkle_root,
-            tx_count,
-            timestamp,
-        );
+        let header =
+            BlockHeader::new(height, prev_hash, state_root, merkle_root, tx_count, timestamp);
 
-        Self {
-            header,
-            transactions,
-            events,
-        }
+        Self { header, transactions, events }
     }
 
     pub fn genesis() -> Self {

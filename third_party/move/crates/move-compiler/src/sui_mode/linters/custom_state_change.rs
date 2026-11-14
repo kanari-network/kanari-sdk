@@ -95,9 +95,7 @@ impl SimpleAbsIntConstructor for CustomStateChangeVerifier {
             return None;
         };
 
-        Some(CustomStateChangeVerifierAI {
-            fn_name_loc: fn_name.loc,
-        })
+        Some(CustomStateChangeVerifierAI { fn_name_loc: fn_name.loc })
     }
 }
 
@@ -110,9 +108,7 @@ impl SimpleAbsInt for CustomStateChangeVerifierAI {
     }
 
     fn start_command(&self, _: &mut State) -> ExecutionContext {
-        ExecutionContext {
-            diags: Diagnostics::new(),
-        }
+        ExecutionContext { diags: Diagnostics::new() }
     }
 
     fn finish_command(&self, context: ExecutionContext, _state: &mut State) -> Diagnostics {
@@ -129,15 +125,12 @@ impl SimpleAbsInt for CustomStateChangeVerifierAI {
         f: &ModuleCall,
         args: Vec<Value>,
     ) -> Option<Vec<Value>> {
-        if let Some((_, _, fname)) = PRIVATE_OBJ_FUNCTIONS
-            .iter()
-            .find(|(addr, module, fun)| f.is(addr, module, fun))
+        if let Some((_, _, fname)) =
+            PRIVATE_OBJ_FUNCTIONS.iter().find(|(addr, module, fun)| f.is(addr, module, fun))
             && let Value::LocalObjWithStore(obj_addr_loc) = args[0]
         {
-            let msg = format!(
-                "Potential unintended implementation of a custom {} function.",
-                fname
-            );
+            let msg =
+                format!("Potential unintended implementation of a custom {} function.", fname);
             let (op, action) = if *fname == TRANSFER_FUN {
                 ("transfer", "transferred")
             } else if *fname == SHARE_FUN {
@@ -156,11 +149,8 @@ impl SimpleAbsInt for CustomStateChangeVerifierAI {
                 "A custom {op} policy for a given type is implemented through calling \
                                        the private {fname} function variant in the module defining this type"
             );
-            let mut d = diag!(
-                CUSTOM_STATE_CHANGE_DIAG,
-                (self.fn_name_loc, msg),
-                (f.name.loc(), uid_msg)
-            );
+            let mut d =
+                diag!(CUSTOM_STATE_CHANGE_DIAG, (self.fn_name_loc, msg), (f.name.loc(), uid_msg));
             d.add_note(note_msg);
             if obj_addr_loc != INVALID_LOC {
                 let loc_msg = format!(
@@ -226,11 +216,7 @@ impl SimpleDomain for State {
     fn join_value(v1: &Value, v2: &Value) -> Value {
         match (v1, v2) {
             (obj @ Value::LocalObjWithStore(loc1), Value::LocalObjWithStore(loc2)) => {
-                if loc1 == loc2 {
-                    *obj
-                } else {
-                    Value::LocalObjWithStore(INVALID_LOC)
-                }
+                if loc1 == loc2 { *obj } else { Value::LocalObjWithStore(INVALID_LOC) }
             }
             (Value::Other, _) | (_, Value::Other) => Value::Other,
         }

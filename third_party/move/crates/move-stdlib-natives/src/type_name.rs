@@ -50,16 +50,12 @@ fn native_get(
     );
 
     // make a std::string::String
-    let string_val = Value::struct_(Struct::pack(vec![Value::vector_u8(
-        type_name.as_bytes().to_vec(),
-    )]));
+    let string_val =
+        Value::struct_(Struct::pack(vec![Value::vector_u8(type_name.as_bytes().to_vec())]));
     // make a std::type_name::TypeName
     let type_name_val = Value::struct_(Struct::pack(vec![string_val]));
 
-    Ok(NativeResult::ok(
-        context.gas_used(),
-        smallvec![type_name_val],
-    ))
+    Ok(NativeResult::ok(context.gas_used(), smallvec![type_name_val]))
 }
 
 pub fn make_native_get(use_original_id: bool, gas_params: GetGasParameters) -> NativeFunction {
@@ -75,14 +71,8 @@ pub struct GasParameters {
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = [
-        (
-            "get",
-            make_native_get(/* use_original_id */ false, gas_params.get.clone()),
-        ),
-        (
-            "get_with_original_ids",
-            make_native_get(/* use_original_id */ true, gas_params.get),
-        ),
+        ("get", make_native_get(/* use_original_id */ false, gas_params.get.clone())),
+        ("get_with_original_ids", make_native_get(/* use_original_id */ true, gas_params.get)),
     ];
 
     crate::helpers::make_module_natives(natives)

@@ -29,10 +29,7 @@ impl<'a> SignatureChecker<'a> {
     }
 
     fn verify_module_impl(module: &'a CompiledModule) -> PartialVMResult<()> {
-        let mut sig_check = Self {
-            module,
-            abilities_cache: HashMap::new(),
-        };
+        let mut sig_check = Self { module, abilities_cache: HashMap::new() };
         sig_check.verify_signature_pool(module.signatures())?;
         sig_check.verify_function_signatures(module.function_handles())?;
         sig_check.verify_fields(module.struct_defs())?;
@@ -107,11 +104,10 @@ impl<'a> SignatureChecker<'a> {
                 None => continue,
             };
             let func_handle = &function_handles[func_def.function.0 as usize];
-            self.verify_code(code, &func_handle.type_parameters)
-                .map_err(|err| {
-                    err.at_index(IndexKind::Signature, code.locals.0)
-                        .at_index(IndexKind::FunctionDefinition, func_def_idx as TableIndex)
-                })?
+            self.verify_code(code, &func_handle.type_parameters).map_err(|err| {
+                err.at_index(IndexKind::Signature, code.locals.0)
+                    .at_index(IndexKind::FunctionDefinition, func_def_idx as TableIndex)
+            })?
         }
         Ok(())
     }
@@ -428,15 +424,12 @@ impl<'a> SignatureChecker<'a> {
         global_abilities: &[AbilitySet],
     ) -> PartialVMResult<()> {
         if type_arguments.len() != constraints.len() {
-            return Err(
-                PartialVMError::new(StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH).with_message(
-                    format!(
-                        "expected {} type argument(s), got {}",
-                        constraints.len(),
-                        type_arguments.len()
-                    ),
-                ),
-            );
+            return Err(PartialVMError::new(StatusCode::NUMBER_OF_TYPE_ARGUMENTS_MISMATCH)
+                .with_message(format!(
+                    "expected {} type argument(s), got {}",
+                    constraints.len(),
+                    type_arguments.len()
+                )));
         }
 
         for (constraint, ty) in constraints.into_iter().zip(type_arguments) {

@@ -22,11 +22,7 @@ struct Context<'env> {
 
 impl<'env> Context<'env> {
     fn new(env: &'env mut CompilationEnv) -> Self {
-        Self {
-            env,
-            is_source_def: false,
-            current_package: None,
-        }
+        Self { env, is_source_def: false, current_package: None }
     }
 }
 
@@ -63,8 +59,7 @@ impl FilterContext for Context<'_> {
                 "The '{}' attribute has been deprecated along with specification blocks",
                 VerificationAttribute::VERIFY_ONLY
             );
-            self.env
-                .add_diag(diag!(Uncategorized::DeprecatedWillBeRemoved, (*loc, msg)));
+            self.env.add_diag(diag!(Uncategorized::DeprecatedWillBeRemoved, (*loc, msg)));
         }
         should_remove
     }
@@ -89,11 +84,9 @@ fn verification_attributes(
     attrs
         .value
         .iter()
-        .filter_map(
-            |attr| match KnownAttribute::resolve(attr.value.attribute_name().value)? {
-                KnownAttribute::Verification(verify_attr) => Some((attr.loc, verify_attr)),
-                _ => None,
-            },
-        )
+        .filter_map(|attr| match KnownAttribute::resolve(attr.value.attribute_name().value)? {
+            KnownAttribute::Verification(verify_attr) => Some((attr.loc, verify_attr)),
+            _ => None,
+        })
         .collect()
 }

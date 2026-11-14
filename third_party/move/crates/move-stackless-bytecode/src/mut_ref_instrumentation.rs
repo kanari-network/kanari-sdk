@@ -37,9 +37,8 @@ impl FunctionTargetProcessor for MutRefInstrumenter {
 
         // Compute &mut parameters.
         let param_count = builder.get_target().get_parameter_count();
-        let mut_ref_params = (0..param_count)
-            .filter(|idx| is_mut_ref(&builder, *idx))
-            .collect_vec();
+        let mut_ref_params =
+            (0..param_count).filter(|idx| is_mut_ref(&builder, *idx)).collect_vec();
 
         // Transform bytecode.
         for bc in std::mem::take(&mut builder.data.code) {
@@ -78,8 +77,5 @@ impl FunctionTargetProcessor for MutRefInstrumenter {
 }
 
 fn is_mut_ref(builder: &FunctionDataBuilder<'_>, idx: TempIndex) -> bool {
-    builder
-        .get_target()
-        .get_local_type(idx)
-        .is_mutable_reference()
+    builder.get_target().get_local_type(idx).is_mutable_reference()
 }

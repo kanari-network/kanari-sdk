@@ -230,20 +230,14 @@ fn test_update_managed_address() {
     update_managed_address(
         &mut lock,
         "default",
-        ManagedAddressUpdate::Upgraded {
-            latest_id: "0x456".into(),
-            version: 2,
-        },
+        ManagedAddressUpdate::Upgraded { latest_id: "0x456".into(), version: 2 },
     )
     .unwrap();
     lock.commit(&lock_path).unwrap();
 
     // Read lock file and check contents.
     let mut lock_file = File::open(lock_path).unwrap();
-    let envs: Vec<_> = ManagedPackage::read(&mut lock_file)
-        .unwrap()
-        .into_iter()
-        .collect();
+    let envs: Vec<_> = ManagedPackage::read(&mut lock_file).unwrap().into_iter().collect();
 
     let expected = expect![[r#"
         [
@@ -266,9 +260,8 @@ fn test_update_managed_address() {
 fn create_test_package() -> io::Result<TempDir> {
     let dir = tempfile::tempdir()?;
 
-    let toml_path: PathBuf = [".", "tests", "test_sources", "basic_no_deps", "Move.toml"]
-        .into_iter()
-        .collect();
+    let toml_path: PathBuf =
+        [".", "tests", "test_sources", "basic_no_deps", "Move.toml"].into_iter().collect();
 
     fs::copy(toml_path, dir.path().join("Move.toml"))?;
     Ok(dir)

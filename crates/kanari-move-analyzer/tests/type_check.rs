@@ -179,10 +179,7 @@ fn unused_init_function_warns_under_core_flavor() {
     // lint, so the editor and `kanari move build` agree.
     let src = "module M::f {\n    struct M has drop {}\n    fun init(witness: M, ctx: &mut TxContext) {}\n}\n";
     let (rendered, n) = diag_count(src);
-    assert!(
-        n > 0,
-        "unused init must warn under Kanari flavor: {rendered}"
-    );
+    assert!(n > 0, "unused init must warn under Kanari flavor: {rendered}");
     assert!(
         rendered.contains("never called"),
         "expected 'never called' unused warning on init, got: {rendered}"
@@ -196,10 +193,7 @@ fn unused_warning_survives_testing_flags() {
     // never show `fun init` as a warning while `kanari move build` does.
     let src = "module M::f {\n    fun unused_helper() {}\n}\n";
     let (rendered, diags) = compile_source_with_flags(src, Flags::testing());
-    assert!(
-        !diags.is_empty(),
-        "unused-function warning must survive test mode: {rendered}"
-    );
+    assert!(!diags.is_empty(), "unused-function warning must survive test mode: {rendered}");
     assert!(
         rendered.contains("never called"),
         "expected 'never called' unused warning under test mode, got: {rendered}"

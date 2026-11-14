@@ -77,11 +77,8 @@ pub fn compile_package(
 
     let package_name = get_package_name(package_dir)?;
     let source_files = collect_move_files(&sources_dir)?;
-    let dependencies = if is_stdlib(address)? {
-        Vec::new()
-    } else {
-        load_stdlib_dependencies(package_dir)?
-    };
+    let dependencies =
+        if is_stdlib(address)? { Vec::new() } else { load_stdlib_dependencies(package_dir)? };
 
     info!(
         "  Package: {} | Sources: {} | Deps: {}",
@@ -137,10 +134,7 @@ fn compile_move_source(
     named_addresses: BTreeMap<Symbol, NumericalAddress>,
 ) -> Result<Vec<ModuleData>> {
     let to_symbols = |paths: &[PathBuf]| {
-        paths
-            .iter()
-            .map(|p| Symbol::from(p.to_string_lossy().as_ref()))
-            .collect()
+        paths.iter().map(|p| Symbol::from(p.to_string_lossy().as_ref())).collect()
     };
 
     let (_files, compiled_units) = Compiler::from_files(
@@ -159,9 +153,7 @@ fn compile_move_source(
             let module = &unit.into_compiled_unit().module;
             let module_id = module.self_id();
             let mut bytecode = Vec::new();
-            module
-                .serialize(&mut bytecode)
-                .context("Failed to serialize module")?;
+            module.serialize(&mut bytecode).context("Failed to serialize module")?;
 
             Ok(ModuleData {
                 name: module_id.name().to_string(),
@@ -181,11 +173,7 @@ fn get_package_name(package_dir: &Path) -> Result<String> {
             return Ok(name);
         }
     }
-    Ok(package_dir
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown")
-        .to_string())
+    Ok(package_dir.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string())
 }
 
 /// Collect all .move files from directory, recursing into subdirectories.
@@ -228,11 +216,7 @@ fn is_stdlib(address: &str) -> Result<bool> {
 /// Load stdlib dependencies
 fn load_stdlib_dependencies(package_dir: &Path) -> Result<Vec<PathBuf>> {
     let stdlib_dir = package_dir.join("../move-stdlib/sources");
-    if stdlib_dir.exists() {
-        collect_move_files(&stdlib_dir)
-    } else {
-        Ok(Vec::new())
-    }
+    if stdlib_dir.exists() { collect_move_files(&stdlib_dir) } else { Ok(Vec::new()) }
 }
 
 /// Get standard named addresses from packages_config
@@ -254,12 +238,7 @@ fn parse_package_name(content: &str) -> Option<String> {
         if line.starts_with("name")
             && let Some(name_part) = line.split('=').nth(1)
         {
-            return Some(
-                name_part
-                    .trim()
-                    .trim_matches(|c| c == '"' || c == '\'')
-                    .to_string(),
-            );
+            return Some(name_part.trim().trim_matches(|c| c == '"' || c == '\'').to_string());
         }
     }
     None
@@ -283,9 +262,6 @@ mod tests {
 
         let mut files = collect_move_files(dir.path()).unwrap();
         files.sort();
-        assert_eq!(
-            files,
-            vec![dir.path().join("a.move"), nested.join("b.move")]
-        );
+        assert_eq!(files, vec![dir.path().join("a.move"), nested.join("b.move")]);
     }
 }
