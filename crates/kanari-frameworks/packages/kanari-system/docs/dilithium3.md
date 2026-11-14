@@ -43,6 +43,7 @@ NIST ML-DSA / Dilithium3 verification.
 
 ## Function `public_key_length`
 
+Returns the public key length for Dilithium3.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="dilithium3.md#0x2_dilithium3_public_key_length">public_key_length</a>(): u64
@@ -67,6 +68,7 @@ NIST ML-DSA / Dilithium3 verification.
 
 ## Function `signature_length`
 
+Returns the signature length for Dilithium3.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="dilithium3.md#0x2_dilithium3_signature_length">signature_length</a>(): u64

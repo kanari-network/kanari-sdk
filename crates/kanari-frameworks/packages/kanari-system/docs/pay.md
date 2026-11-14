@@ -305,7 +305,7 @@ not evenly divisible by <code>n</code>, the remainder is left in <code>self</cod
 Join <code><a href="coin.md#0x2_coin">coin</a></code> into <code>self</code>. Re-exports <code><a href="coin.md#0x2_coin_join">coin::join</a></code> function.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join">join</a>&lt;T&gt;(self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, <a href="coin.md#0x2_coin">coin</a>: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;)
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join">join</a>&lt;T&gt;(self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, <a href="coin.md#0x2_coin">coin</a>: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -314,7 +314,11 @@ Join <code><a href="coin.md#0x2_coin">coin</a></code> into <code>self</code>. Re
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join">join</a>&lt;T&gt;(self: &<b>mut</b> Coin&lt;T&gt;, <a href="coin.md#0x2_coin">coin</a>: Coin&lt;T&gt;) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join">join</a>&lt;T&gt;(
+    self: &<b>mut</b> Coin&lt;T&gt;,
+    <a href="coin.md#0x2_coin">coin</a>: Coin&lt;T&gt;,
+    _ctx: &<b>mut</b> TxContext
+) {
     <a href="coin.md#0x2_coin_join">coin::join</a>(self, <a href="coin.md#0x2_coin">coin</a>)
 }
 </code></pre>
@@ -330,7 +334,7 @@ Join <code><a href="coin.md#0x2_coin">coin</a></code> into <code>self</code>. Re
 Join everything in <code>coins</code> with <code>self</code>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec">join_vec</a>&lt;T&gt;(self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;)
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec">join_vec</a>&lt;T&gt;(self: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -339,7 +343,11 @@ Join everything in <code>coins</code> with <code>self</code>
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec">join_vec</a>&lt;T&gt;(self: &<b>mut</b> Coin&lt;T&gt;, coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec">join_vec</a>&lt;T&gt;(
+    self: &<b>mut</b> Coin&lt;T&gt;,
+    coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;,
+    _ctx: &<b>mut</b> TxContext
+) {
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins) &lt;= <a href="coin.md#0x2_coin_max_split_parts">coin::max_split_parts</a>(), <a href="pay.md#0x2_pay_ETOO_MANY_COINS">ETOO_MANY_COINS</a>);
     <b>let</b> (i, len) = (0, <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins));
     <b>while</b> (i &lt; len) {
@@ -363,7 +371,7 @@ Join everything in <code>coins</code> with <code>self</code>
 Join a vector of <code>Coin</code> into a single object and transfer it to <code>receiver</code>.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -375,7 +383,7 @@ Join a vector of <code>Coin</code> into a single object and transfer it to <code
 <pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer">join_vec_and_transfer</a>&lt;T&gt;(
     coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;,
     receiver: <b>address</b>,
-    ctx: &TxContext
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(receiver != <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx), <a href="pay.md#0x2_pay_ESELF_PAY">ESELF_PAY</a>);
     <b>assert</b>!(<a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&coins) &gt; 0, <a href="pay.md#0x2_pay_ENoCoins">ENoCoins</a>);
@@ -385,7 +393,7 @@ Join a vector of <code>Coin</code> into a single object and transfer it to <code
     );
 
     <b>let</b> self = <a href="dependencies/move-stdlib/vector.md#0x1_vector_pop_back">vector::pop_back</a>(&<b>mut</b> coins);
-    <a href="pay.md#0x2_pay_join_vec">join_vec</a>(&<b>mut</b> self, coins);
+    <a href="pay.md#0x2_pay_join_vec">join_vec</a>(&<b>mut</b> self, coins, ctx);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(self, receiver)
 }
 </code></pre>
@@ -404,7 +412,7 @@ type, or when the type is paused. <code>join_vec_and_transfer</code> deliberatel
 skips the check (permissionless coin path).
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer_checked">join_vec_and_transfer_checked</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="pay.md#0x2_pay_join_vec_and_transfer_checked">join_vec_and_transfer_checked</a>&lt;T&gt;(coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;<a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;&gt;, receiver: <b>address</b>, deny: &<a href="deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a>, ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -417,7 +425,7 @@ skips the check (permissionless coin path).
     coins: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;Coin&lt;T&gt;&gt;,
     receiver: <b>address</b>,
     deny: &DenyList,
-    ctx: &TxContext
+    ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx)), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a>&lt;T&gt;(deny, receiver), <a href="pay.md#0x2_pay_EDENIED">EDENIED</a>);

@@ -1355,7 +1355,7 @@ Join two coins together (adds the balance of 'other' into 'coin').
 Entry wrapper for joining two coin objects owned by the sender.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;)
+<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -1364,7 +1364,11 @@ Entry wrapper for joining two coin objects owned by the sender.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(<a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="coin.md#0x2_coin_join_entry">join_entry</a>&lt;T&gt;(
+    <a href="coin.md#0x2_coin">coin</a>: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;,
+    other: <a href="coin.md#0x2_coin_Coin">Coin</a>&lt;T&gt;,
+    _ctx: &<b>mut</b> TxContext
+) {
     <a href="coin.md#0x2_coin_join">join</a>(<a href="coin.md#0x2_coin">coin</a>, other);
 }
 </code></pre>
@@ -1445,6 +1449,7 @@ Split coin <code>self</code> into <code>n - 1</code> coins with equal balances.
 
 ## Function `update_icon_url`
 
+Updates the icon URL for coin type <code>T</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_icon_url">update_icon_url</a>&lt;T&gt;(treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, <a href="url.md#0x2_url">url</a>: <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;<a href="url.md#0x2_url_Url">url::Url</a>&gt;)
@@ -1474,6 +1479,7 @@ Split coin <code>self</code> into <code>n - 1</code> coins with equal balances.
 
 ## Function `update_name`
 
+Updates the name for coin type <code>T</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_name">update_name</a>&lt;T&gt;(treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, name: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>)
@@ -1503,6 +1509,7 @@ Split coin <code>self</code> into <code>n - 1</code> coins with equal balances.
 
 ## Function `update_symbol`
 
+Updates the symbol for coin type <code>T</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_symbol">update_symbol</a>&lt;T&gt;(treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, symbol: <a href="dependencies/move-stdlib/ascii.md#0x1_ascii_String">ascii::String</a>)
@@ -1532,6 +1539,7 @@ Split coin <code>self</code> into <code>n - 1</code> coins with equal balances.
 
 ## Function `update_description`
 
+Updates the icon URL for coin type <code>T</code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="coin.md#0x2_coin_update_description">update_description</a>&lt;T&gt;(treasury: &<a href="coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;T&gt;, metadata: &<b>mut</b> <a href="coin.md#0x2_coin_CoinMetadata">coin::CoinMetadata</a>&lt;T&gt;, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>)

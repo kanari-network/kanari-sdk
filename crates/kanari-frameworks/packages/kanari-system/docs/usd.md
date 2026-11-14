@@ -220,6 +220,7 @@ Burn a specific <code>amount</code> of USD from a mutable Coin held by the calle
 
 ## Function `units_per_usd`
 
+Returns the number of units per USD.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="usd.md#0x2_usd_units_per_usd">units_per_usd</a>(): u64

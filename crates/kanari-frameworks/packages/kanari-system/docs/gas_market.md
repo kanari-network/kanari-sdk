@@ -414,6 +414,7 @@ USD fee for <code>gas_units</code>, in micro-USD. Pure function (no state read).
     gas_units: u64,
     usd_per_gas_unit_micros: u64
 ): u64 {
+    <b>assert</b>!(usd_per_gas_unit_micros == 0 || gas_units &lt;= 18446744073709551615, <a href="gas_market.md#0x2_gas_market_EOVERFLOW_QUOTE">EOVERFLOW_QUOTE</a>);
     <b>let</b> fee = (gas_units <b>as</b> u128) * (usd_per_gas_unit_micros <b>as</b> u128);
     <b>assert</b>!(fee &lt;= 18446744073709551615, <a href="gas_market.md#0x2_gas_market_EOVERFLOW_QUOTE">EOVERFLOW_QUOTE</a>);
     (fee <b>as</b> u64)
@@ -822,6 +823,7 @@ failure is explicit in Move execution rather than silent under-charge.
 
 ## Function `version`
 
+The current price table version. Bumps on each config/publish write.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_version">version</a>(<a href="table.md#0x2_table">table</a>: &<a href="gas_market.md#0x2_gas_market_PriceTable">gas_market::PriceTable</a>): u64
@@ -846,6 +848,7 @@ failure is explicit in Move execution rather than silent under-charge.
 
 ## Function `usd_per_gas_unit`
 
+USD base fee per gas unit (micro-USD).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_usd_per_gas_unit">usd_per_gas_unit</a>(<a href="table.md#0x2_table">table</a>: &<a href="gas_market.md#0x2_gas_market_PriceTable">gas_market::PriceTable</a>): u64
@@ -870,6 +873,7 @@ failure is explicit in Move execution rather than silent under-charge.
 
 ## Function `num_coins`
 
+Number of whitelisted gas coin configs.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_num_coins">num_coins</a>(<a href="table.md#0x2_table">table</a>: &<a href="gas_market.md#0x2_gas_market_PriceTable">gas_market::PriceTable</a>): u64
@@ -894,6 +898,7 @@ failure is explicit in Move execution rather than silent under-charge.
 
 ## Function `usd_scale`
 
+USD micro-scale constant (1e6).
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_usd_scale">usd_scale</a>(): u64
@@ -918,6 +923,8 @@ failure is explicit in Move execution rather than silent under-charge.
 
 ## Function `assert_authorized`
 
+Assert caller is authorized (feeder/admin). Admin/feeder wrappers pass
+<code><b>true</b></code>; unauthorized callers abort <code><a href="gas_market.md#0x2_gas_market_ENOT_AUTHORIZED">ENOT_AUTHORIZED</a></code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="gas_market.md#0x2_gas_market_assert_authorized">assert_authorized</a>(ok: bool)

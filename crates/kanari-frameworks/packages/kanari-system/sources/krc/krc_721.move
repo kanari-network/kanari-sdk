@@ -1368,7 +1368,7 @@ module kanari_system::krc_721 {
         destroy_collection_for_test(collection_ref);
     }
 
-#[test]
+    #[test]
     #[expected_failure(abort_code = 1, location = kanari_system::deny_list)]
     fun test_deny_remove_absent_aborts() {
         let ctx = tx_context::dummy();
@@ -1531,7 +1531,7 @@ module kanari_system::krc_721 {
         destroy_policy_cap_for_test(policy_cap);
     }
 
-#[test]
+    #[test]
     #[expected_failure(abort_code = E_TOO_MANY_ATTRIBUTES)]
     fun test_mint_with_attributes_too_many_aborts() {
         let ctx = tx_context::dummy();

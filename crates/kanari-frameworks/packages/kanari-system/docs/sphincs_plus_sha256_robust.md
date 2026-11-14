@@ -48,6 +48,7 @@ This is the standardized successor of SPHINCS+ SHA256-256f-robust.
 
 ## Function `public_key_length`
 
+Returns the public key length for SPHINCS+-SHA256-robust.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="sphincs_plus_sha256_robust.md#0x2_sphincs_plus_sha256_robust_public_key_length">public_key_length</a>(): u64
@@ -72,6 +73,7 @@ This is the standardized successor of SPHINCS+ SHA256-256f-robust.
 
 ## Function `signature_length`
 
+Returns the signature length for SPHINCS+-SHA256-robust.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="sphincs_plus_sha256_robust.md#0x2_sphincs_plus_sha256_robust_signature_length">signature_length</a>(): u64
@@ -194,6 +196,7 @@ This is the standardized successor of SPHINCS+ SHA256-256f-robust.
 
 ## Function `rust_vector_signature`
 
+Returns the raw SPHINCS+ signature as a byte vector.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="sphincs_plus_sha256_robust.md#0x2_sphincs_plus_sha256_robust_rust_vector_signature">rust_vector_signature</a>(): <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;
