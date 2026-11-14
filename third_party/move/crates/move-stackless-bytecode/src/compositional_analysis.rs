@@ -20,10 +20,7 @@ pub struct SummaryCache<'a> {
 
 impl<'a> SummaryCache<'a> {
     pub fn new(targets: &'a FunctionTargetsHolder, global_env: &'a GlobalEnv) -> Self {
-        Self {
-            targets,
-            global_env,
-        }
+        Self { targets, global_env }
     }
 
     /// Return a summary for a variant of `fun_id`. Returns None if `fun_id` is a native function or
@@ -34,15 +31,9 @@ impl<'a> SummaryCache<'a> {
         variant: &FunctionVariant,
     ) -> Option<&Summary> {
         let fun_env = self.global_env.get_function(fun_id);
-        self.targets
-            .get_data(&fun_id, variant)
-            .and_then(|fun_data| {
-                if fun_env.is_native() {
-                    None
-                } else {
-                    fun_data.annotations.get::<Summary>()
-                }
-            })
+        self.targets.get_data(&fun_id, variant).and_then(|fun_data| {
+            if fun_env.is_native() { None } else { fun_data.annotations.get::<Summary>() }
+        })
     }
 
     pub fn global_env(&self) -> &GlobalEnv {

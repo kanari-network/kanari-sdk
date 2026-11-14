@@ -1,6 +1,8 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+#![allow(unreachable_code)]
+
 use anyhow::Result;
 use futures::StreamExt;
 use libp2p_core::{Multiaddr, PeerId, Transport, upgrade};
@@ -82,10 +84,7 @@ pub struct QueuedP2PMessage {
 
 impl QueuedP2PMessage {
     pub fn new(message: P2PMessage) -> Self {
-        Self {
-            message,
-            enqueued_at: Instant::now(),
-        }
+        Self { message, enqueued_at: Instant::now() }
     }
 }
 
@@ -103,10 +102,7 @@ fn outbound_priority(message: &P2PMessage) -> u8 {
         | P2PMessage::CompressedCheckpoint(_)
         | P2PMessage::CompressedCheckpointResponse(_)
         | P2PMessage::CompressedTargetedCheckpointResponse(_)
-        | P2PMessage::Chunk(P2PMessageChunk {
-            topic: P2PTopicKind::Checkpoint,
-            ..
-        }) => 0,
+        | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::Checkpoint, .. }) => 0,
         P2PMessage::DagVertexRequest(_)
         | P2PMessage::DagVertexResponse(_)
         | P2PMessage::NewDagVertex(_) => 1,
@@ -131,15 +127,20 @@ fn is_recovery_control_message(message: &P2PMessage) -> bool {
             | P2PMessage::CompressedTargetedCheckpointResponse(_)
             | P2PMessage::DagVertexRequest(_)
             | P2PMessage::DagVertexResponse(_)
-            | P2PMessage::Chunk(P2PMessageChunk {
-                topic: P2PTopicKind::Checkpoint,
-                ..
-            })
+            | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::Checkpoint, .. })
     )
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, bincode::Encode, bincode::Decode,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    bincode::Encode,
+    bincode::Decode
 )]
 pub enum P2PTopicKind {
     Checkpoint,
@@ -254,13 +255,11 @@ fn topic_namespace() -> String {
         .or_else(|_| std::env::var("KANARI_NETWORK"))
         .unwrap_or_else(|_| "devnet".to_string())
         .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
-                ch
-            } else {
-                '-'
-            }
-        })
+        .map(
+            |ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') { ch } else { '-' }
+            },
+        )
         .collect()
 }
 
@@ -355,22 +354,11 @@ impl P2PNetwork {
             relay::Config::default()
         } else {
             // Limit relay to essentially disable it without Option<T>
-            relay::Config {
-                max_reservations: 0,
-                max_circuits: 0,
-                ..Default::default()
-            }
+            relay::Config { max_reservations: 0, max_circuits: 0, ..Default::default() }
         };
         let relay = relay::Behaviour::new(local_peer_id, relay_config);
 
-        let behaviour = KanariBehaviour {
-            gossipsub,
-            kademlia,
-            dcutr,
-            identify,
-            ping,
-            relay,
-        };
+        let behaviour = KanariBehaviour { gossipsub, kademlia, dcutr, identify, ping, relay };
 
         let mut swarm = Swarm::new(
             transport,
@@ -405,29 +393,25 @@ impl P2PNetwork {
             | P2PMessage::CompressedCheckpoint(_)
             | P2PMessage::CompressedCheckpointResponse(_)
             | P2PMessage::CompressedTargetedCheckpointResponse(_)
-            | P2PMessage::Chunk(P2PMessageChunk {
-                topic: P2PTopicKind::Checkpoint,
-                ..
-            }) => &self.topics.checkpoints,
+            | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::Checkpoint, .. }) => {
+                &self.topics.checkpoints
+            }
             P2PMessage::NewTransaction(_)
-            | P2PMessage::Chunk(P2PMessageChunk {
-                topic: P2PTopicKind::Transaction,
-                ..
-            }) => &self.topics.transactions,
+            | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::Transaction, .. }) => {
+                &self.topics.transactions
+            }
             P2PMessage::PeerInfo(_)
-            | P2PMessage::Chunk(P2PMessageChunk {
-                topic: P2PTopicKind::Peer,
-                ..
-            }) => &self.topics.peers,
+            | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::Peer, .. }) => {
+                &self.topics.peers
+            }
             P2PMessage::NewDagVertex(_)
             | P2PMessage::DagVertexRebroadcast(_)
             | P2PMessage::DagVertexRequest(_)
             | P2PMessage::DagVertexResponse(_)
             | P2PMessage::CompressedDagVertex(_)
-            | P2PMessage::Chunk(P2PMessageChunk {
-                topic: P2PTopicKind::DagVertex,
-                ..
-            }) => &self.topics.dag_vertices,
+            | P2PMessage::Chunk(P2PMessageChunk { topic: P2PTopicKind::DagVertex, .. }) => {
+                &self.topics.dag_vertices
+            }
         }
     }
 
@@ -493,10 +477,7 @@ impl P2PNetwork {
                 );
             }
             P2PMessage::CheckpointRequest(seq, t) => {
-                info!(
-                    "[P2P] Publishing CheckpointRequest: sequence={}, ts={}",
-                    seq, t
-                );
+                info!("[P2P] Publishing CheckpointRequest: sequence={}, ts={}", seq, t);
             }
             P2PMessage::TargetedCheckpointRequest(req) => {
                 info!(
@@ -641,18 +622,10 @@ impl P2PNetwork {
 
         // Fault injection targets best-effort gossip. Recovery control traffic
         // must remain reliable enough to heal the deliberately delayed gossip.
-        let duplicate_publishes = if apply_synthetic_chaos {
-            chaos_duplicate_publish_count()
-        } else {
-            0
-        };
+        let duplicate_publishes =
+            if apply_synthetic_chaos { chaos_duplicate_publish_count() } else { 0 };
         for _ in 0..duplicate_publishes {
-            match self
-                .swarm
-                .behaviour_mut()
-                .gossipsub
-                .publish(topic.clone(), data.clone())
-            {
+            match self.swarm.behaviour_mut().gossipsub.publish(topic.clone(), data.clone()) {
                 Ok(_) => {}
                 Err(e) if is_duplicate_publish_error(&e) || is_insufficient_peers_error(&e) => {}
                 Err(e) => {
@@ -774,10 +747,7 @@ impl P2PEventHandler {
                 .peers
                 .iter()
                 .flat_map(|(peer_id, peer)| {
-                    peer.addresses
-                        .iter()
-                        .cloned()
-                        .map(move |address| (peer_id.clone(), address))
+                    peer.addresses.iter().cloned().map(move |address| (peer_id.clone(), address))
                 })
                 .collect::<Vec<_>>(),
             None => return,
@@ -885,20 +855,14 @@ impl P2PEventHandler {
             return false;
         }
 
-        match self.message_tx.try_send(AuthenticatedP2PMessage {
-            source,
-            message: msg,
-        }) {
+        match self.message_tx.try_send(AuthenticatedP2PMessage { source, message: msg }) {
             Ok(_) => true,
             Err(mpsc::error::TrySendError::Full(_)) => {
                 debug!("{}: incoming P2P queue is full; dropping message", context);
                 false
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
-                warn!(
-                    "{}: receiver closed; suppressing further incoming P2P forwards",
-                    context
-                );
+                warn!("{}: receiver closed; suppressing further incoming P2P forwards", context);
                 self.message_forwarding_closed = true;
                 false
             }
@@ -924,10 +888,8 @@ impl P2PEventHandler {
                 tokio::task::spawn_blocking(move || decompress_payload(compressed_data)).await;
             match result {
                 Ok(Ok(data)) => {
-                    let _ = message_tx.try_send(AuthenticatedP2PMessage {
-                        source,
-                        message: make_message(data),
-                    });
+                    let _ = message_tx
+                        .try_send(AuthenticatedP2PMessage { source, message: make_message(data) });
                 }
                 Ok(Err(error)) => warn!("{failure_context}: {error}"),
                 Err(error) => warn!("{failure_context}: worker failed: {error}"),
@@ -945,18 +907,10 @@ impl P2PEventHandler {
                 );
             }
             P2PMessage::NewCheckpoint(data) => {
-                debug!(
-                    "[P2P] Received NewCheckpoint from {} (size: {})",
-                    source,
-                    data.len()
-                );
+                debug!("[P2P] Received NewCheckpoint from {} (size: {})", source, data.len());
             }
             P2PMessage::NewDagVertex(data) => {
-                debug!(
-                    "[P2P] Received NewDagVertex from {} (size: {})",
-                    source,
-                    data.len()
-                );
+                debug!("[P2P] Received NewDagVertex from {} (size: {})", source, data.len());
             }
             P2PMessage::DagVertexRebroadcast(msg) => {
                 debug!(
@@ -991,11 +945,7 @@ impl P2PEventHandler {
                 );
             }
             P2PMessage::CheckpointResponse(data) => {
-                info!(
-                    "[P2P] Received CheckpointResponse from {} (size: {})",
-                    source,
-                    data.len()
-                );
+                info!("[P2P] Received CheckpointResponse from {} (size: {})", source, data.len());
             }
             P2PMessage::TargetedCheckpointResponse(resp) => {
                 info!(
@@ -1048,11 +998,7 @@ impl P2PEventHandler {
                 );
             }
             P2PMessage::NewTransaction(data) => {
-                debug!(
-                    "[P2P] Received NewTransaction from {} (size: {})",
-                    source,
-                    data.len()
-                );
+                debug!("[P2P] Received NewTransaction from {} (size: {})", source, data.len());
             }
             P2PMessage::Chunk(chunk) => {
                 debug!(
@@ -1122,8 +1068,7 @@ impl P2PEventHandler {
     }
 
     fn accept_chunk(&mut self, source: PeerId, chunk: P2PMessageChunk) -> Option<P2PMessage> {
-        self.chunk_assemblies
-            .retain(|_, assembly| assembly.created_at.elapsed() <= CHUNK_TTL);
+        self.chunk_assemblies.retain(|_, assembly| assembly.created_at.elapsed() <= CHUNK_TTL);
         let total = usize::from(chunk.total);
         let index = usize::from(chunk.index);
         if total == 0
@@ -1143,27 +1088,20 @@ impl P2PEventHandler {
         }
         let max_inflight_per_peer = NodeRuntimeConfig::p2p_max_inflight_chunked_payloads_per_peer();
         if !self.chunk_assemblies.contains_key(&key)
-            && self
-                .chunk_assemblies
-                .keys()
-                .filter(|(peer, _)| peer == &source)
-                .count()
+            && self.chunk_assemblies.keys().filter(|(peer, _)| peer == &source).count()
                 >= max_inflight_per_peer
         {
             warn!("[P2P] Per-peer chunk assembly limit reached; dropping new transfer");
             return None;
         }
         let (reject, complete) = {
-            let assembly = self
-                .chunk_assemblies
-                .entry(key)
-                .or_insert_with(|| ChunkAssembly {
-                    created_at: Instant::now(),
-                    topic: chunk.topic,
-                    chunks: vec![None; total],
-                    received: 0,
-                    bytes: 0,
-                });
+            let assembly = self.chunk_assemblies.entry(key).or_insert_with(|| ChunkAssembly {
+                created_at: Instant::now(),
+                topic: chunk.topic,
+                chunks: vec![None; total],
+                received: 0,
+                bytes: 0,
+            });
             if assembly.chunks.len() != total || assembly.topic != chunk.topic {
                 (true, false)
             } else {
@@ -1174,10 +1112,7 @@ impl P2PEventHandler {
                         assembly.received += 1;
                     }
                 }
-                (
-                    assembly.bytes > MAX_CHUNKED_PAYLOAD_SIZE,
-                    assembly.received == total,
-                )
+                (assembly.bytes > MAX_CHUNKED_PAYLOAD_SIZE, assembly.received == total)
             }
         };
         if reject {
@@ -1246,11 +1181,7 @@ impl P2PEventHandler {
                 }
             }
             SwarmEvent::ConnectionClosed {
-                peer_id,
-                endpoint: _,
-                num_established,
-                cause,
-                ..
+                peer_id, endpoint: _, num_established, cause, ..
             } => {
                 info!(
                     "Connection to {} closed (cause: {:?}, remaining: {})",
@@ -1277,20 +1208,11 @@ impl P2PEventHandler {
                     warn!("Outgoing connection error: {}", error);
                 }
             }
-            SwarmEvent::ConnectionEstablished {
-                peer_id,
-                endpoint,
-                num_established,
-                ..
-            } => {
+            SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established, .. } => {
                 // Bootstrap/static peers may never arrive through mDNS. Treat
                 // every live connection as an explicit peer so the 4-node
                 // committee does not depend on a mesh tuned for 6+ peers.
-                self.network
-                    .swarm
-                    .behaviour_mut()
-                    .gossipsub
-                    .add_explicit_peer(&peer_id);
+                self.network.swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                 info!(
                     "Connection established with {} at {} (total: {})",
                     peer_id,
@@ -1321,10 +1243,7 @@ impl P2PEventHandler {
                     info!("DCUtR hole punching succeeded with {}", remote_peer_id);
                 }
                 Err(e) => {
-                    warn!(
-                        "DCUtR hole punching failed with {}: {:?}",
-                        remote_peer_id, e
-                    );
+                    warn!("DCUtR hole punching failed with {}: {:?}", remote_peer_id, e);
                 }
             },
             SwarmEvent::Behaviour(KanariBehaviourEvent::Identify(identify::Event::Received {
@@ -1341,11 +1260,7 @@ impl P2PEventHandler {
                 // are safe to persist and redial after a process restart.
                 let listen_addrs = info.listen_addrs;
                 for addr in &listen_addrs {
-                    self.network
-                        .swarm
-                        .behaviour_mut()
-                        .kademlia
-                        .add_address(&peer_id, addr.clone());
+                    self.network.swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                 }
                 if let Some(peer_store) = &self.peer_store {
                     let mut store = peer_store.lock().await;
@@ -1361,25 +1276,16 @@ impl P2PEventHandler {
                 info!("Relay: Accepted reservation request from {}", src_peer_id);
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Relay(
-                relay::Event::CircuitReqAccepted {
-                    src_peer_id,
-                    dst_peer_id,
-                },
+                relay::Event::CircuitReqAccepted { src_peer_id, dst_peer_id },
             )) => {
-                info!(
-                    "Relay: Accepted circuit from {} to {}",
-                    src_peer_id, dst_peer_id
-                );
+                info!("Relay: Accepted circuit from {} to {}", src_peer_id, dst_peer_id);
             }
             SwarmEvent::Behaviour(KanariBehaviourEvent::Relay(relay::Event::CircuitClosed {
                 src_peer_id,
                 dst_peer_id,
                 ..
             })) => {
-                info!(
-                    "Relay: Circuit closed between {} and {}",
-                    src_peer_id, dst_peer_id
-                );
+                info!("Relay: Circuit closed between {} and {}", src_peer_id, dst_peer_id);
             }
             _ => {}
         }

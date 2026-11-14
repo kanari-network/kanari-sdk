@@ -44,24 +44,14 @@ pub struct FunctionInfo {
 impl ModuleSummary {
     /// Summarizes the modules coverage in CSV format
     pub fn summarize_csv<W: Write>(&self, summary_writer: &mut W) -> io::Result<()> {
-        let module = format!(
-            "{}::{}",
-            self.module_name.address(),
-            self.module_name.name()
-        );
+        let module = format!("{}::{}", self.module_name.address(), self.module_name.name());
 
         let mut format_line = |fn_name, covered, uncovered| {
-            writeln!(
-                summary_writer,
-                "{},{},{},{}",
-                module, fn_name, covered, uncovered
-            )
+            writeln!(summary_writer, "{},{},{},{}", module, fn_name, covered, uncovered)
         };
 
-        for (fn_name, fn_summary) in self
-            .function_summaries
-            .iter()
-            .filter(|(_, summary)| !summary.fn_is_native)
+        for (fn_name, fn_summary) in
+            self.function_summaries.iter().filter(|(_, summary)| !summary.fn_is_native)
         {
             format_line(fn_name, fn_summary.covered, fn_summary.total)?;
         }
@@ -91,28 +81,16 @@ impl ModuleSummary {
             all_covered += fn_summary.covered;
 
             if summarize_function_coverage {
-                let native = if fn_summary.fn_is_native {
-                    "native "
-                } else {
-                    ""
-                };
+                let native = if fn_summary.fn_is_native { "native " } else { "" };
                 writeln!(summary_writer, "\t{}fun {}", native, fn_name)?;
                 writeln!(summary_writer, "\t\ttotal: {}", fn_summary.total)?;
                 writeln!(summary_writer, "\t\tcovered: {}", fn_summary.covered)?;
-                writeln!(
-                    summary_writer,
-                    "\t\t% coverage: {:.2}",
-                    fn_summary.percent_coverage()
-                )?;
+                writeln!(summary_writer, "\t\t% coverage: {:.2}", fn_summary.percent_coverage())?;
             }
         }
 
         let covered_percentage = (all_covered as f64) / (all_total as f64) * 100f64;
-        writeln!(
-            summary_writer,
-            ">>> % Module coverage: {:.2}",
-            covered_percentage
-        )?;
+        writeln!(summary_writer, ">>> % Module coverage: {:.2}", covered_percentage)?;
         Ok((all_total, all_covered))
     }
 }
@@ -136,11 +114,7 @@ pub fn summarize_inst_cov_by_module(
             let fn_name = module.identifier_at(fn_handle.name).to_owned();
 
             let fn_summmary = match &function_def.code {
-                None => FunctionSummary {
-                    fn_is_native: true,
-                    total: 0,
-                    covered: 0,
-                },
+                None => FunctionSummary { fn_is_native: true, total: 0, covered: 0 },
                 Some(code_unit) => {
                     let total_number_of_instructions = code_unit.code.len() as u64;
                     let covered_instructions = module_map
@@ -163,10 +137,7 @@ pub fn summarize_inst_cov_by_module(
         })
         .collect();
 
-    ModuleSummary {
-        module_name,
-        function_summaries,
-    }
+    ModuleSummary { module_name, function_summaries }
 }
 
 pub fn summarize_inst_cov(
@@ -174,9 +145,8 @@ pub fn summarize_inst_cov(
     coverage_map: &ExecCoverageMap,
 ) -> ModuleSummary {
     let module_name = module.self_id();
-    let module_map = coverage_map
-        .module_maps
-        .get(&(*module_name.address(), module_name.name().to_owned()));
+    let module_map =
+        coverage_map.module_maps.get(&(*module_name.address(), module_name.name().to_owned()));
     summarize_inst_cov_by_module(module, module_map)
 }
 
@@ -300,9 +270,8 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
                     }
 
                     // calculate path num
-                    let entry_scc = inst_locs
-                        .get(&fn_cfg.block_start(fn_cfg.entry_block_id()))
-                        .unwrap();
+                    let entry_scc =
+                        inst_locs.get(&fn_cfg.block_start(fn_cfg.entry_block_id())).unwrap();
                     let mut fn_num_paths: u64 = 0;
                     for (_, path_end_reachability) in path_nums {
                         fn_num_paths += if let Some(v) = path_end_reachability.get(entry_scc) {
@@ -318,13 +287,7 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
                         .to_owned();
                     Some((
                         fn_name.clone(),
-                        FunctionInfo {
-                            fn_name,
-                            fn_entry,
-                            fn_returns,
-                            fn_branches,
-                            fn_num_paths,
-                        },
+                        FunctionInfo { fn_name, fn_entry, fn_returns, fn_branches, fn_num_paths },
                     ))
                 }
             }
@@ -399,11 +362,8 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
         } else {
             // record path only when execution finishes properly
             for (func_name, path) in path_store.into_iter() {
-                let path_count = func_path_cov_stats
-                    .entry(func_name)
-                    .or_default()
-                    .entry(path)
-                    .or_insert(0);
+                let path_count =
+                    func_path_cov_stats.entry(func_name).or_default().entry(path).or_insert(0);
                 *path_count += 1;
             }
         }
@@ -418,11 +378,7 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
             let fn_name = module.identifier_at(fn_handle.name).to_owned();
 
             let fn_summmary = match &function_def.code {
-                None => FunctionSummary {
-                    fn_is_native: true,
-                    total: 0,
-                    covered: 0,
-                },
+                None => FunctionSummary { fn_is_native: true, total: 0, covered: 0 },
                 Some(_) => FunctionSummary {
                     fn_is_native: false,
                     total: func_info.get(&fn_name).unwrap().fn_num_paths,
@@ -437,10 +393,7 @@ pub fn summarize_path_cov(module: &CompiledModule, trace_map: &TraceMap) -> Modu
         })
         .collect();
 
-    ModuleSummary {
-        module_name,
-        function_summaries,
-    }
+    ModuleSummary { module_name, function_summaries }
 }
 
 impl ExecCoverageMapWithModules {

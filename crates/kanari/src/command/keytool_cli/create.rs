@@ -58,12 +58,8 @@ impl CreateWallet {
         let kp = derive_keypair_from_path(&mnemonic, "", &self.path, curve_type)
             .require("HD derivation failed")?;
         let zk = kp.export_private_key_secure();
-        let (private_key, address_str, seed_phrase, derivation_path) = (
-            zk.to_string(),
-            kp.get_address().to_string(),
-            mnemonic,
-            Some(self.path.clone()),
-        );
+        let (private_key, address_str, seed_phrase, derivation_path) =
+            (zk.to_string(), kp.get_address().to_string(), mnemonic, Some(self.path.clone()));
 
         let address =
             AccountAddress::from_str(&address_str).context("Generated invalid address")?;

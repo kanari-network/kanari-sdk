@@ -9,14 +9,7 @@ pub(crate) fn token_transfer_details(
     state: &RpcServerState,
     tx: &Transaction,
 ) -> Option<(String, u64, Option<String>, String)> {
-    let Transaction::ExecuteFunction {
-        function,
-        args,
-        module,
-        type_args,
-        ..
-    } = tx
-    else {
+    let Transaction::ExecuteFunction { function, args, module, type_args, .. } = tx else {
         return None;
     };
 
@@ -99,12 +92,7 @@ pub(crate) fn transfers_from_effect(
     use std::collections::HashSet;
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let buckets = [
-        &effect.transferred,
-        &effect.mutated,
-        &effect.created,
-        &effect.object_changes,
-    ];
+    let buckets = [&effect.transferred, &effect.mutated, &effect.created, &effect.object_changes];
     for bucket in buckets {
         for change in bucket.iter() {
             let Some(type_) = change.type_.as_deref() else {
@@ -194,11 +182,7 @@ pub(crate) fn enrich_transfer_from_effect(
     details: &mut TransactionDetails,
     effect: &kanari_types::transaction::TransactionEffects,
 ) {
-    let sender = details
-        .sender_address
-        .as_deref()
-        .unwrap_or(details.sender.as_str())
-        .to_owned();
+    let sender = details.sender_address.as_deref().unwrap_or(details.sender.as_str()).to_owned();
     for entry in transfers_from_effect(state, effect) {
         // Drop sender change-back noise: effect-only entries (no amount)
         // where the coin didn't actually change hands. Arg-parsed entries
@@ -232,11 +216,8 @@ pub(crate) fn enrich_transfer_from_effect(
         let donors: Vec<(String, u64, String, Option<u8>)> = transfers
             .iter()
             .filter_map(|t| {
-                match (
-                    t.recipient.as_deref(),
-                    t.transfer_amount,
-                    t.transfer_token_type.as_deref(),
-                ) {
+                match (t.recipient.as_deref(), t.transfer_amount, t.transfer_token_type.as_deref())
+                {
                     (Some(recipient), Some(amount), Some(token_type)) => Some((
                         recipient.to_lowercase(),
                         amount,
@@ -257,9 +238,8 @@ pub(crate) fn enrich_transfer_from_effect(
                 continue;
             };
             let recipient_norm = recipient.to_lowercase();
-            let mut matches = donors
-                .iter()
-                .filter(|(r, a, _, _)| *r == recipient_norm && *a == amount);
+            let mut matches =
+                donors.iter().filter(|(r, a, _, _)| *r == recipient_norm && *a == amount);
             if let Some((_, _, token_type, decimals)) = matches.next()
                 && matches.next().is_none()
             {
@@ -286,12 +266,7 @@ pub(crate) fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool
     let target_module = token_module_path(&token_type);
 
     match tx {
-        Transaction::ExecuteFunction {
-            module,
-            type_args,
-            object_inputs,
-            ..
-        } => {
+        Transaction::ExecuteFunction { module, type_args, object_inputs, .. } => {
             if CoinModule::is_native_token_type(&token_type) && module == &GasModule::module_path()
             {
                 return true;
@@ -303,10 +278,7 @@ pub(crate) fn tx_mentions_token_type(tx: &Transaction, token_type: &str) -> bool
                 return true;
             }
 
-            if type_args
-                .iter()
-                .any(|arg| CoinModule::normalize_token_type(arg) == token_type)
-            {
+            if type_args.iter().any(|arg| CoinModule::normalize_token_type(arg) == token_type) {
                 return true;
             }
 

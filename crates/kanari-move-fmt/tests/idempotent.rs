@@ -17,35 +17,25 @@ fn assert_idempotent(src: &str) {
 
 #[test]
 fn idempotent_else_chain() {
-    assert_idempotent(
-        "module m::n {\n    fun f(c: u8): u8 {\n        if (c >= 48 && c <= 57) c - 48\n        // 0-9\n        else if (c >= 65 && c <= 70) c - 55\n        // A-F\n        else abort E\n    }\n}\n",
-    );
+    assert_idempotent(include_str!("../move_package/else_chain.move"));
 }
 
 #[test]
 fn idempotent_grouped_use() {
-    assert_idempotent(
-        "module m::n {\n    use std::vector;\n    use std::ascii;\n    use std::vector;\n}\n",
-    );
+    assert_idempotent(include_str!("../move_package/grouped_use.move"));
 }
 
 #[test]
 fn idempotent_long_call() {
-    assert_idempotent(
-        "module m::n {\n    fun f() {\n        some_fn(arg_one, arg_two, arg_three, arg_four, arg_five, arg_six, arg_seven);\n    }\n}\n",
-    );
+    assert_idempotent(include_str!("../move_package/long_call.move"));
 }
 
 #[test]
 fn idempotent_pack_and_let() {
-    assert_idempotent(
-        "module m::n {\n    struct S has drop { x: u64 }\n    fun f() { let s = S { x: 1 }; let y = s.x; }\n}\n",
-    );
+    assert_idempotent(include_str!("../move_package/pack_and_let.move"));
 }
 
 #[test]
 fn idempotent_block_comment_if() {
-    assert_idempotent(
-        "module m::n {\n    fun f() {\n        if (/* 0-9 */ 48 <= hex && hex < 58) { hex - 48 } else { 0 }\n    }\n}\n",
-    );
+    assert_idempotent(include_str!("../move_package/block_comment_if.move"));
 }

@@ -29,18 +29,12 @@ fn test_derive_supports_post_quantum_curves() {
 
         // Deterministic: same inputs reproduce the same keypair
         let kp2 = hd_wallet::derive_keypair_from_path(mnemonic, password, path, curve).unwrap();
-        assert_eq!(
-            kp.address, kp2.address,
-            "{curve} derivation not deterministic"
-        );
+        assert_eq!(kp.address, kp2.address, "{curve} derivation not deterministic");
 
         // Path-sensitive: a different path yields a different key
         let other =
             hd_wallet::derive_keypair_from_path(mnemonic, password, "m/44'/60'/0'/0/1", curve)
                 .unwrap();
-        assert_ne!(
-            kp.address, other.address,
-            "{curve} derivation is not path-sensitive"
-        );
+        assert_ne!(kp.address, other.address, "{curve} derivation is not path-sensitive");
     }
 }

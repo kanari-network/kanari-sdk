@@ -53,11 +53,9 @@ impl<'a> DuplicationChecker<'a> {
 
     fn check_identifiers(identifiers: &[Identifier]) -> PartialVMResult<()> {
         match Self::first_duplicate_element(identifiers) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::Identifier,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::Identifier, idx))
+            }
             None => Ok(()),
         }
     }
@@ -75,33 +73,27 @@ impl<'a> DuplicationChecker<'a> {
 
     fn check_constants(constant_pool: &[Constant]) -> PartialVMResult<()> {
         match Self::first_duplicate_element(constant_pool) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::ConstantPool,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::ConstantPool, idx))
+            }
             None => Ok(()),
         }
     }
 
     fn check_signatures(signatures: &[Signature]) -> PartialVMResult<()> {
         match Self::first_duplicate_element(signatures) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::Signature,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::Signature, idx))
+            }
             None => Ok(()),
         }
     }
 
     fn check_module_handles(module_handles: &[ModuleHandle]) -> PartialVMResult<()> {
         match Self::first_duplicate_element(module_handles) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::ModuleHandle,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::ModuleHandle, idx))
+            }
             None => Ok(()),
         }
     }
@@ -109,11 +101,9 @@ impl<'a> DuplicationChecker<'a> {
     // StructHandles - module and name define uniqueness
     fn check_struct_handles(struct_handles: &[StructHandle]) -> PartialVMResult<()> {
         match Self::first_duplicate_element(struct_handles.iter().map(|x| (x.module, x.name))) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::StructHandle,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::StructHandle, idx))
+            }
             None => Ok(()),
         }
     }
@@ -149,11 +139,9 @@ impl<'a> DuplicationChecker<'a> {
 
     fn check_field_handles(&self) -> PartialVMResult<()> {
         match Self::first_duplicate_element(self.module.field_handles()) {
-            Some(idx) => Err(verification_error(
-                StatusCode::DUPLICATE_ELEMENT,
-                IndexKind::FieldHandle,
-                idx,
-            )),
+            Some(idx) => {
+                Err(verification_error(StatusCode::DUPLICATE_ELEMENT, IndexKind::FieldHandle, idx))
+            }
             None => Ok(()),
         }
     }
@@ -223,12 +211,8 @@ impl<'a> DuplicationChecker<'a> {
             ));
         }
         // Check that each struct handle in self module is implemented (has a declaration)
-        let implemented_struct_handles: HashSet<StructHandleIndex> = self
-            .module
-            .struct_defs()
-            .iter()
-            .map(|x| x.struct_handle)
-            .collect();
+        let implemented_struct_handles: HashSet<StructHandleIndex> =
+            self.module.struct_defs().iter().map(|x| x.struct_handle).collect();
         if let Some(idx) = (0..self.module.struct_handles().len()).position(|x| {
             let y = StructHandleIndex::new(x as u16);
             self.module.struct_handle_at(y).module == self.module.self_handle_idx()
@@ -276,12 +260,8 @@ impl<'a> DuplicationChecker<'a> {
             ));
         }
         // Check that each function handle in self module is implemented (has a declaration)
-        let implemented_function_handles: HashSet<FunctionHandleIndex> = self
-            .module
-            .function_defs()
-            .iter()
-            .map(|x| x.function)
-            .collect();
+        let implemented_function_handles: HashSet<FunctionHandleIndex> =
+            self.module.function_defs().iter().map(|x| x.function).collect();
         if let Some(idx) = (0..self.module.function_handles().len()).position(|x| {
             let y = FunctionHandleIndex::new(x as u16);
             self.module.function_handle_at(y).module == self.module.self_handle_idx()

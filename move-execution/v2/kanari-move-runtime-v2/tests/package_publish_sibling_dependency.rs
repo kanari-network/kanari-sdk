@@ -45,10 +45,7 @@ fn package_publish_accepts_sibling_dependency_in_any_order() -> Result<()> {
     let package_dir = create_test_package()?;
     let modules = compile_test_modules(&package_dir)?;
 
-    for order in [
-        vec![DEPENDENT_MODULE, HELPER_MODULE],
-        vec![HELPER_MODULE, DEPENDENT_MODULE],
-    ] {
+    for order in [vec![DEPENDENT_MODULE, HELPER_MODULE], vec![HELPER_MODULE, DEPENDENT_MODULE]] {
         let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
         let sender = AccountAddress::from_hex_literal(TESTER_ADDR)?;
 
@@ -126,14 +123,8 @@ fn create_test_package() -> Result<PathBuf> {
         TESTER_ADDR,
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
-    fs::write(
-        package_dir.join("sources").join("helper.move"),
-        HELPER_SOURCE,
-    )?;
-    fs::write(
-        package_dir.join("sources").join("dependent.move"),
-        DEPENDENT_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join("helper.move"), HELPER_SOURCE)?;
+    fs::write(package_dir.join("sources").join("dependent.move"), DEPENDENT_SOURCE)?;
 
     Ok(package_dir)
 }

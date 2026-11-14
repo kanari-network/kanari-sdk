@@ -45,17 +45,11 @@ pub struct AccessPathTrie<T: FootprintDomain>(MapDomain<Root, TrieNode<T>>);
 
 impl<T: FootprintDomain> TrieNode<T> {
     pub fn new(data: T) -> Self {
-        TrieNode {
-            data: Some(data),
-            children: MapDomain::default(),
-        }
+        TrieNode { data: Some(data), children: MapDomain::default() }
     }
 
     pub fn new_opt(data: Option<T>) -> Self {
-        TrieNode {
-            data,
-            children: MapDomain::default(),
-        }
+        TrieNode { data, children: MapDomain::default() }
     }
 
     /// Like join, but gracefully handles `Non` data fields by treating None as Bottom
@@ -386,8 +380,7 @@ impl<T: FootprintDomain> AccessPathTrie<T> {
 
     /// Retrieve the data associated with `local_index` in the trie. Returns `None` if there is no associated data
     pub fn get_local(&self, local_index: TempIndex, fun_env: &FunctionEnv) -> Option<&T> {
-        self.get_local_node(local_index, fun_env)
-            .and_then(|n| n.data.as_ref())
+        self.get_local_node(local_index, fun_env).and_then(|n| n.data.as_ref())
     }
 
     /// Retrieve the node associated with `local_index` in the trie. Returns `None` if there is no associated node
@@ -467,10 +460,7 @@ impl<T: FootprintDomain> AccessPathTrie<T> {
         sub_map: &dyn AccessPathMap<AbsAddr>,
         env: &GlobalEnv,
     ) -> Self {
-        let types = type_actuals
-            .iter()
-            .map(|t| Type::from_type_tag(t, env))
-            .collect::<Vec<Type>>();
+        let types = type_actuals.iter().map(|t| Type::from_type_tag(t, env)).collect::<Vec<Type>>();
         self.substitute_footprint_skip_data(actuals, &types, func_env, sub_map)
     }
 
@@ -542,10 +532,7 @@ impl<T: FootprintDomain> AccessPathTrie<T> {
 
 impl<T: FootprintDomain> Default for TrieNode<T> {
     fn default() -> Self {
-        TrieNode {
-            data: None,
-            children: MapDomain::default(),
-        }
+        TrieNode { data: None, children: MapDomain::default() }
     }
 }
 
@@ -576,8 +563,7 @@ pub struct AccessPathTrieDisplay<'a, T: FootprintDomain> {
 
 impl<'a, T: FootprintDomain> fmt::Display for AccessPathTrieDisplay<'a, T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.t
-            .iter_paths(|path, v| writeln!(f, "{}: {:?}", path.display(self.env), v).unwrap());
+        self.t.iter_paths(|path, v| writeln!(f, "{}: {:?}", path.display(self.env), v).unwrap());
         Ok(())
     }
 }

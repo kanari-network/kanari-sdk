@@ -68,19 +68,14 @@ impl ChangeSet {
         let canonical_id = Self::canonicalize_object_id(&object_id);
         self.created_objects
             .retain(|(created_id, _)| Self::canonicalize_object_id(created_id) != canonical_id);
-        if !self
-            .deleted_objects
-            .iter()
-            .any(|deleted_id| deleted_id == &canonical_id)
-        {
+        if !self.deleted_objects.iter().any(|deleted_id| deleted_id == &canonical_id) {
             self.deleted_objects.push(canonical_id);
         }
     }
 
     /// Records a treasury cap creation or update for a token type.
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
-        self.treasuries
-            .push((owner, token_type, TreasuryCap { total_supply }));
+        self.treasuries.push((owner, token_type, TreasuryCap { total_supply }));
     }
 
     /// Record an absolute token balance for a given account/token pair. Multiple coin
@@ -91,15 +86,12 @@ impl ChangeSet {
         token_type: String,
         amount: u64,
     ) {
-        if let Some((_, _, existing_balance)) = self
-            .token_balance_sets
-            .iter_mut()
-            .find(|(o, t, _)| o == &owner && t == &token_type)
+        if let Some((_, _, existing_balance)) =
+            self.token_balance_sets.iter_mut().find(|(o, t, _)| o == &owner && t == &token_type)
         {
             *existing_balance = BalanceRecord::new(existing_balance.value().saturating_add(amount));
         } else {
-            self.token_balance_sets
-                .push((owner, token_type, BalanceRecord::new(amount)));
+            self.token_balance_sets.push((owner, token_type, BalanceRecord::new(amount)));
         }
     }
 
@@ -128,10 +120,8 @@ impl ChangeSet {
             object_id_for_address(&AccountAddress::new(hash))
         };
 
-        if let Some((_, existing_obj)) = self
-            .created_objects
-            .iter_mut()
-            .find(|(id, _)| id == &canonical_id)
+        if let Some((_, existing_obj)) =
+            self.created_objects.iter_mut().find(|(id, _)| id == &canonical_id)
         {
             if object_id_for_address(&owner) != canonical_id {
                 existing_obj.owner = owner;
@@ -235,11 +225,8 @@ impl ChangeSet {
         let mut deleted = Vec::new();
         let mut transferred = Vec::new();
         let mut causal_edges = Vec::new();
-        let input_refs = self
-            .input_objects
-            .iter()
-            .map(|input| input.object_ref.clone())
-            .collect::<Vec<_>>();
+        let input_refs =
+            self.input_objects.iter().map(|input| input.object_ref.clone()).collect::<Vec<_>>();
 
         for change in &object_changes {
             match change.change_type {
@@ -346,11 +333,7 @@ impl ChangeSet {
         causal_edges.dedup();
 
         TransactionEffects {
-            status: if self.success {
-                "success".to_string()
-            } else {
-                "failed".to_string()
-            },
+            status: if self.success { "success".to_string() } else { "failed".to_string() },
             gas_used: self.gas_used,
             gas_payment: gas_payment.or_else(|| self.gas_payment.clone()),
             input_objects: self
@@ -388,10 +371,8 @@ impl ChangeSet {
             .filter(|input| matches!(input.owner, Some(ObjectOwnerKind::Immutable)))
             .map(|input| input.object_ref.clone())
             .collect();
-        self.gas_object_refs = gas_payment
-            .as_ref()
-            .map(|payment| payment.payment_objects.clone())
-            .unwrap_or_default();
+        self.gas_object_refs =
+            gas_payment.as_ref().map(|payment| payment.payment_objects.clone()).unwrap_or_default();
         self.gas_payment = gas_payment;
     }
 

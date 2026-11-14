@@ -46,11 +46,7 @@ impl Envs {
                 eprintln!("{:-<15} {:-<30}", "", "");
 
                 for (alias, rpc) in envs {
-                    let mark = if active.as_deref() == Some(&alias) {
-                        "*"
-                    } else {
-                        " "
-                    };
+                    let mark = if active.as_deref() == Some(&alias) { "*" } else { " " };
                     eprintln!("{:<15} {:<30} {}", alias, rpc, mark);
                 }
 

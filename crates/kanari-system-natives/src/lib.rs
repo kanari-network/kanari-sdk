@@ -92,38 +92,20 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
     add_module_natives!("ecdsa_k1", crypto::make_ecdsa_k1(gas_params.crypto.clone()));
     add_module_natives!("ecdsa_r1", crypto::make_ecdsa_r1(gas_params.crypto.clone()));
     add_module_natives!("ed25519", crypto::make_ed25519(gas_params.crypto.clone()));
-    add_module_natives!(
-        "dilithium2",
-        crypto::make_dilithium2(gas_params.crypto.clone())
-    );
-    add_module_natives!(
-        "dilithium3",
-        crypto::make_dilithium3(gas_params.crypto.clone())
-    );
-    add_module_natives!(
-        "dilithium5",
-        crypto::make_dilithium5(gas_params.crypto.clone())
-    );
+    add_module_natives!("dilithium2", crypto::make_dilithium2(gas_params.crypto.clone()));
+    add_module_natives!("dilithium3", crypto::make_dilithium3(gas_params.crypto.clone()));
+    add_module_natives!("dilithium5", crypto::make_dilithium5(gas_params.crypto.clone()));
     add_module_natives!(
         "sphincs_plus_sha256_robust",
         crypto::make_sphincs_plus_sha256_robust(gas_params.crypto.clone())
     );
-    add_module_natives!(
-        "falcon512",
-        crypto::make_falcon512(gas_params.crypto.clone())
-    );
-    add_module_natives!(
-        "falcon1024",
-        crypto::make_falcon1024(gas_params.crypto.clone())
-    );
+    add_module_natives!("falcon512", crypto::make_falcon512(gas_params.crypto.clone()));
+    add_module_natives!("falcon1024", crypto::make_falcon1024(gas_params.crypto.clone()));
     add_module_natives!(
         "ed25519_dilithium3",
         crypto::make_ed25519_dilithium3(gas_params.crypto.clone())
     );
-    add_module_natives!(
-        "k256_dilithium3",
-        crypto::make_k256_dilithium3(gas_params.crypto.clone())
-    );
+    add_module_natives!("k256_dilithium3", crypto::make_k256_dilithium3(gas_params.crypto.clone()));
     add_module_natives!("rs256", crypto::make_rs256(gas_params.crypto.clone()));
     add_module_natives!("zklogin", crypto::make_zklogin(gas_params.crypto));
 
@@ -132,18 +114,9 @@ pub fn all_natives(move_addr: AccountAddress, gas_params: GasParameters) -> Nati
     add_module_natives!("object", object::make_all(gas_params.object));
     add_module_natives!("transfer", transfer_natives::make_all(gas_params.transfer));
     add_module_natives!("tx_context", tx_context::make_all(gas_params.tx_context));
-    add_module_natives!(
-        "dynamic_field",
-        dynamic_field::make_all(gas_params.dynamic_field.clone())
-    );
-    add_module_natives!(
-        "dynamic_object_field",
-        dynamic_field::make_all(gas_params.dynamic_field)
-    );
-    add_module_natives!(
-        "dynamic_object_field",
-        child::make_all(gas_params.child.clone())
-    );
+    add_module_natives!("dynamic_field", dynamic_field::make_all(gas_params.dynamic_field.clone()));
+    add_module_natives!("dynamic_object_field", dynamic_field::make_all(gas_params.dynamic_field));
+    add_module_natives!("dynamic_object_field", child::make_all(gas_params.child.clone()));
 
     add_module_natives!("address", address::make_address_natives(gas_params.address));
     add_module_natives!("types", types::make_all(gas_params.types));

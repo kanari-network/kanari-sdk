@@ -55,14 +55,9 @@ fn main() {
     let source_map_extension = SOURCE_MAP_EXTENSION;
 
     let source_path = Path::new(&args.bytecode_file_path);
-    let extension = source_path
-        .extension()
-        .expect("Missing file extension for bytecode file");
+    let extension = source_path.extension().expect("Missing file extension for bytecode file");
     if extension != mv_bytecode_extension {
-        println!(
-            "Bad source file extension {:?}; expected {}",
-            extension, mv_bytecode_extension
-        );
+        println!("Bad source file extension {:?}; expected {}", extension, mv_bytecode_extension);
         std::process::exit(1);
     }
 
@@ -102,9 +97,7 @@ fn main() {
 
     if let Some(file_path) = &args.code_coverage_path {
         disassembler.add_coverage_map(
-            CoverageMap::from_binary_file(file_path)
-                .unwrap()
-                .to_unified_exec_map(),
+            CoverageMap::from_binary_file(file_path).unwrap().to_unified_exec_map(),
         );
     }
 

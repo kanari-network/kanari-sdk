@@ -42,19 +42,11 @@ pub struct GasParameters {
 
 impl GasParameters {
     pub fn zeros() -> Self {
-        Self {
-            is_one_time_witness: 0.into(),
-            claim_witness: 0.into(),
-            per_byte: 0.into(),
-        }
+        Self { is_one_time_witness: 0.into(), claim_witness: 0.into(), per_byte: 0.into() }
     }
 
     pub fn production() -> Self {
-        Self {
-            is_one_time_witness: 2_000.into(),
-            claim_witness: 4_000.into(),
-            per_byte: 50.into(),
-        }
+        Self { is_one_time_witness: 2_000.into(), claim_witness: 4_000.into(), per_byte: 50.into() }
     }
 }
 
@@ -77,10 +69,7 @@ pub struct ClaimedWitnessesExt {
 
 impl ClaimedWitnessesExt {
     pub fn new(resolver: Arc<dyn WitnessClaimResolver>) -> Self {
-        Self {
-            resolver: Some(resolver),
-            pending: BTreeSet::new(),
-        }
+        Self { resolver: Some(resolver), pending: BTreeSet::new() }
     }
 
     /// Claim `type_str`, failing when already claimed in durable state or
@@ -90,10 +79,7 @@ impl ClaimedWitnessesExt {
             return Err(format!("witness type already claimed: {type_str}"));
         }
         if let Some(resolver) = &self.resolver
-            && resolver
-                .claimed_witnesses()?
-                .iter()
-                .any(|claimed| claimed == type_str)
+            && resolver.claimed_witnesses()?.iter().any(|claimed| claimed == type_str)
         {
             return Err(format!("witness type already claimed: {type_str}"));
         }
@@ -136,10 +122,7 @@ fn native_is_one_time_witness(
     native_charge_gas_early_exit!(context, gas_params.is_one_time_witness);
     native_charge_gas_early_exit!(context, gas_params.per_byte * NumBytes::new(type_len));
 
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::bool(is_otw_tag(&tag))],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::bool(is_otw_tag(&tag))]))
 }
 
 pub fn make_all(gas_params: GasParameters) -> impl Iterator<Item = (String, NativeFunction)> {

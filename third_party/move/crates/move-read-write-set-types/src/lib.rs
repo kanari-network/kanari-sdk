@@ -69,10 +69,7 @@ impl Root {
                 }
             }
         };
-        Self {
-            root: root_address,
-            type_: self.type_.subst(type_actuals),
-        }
+        Self { root: root_address, type_: self.type_.subst(type_actuals) }
     }
 }
 
@@ -87,13 +84,7 @@ impl AccessPath {
         self.offsets.push(offset)
     }
     pub fn new_global_constant(addr: AccountAddress, ty: Type) -> Self {
-        Self {
-            root: Root {
-                root: RootAddress::Const(addr),
-                type_: ty,
-            },
-            offsets: vec![],
-        }
+        Self { root: Root { root: RootAddress::Const(addr), type_: ty }, offsets: vec![] }
     }
     pub fn has_secondary_index(&self) -> bool {
         self.offsets.iter().any(|offset| match offset {
@@ -120,10 +111,7 @@ impl Default for TrieNode {
 
 impl TrieNode {
     pub fn new() -> Self {
-        Self {
-            data: None,
-            children: BTreeMap::new(),
-        }
+        Self { data: None, children: BTreeMap::new() }
     }
 
     fn iter_paths_opt<F>(&self, access_path: &AccessPath, f: &mut F)
@@ -147,10 +135,7 @@ impl TrieNode {
                 .children
                 .iter()
                 .map(|(offset, node)| {
-                    (
-                        offset.sub_type_actuals(type_actuals),
-                        node.sub_type_actuals(type_actuals),
-                    )
+                    (offset.sub_type_actuals(type_actuals), node.sub_type_actuals(type_actuals))
                 })
                 .collect::<BTreeMap<_, _>>(),
         }
@@ -195,13 +180,7 @@ impl ReadWriteSet {
             self.0
                 .iter()
                 .map(|(root, node)| {
-                    (
-                        root.clone(),
-                        TrieNode {
-                            data: node.get_access(),
-                            children: BTreeMap::new(),
-                        },
-                    )
+                    (root.clone(), TrieNode { data: node.get_access(), children: BTreeMap::new() })
                 })
                 .collect(),
         )
@@ -221,10 +200,7 @@ impl ReadWriteSet {
     {
         let mut result = Some(());
         for (key, node) in self.0.iter() {
-            let access_path = AccessPath {
-                root: key.clone(),
-                offsets: vec![],
-            };
+            let access_path = AccessPath { root: key.clone(), offsets: vec![] };
             node.iter_paths_opt(&access_path, &mut |access_path, access| {
                 if result.is_none() {
                     return;
@@ -280,18 +256,12 @@ impl ReadWriteSet {
         actuals: &[Option<AccountAddress>],
         type_actuals: &[TypeTag],
     ) -> Self {
-        let types: Vec<_> = type_actuals
-            .iter()
-            .map(|ty| Type::from(ty.clone()))
-            .collect();
+        let types: Vec<_> = type_actuals.iter().map(|ty| Type::from(ty.clone())).collect();
         Self(
             self.0
                 .iter()
                 .map(|(root, node)| {
-                    (
-                        root.subst_actuals(&types, actuals),
-                        node.sub_type_actuals(&types),
-                    )
+                    (root.subst_actuals(&types, actuals), node.sub_type_actuals(&types))
                 })
                 .collect::<BTreeMap<_, _>>(),
         )

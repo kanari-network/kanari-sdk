@@ -5,24 +5,17 @@ use super::*;
 
 impl MoveRuntime {
     pub(super) fn read_vm(&self) -> RwLockReadGuard<'_, MoveVM> {
-        self.vm
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.vm.read().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(super) fn write_vm(&self) -> RwLockWriteGuard<'_, MoveVM> {
-        self.vm
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.vm.write().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Create a new runtime with custom native functions and default storage.
     pub(crate) fn new_with_natives(natives: Vec<NativeFunctionTable>) -> Result<Self> {
-        let state = if cfg!(miri) {
-            MoveVMState::new_in_memory()?
-        } else {
-            MoveVMState::open_default()?
-        };
+        let state =
+            if cfg!(miri) { MoveVMState::new_in_memory()? } else { MoveVMState::open_default()? };
         Self::new_internal(natives, state, None)
     }
 
@@ -46,10 +39,8 @@ impl MoveRuntime {
         state: MoveVMState,
         shared_store: Option<Arc<PersistentStore>>,
     ) -> Result<Self> {
-        let all_natives: NativeFunctionTable = natives
-            .into_iter()
-            .flat_map(|table| table.into_iter())
-            .collect();
+        let all_natives: NativeFunctionTable =
+            natives.into_iter().flat_map(|table| table.into_iter()).collect();
 
         let vm = MoveVM::new(all_natives.clone()).require("VM init error")?;
 
@@ -188,11 +179,8 @@ impl MoveRuntime {
         let resolver =
             KanariMoveResolver::without_trace(self.state.clone(), object_storage.clone());
 
-        let published_modules = self
-            .published_modules
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
+        let published_modules =
+            self.published_modules.read().unwrap_or_else(|p| p.into_inner()).clone();
 
         let runtime = MoveRuntime {
             vm: Arc::new(RwLock::new(vm)),
@@ -227,18 +215,14 @@ impl MoveRuntime {
     /// Refresh module identity and VM caches after canonical state has committed.
     pub fn refresh_committed_modules(&self) -> Result<()> {
         let module_ids = self.state.get_all_module_ids()?;
-        *self
-            .published_modules
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = module_ids.into_iter().collect();
+        *self.published_modules.write().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            module_ids.into_iter().collect();
         self.reload_vm_cache()
     }
 
     /// Clear the in-memory object cache.
     pub fn clear_object_cache(&self) -> Result<()> {
-        self.object_storage
-            .clear()
-            .require("Failed to clear runtime object cache")
+        self.object_storage.clear().require("Failed to clear runtime object cache")
     }
 
     /// Preload system modules into the VM cache to ensure dependencies are available
@@ -341,10 +325,7 @@ impl MoveRuntime {
         ));
         store.apply_raw_changes(&updates, &deletes)?;
 
-        let mut modules = self
-            .published_modules
-            .write()
-            .unwrap_or_else(|p| p.into_inner());
+        let mut modules = self.published_modules.write().unwrap_or_else(|p| p.into_inner());
         modules.extend(published_module_updates);
         for module_id in published_module_deletes {
             modules.remove(&module_id);

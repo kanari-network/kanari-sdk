@@ -19,9 +19,8 @@ use proptest::{collection::vec, prelude::*, sample::Index as PropIndex};
 #[test]
 fn test_reference_of_reference() {
     let mut m = basic_test_module();
-    m.signatures[0] = Signature(vec![Reference(Box::new(Reference(Box::new(
-        SignatureToken::Bool,
-    ))))]);
+    m.signatures[0] =
+        Signature(vec![Reference(Box::new(Reference(Box::new(SignatureToken::Bool))))]);
     let errors = SignatureChecker::verify_module(&m);
     assert!(errors.is_err());
 }
@@ -69,11 +68,7 @@ fn no_verify_locals_good() {
         }],
         self_module_handle_idx: ModuleHandleIndex(0),
         struct_handles: vec![],
-        signatures: vec![
-            Signature(vec![Address]),
-            Signature(vec![U64]),
-            Signature(vec![]),
-        ],
+        signatures: vec![Signature(vec![Address]), Signature(vec![U64]), Signature(vec![])],
         function_handles: vec![
             FunctionHandle {
                 module: ModuleHandleIndex(0),
@@ -110,20 +105,14 @@ fn no_verify_locals_good() {
                 visibility: Visibility::Public,
                 is_entry: false,
                 acquires_global_resources: vec![],
-                code: Some(CodeUnit {
-                    locals: SignatureIndex(0),
-                    code: vec![Ret],
-                }),
+                code: Some(CodeUnit { locals: SignatureIndex(0), code: vec![Ret] }),
             },
             FunctionDefinition {
                 function: FunctionHandleIndex(1),
                 visibility: Visibility::Public,
                 is_entry: false,
                 acquires_global_resources: vec![],
-                code: Some(CodeUnit {
-                    locals: SignatureIndex(1),
-                    code: vec![Ret],
-                }),
+                code: Some(CodeUnit { locals: SignatureIndex(1), code: vec![Ret] }),
             },
         ],
     };
@@ -157,10 +146,8 @@ fn big_signature_test() {
     }
     code.push(Bytecode::Ret);
 
-    let type_param_constraints = StructTypeParameter {
-        constraints: AbilitySet::EMPTY,
-        is_phantom: false,
-    };
+    let type_param_constraints =
+        StructTypeParameter { constraints: AbilitySet::EMPTY, is_phantom: false };
 
     let module = CompiledModule {
         version: 5,
@@ -204,10 +191,7 @@ fn big_signature_test() {
             visibility: Public,
             is_entry: true,
             acquires_global_resources: vec![],
-            code: Some(CodeUnit {
-                locals: SignatureIndex(0),
-                code,
-            }),
+            code: Some(CodeUnit { locals: SignatureIndex(0), code }),
         }],
     };
 

@@ -101,10 +101,7 @@ impl TypeTag {
             }
         }
 
-        CanonicalDisplay {
-            data: self,
-            with_prefix,
-        }
+        CanonicalDisplay { data: self, with_prefix }
     }
 
     /// Return the abstract size we use for gas metering
@@ -218,10 +215,7 @@ impl StructTag {
             }
         }
 
-        CanonicalDisplay {
-            data: self,
-            with_prefix,
-        }
+        CanonicalDisplay { data: self, with_prefix }
     }
 
     /// Return the abstract size we use for gas metering
@@ -232,12 +226,9 @@ impl StructTag {
         self.address.abstract_size_for_gas_metering()
             + self.module.abstract_size_for_gas_metering()
             + self.name.abstract_size_for_gas_metering()
-            + self
-                .type_params
-                .iter()
-                .fold(AbstractMemorySize::new(0), |accum, val| {
-                    accum + val.abstract_size_for_gas_metering()
-                })
+            + self.type_params.iter().fold(AbstractMemorySize::new(0), |accum, val| {
+                accum + val.abstract_size_for_gas_metering()
+            })
     }
 }
 
@@ -331,10 +322,7 @@ impl ModuleId {
             }
         }
 
-        IdDisplay {
-            id: self,
-            with_prefix,
-        }
+        IdDisplay { id: self, with_prefix }
     }
 }
 
@@ -352,13 +340,7 @@ impl ModuleId {
 
 impl Display for StructTag {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "0x{}::{}::{}",
-            self.address.short_str_lossless(),
-            self.module,
-            self.name
-        )?;
+        write!(f, "0x{}::{}::{}", self.address.short_str_lossless(), self.module, self.name)?;
         if let Some(first_ty) = self.type_params.first() {
             write!(f, "<")?;
             write!(f, "{}", first_ty)?;

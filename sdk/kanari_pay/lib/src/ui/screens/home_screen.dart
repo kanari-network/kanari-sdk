@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:ui';
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart'; // ignore: deprecated_member_use
 import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:kanari_pay/src/ui/widgets/token_logo.dart';
 import 'package:provider/provider.dart';

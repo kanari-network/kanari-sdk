@@ -236,10 +236,7 @@ impl<'env> Docgen<'env> {
         // If there is a references_file, append it's content to each generated output.
         if let Some(fname) = &self.options.references_file {
             let mut content = String::new();
-            if File::open(fname)
-                .and_then(|mut file| file.read_to_string(&mut content))
-                .is_ok()
-            {
+            if File::open(fname).and_then(|mut file| file.read_to_string(&mut content)).is_ok() {
                 let trimmed_content = content.trim();
                 if !trimmed_content.is_empty() {
                     for (_, out) in self.output.iter_mut() {
@@ -310,15 +307,11 @@ impl<'env> Docgen<'env> {
             match elem {
                 TemplateElement::Text(str) => self.doc_text_for_root(&str),
                 TemplateElement::IncludeModule(name) => {
-                    if let Some(module_env) = self
-                        .env
-                        .find_module_by_name(self.env.symbol_pool().make(&name))
+                    if let Some(module_env) =
+                        self.env.find_module_by_name(self.env.symbol_pool().make(&name))
                     {
-                        let info = self
-                            .infos
-                            .get(&module_env.get_id())
-                            .expect("module defined")
-                            .clone();
+                        let info =
+                            self.infos.get(&module_env.get_id()).expect("module defined").clone();
                         assert!(info.is_included);
                         // Generate the module content in place, adjusting the section nest to
                         // the last user provided one. This will nest the module underneath
@@ -350,10 +343,8 @@ impl<'env> Docgen<'env> {
         }
 
         // Add result to output.
-        self.output.push((
-            self.make_file_in_out_dir(output_file_name),
-            self.writer.extract_result(),
-        ));
+        self.output
+            .push((self.make_file_in_out_dir(output_file_name), self.writer.extract_result()));
     }
 
     /// Compute ModuleInfo for all modules, considering root template content.
@@ -369,11 +360,7 @@ impl<'env> Docgen<'env> {
                 m.get_name().display_full(m.symbol_pool()),
                 out_dir,
                 i.target_file,
-                if m.is_target() {
-                    "is target"
-                } else {
-                    "is a dependency"
-                }
+                if m.is_target() { "is target" } else { "is a dependency" }
             );
         };
         // First process infos for modules included via template.
@@ -436,11 +423,7 @@ impl<'env> Docgen<'env> {
                 let mut path = PathBuf::from(dir);
                 path.push(&file_name);
                 if path.exists() {
-                    Some(
-                        self.path_relative_to(&path, &output_path)
-                            .to_string_lossy()
-                            .to_string(),
-                    )
+                    Some(self.path_relative_to(&path, &output_path).to_string_lossy().to_string())
                 } else {
                     // If it's a dependency traverse back up to finde the package name so that we
                     // can generate the documentation in the right place.
@@ -517,11 +500,7 @@ impl<'env> Docgen<'env> {
         self.doc_text(module_env.get_doc());
 
         // If this is a standalone doc, generate TOC header.
-        let toc_label = if !info.is_included {
-            Some(self.gen_toc_header())
-        } else {
-            None
-        };
+        let toc_label = if !info.is_included { Some(self.gen_toc_header()) } else { None };
 
         // Generate usage information.
         // We currently only include modules used in bytecode -- including specs
@@ -568,9 +547,7 @@ impl<'env> Docgen<'env> {
         }
 
         if !module_env.get_structs().count() > 0 {
-            for s in module_env
-                .get_structs()
-                .sorted_by(|a, b| Ord::cmp(&a.get_loc(), &b.get_loc()))
+            for s in module_env.get_structs().sorted_by(|a, b| Ord::cmp(&a.get_loc(), &b.get_loc()))
             {
                 self.gen_struct(&s);
             }
@@ -630,10 +607,8 @@ impl<'env> Docgen<'env> {
             if fun_env.module_env.get_id() == curr_env.module_env.get_id() {
                 dot_src_lines.push(format!("\t{}", curr_name));
             } else {
-                let module_name = curr_env
-                    .module_env
-                    .get_name()
-                    .display(curr_env.module_env.symbol_pool());
+                let module_name =
+                    curr_env.module_env.get_name().display(curr_env.module_env.symbol_pool());
                 dot_src_lines.push(format!("\tsubgraph cluster_{} {{", module_name));
                 dot_src_lines.push(format!("\t\tlabel = \"{}\";", module_name));
                 dot_src_lines.push(format!(
@@ -660,9 +635,8 @@ impl<'env> Docgen<'env> {
         }
         dot_src_lines.push("}".to_string());
 
-        let out_file_path = PathBuf::from(&self.options.output_directory)
-            .join("img")
-            .join(format!(
+        let out_file_path =
+            PathBuf::from(&self.options.output_directory).join("img").join(format!(
                 "{}_{}_call_graph.svg",
                 fun_env.get_name_string().to_string().replace("::", "_"),
                 (if is_forward { "forward" } else { "backward" })
@@ -686,11 +660,8 @@ impl<'env> Docgen<'env> {
         while let Some(id) = queue.pop_front() {
             let mod_env = self.env.get_module(id);
             let mod_name = mod_env.get_name().display(mod_env.symbol_pool());
-            let dep_list = if is_forward {
-                mod_env.get_used_modules()
-            } else {
-                mod_env.get_using_modules()
-            };
+            let dep_list =
+                if is_forward { mod_env.get_used_modules() } else { mod_env.get_using_modules() };
             dot_src_lines.push(format!("\t{}", mod_name));
             for dep_id in dep_list.iter().filter(|dep_id| **dep_id != id) {
                 let dep_env = self.env.get_module(*dep_id);
@@ -708,9 +679,8 @@ impl<'env> Docgen<'env> {
         }
         dot_src_lines.push("}".to_string());
 
-        let out_file_path = PathBuf::from(&self.options.output_directory)
-            .join("img")
-            .join(format!(
+        let out_file_path =
+            PathBuf::from(&self.options.output_directory).join("img").join(format!(
                 "{}_{}_dep.svg",
                 module_name,
                 (if is_forward { "forward" } else { "backward" })
@@ -793,11 +763,8 @@ impl<'env> Docgen<'env> {
         let writer = std::mem::replace(&mut self.writer, CodeWriter::new(self.env.unknown_loc()));
         {
             let mut level = 0;
-            for (nest, entry) in self
-                .toc
-                .borrow()
-                .iter()
-                .filter(|(n, _)| *n > 0 && *n <= self.options.toc_depth)
+            for (nest, entry) in
+                self.toc.borrow().iter().filter(|(n, _)| *n > 0 && *n <= self.options.toc_depth)
             {
                 let n = *nest - 1;
                 while level < n {
@@ -818,8 +785,7 @@ impl<'env> Docgen<'env> {
                 level -= 1;
             }
             // Insert the result at label.
-            self.writer
-                .process_result(|s| writer.insert_at_label(label, s));
+            self.writer.process_result(|s| writer.insert_at_label(label, s));
         }
         self.writer = writer;
     }
@@ -830,9 +796,7 @@ impl<'env> Docgen<'env> {
         // Sort all modules and script by simple name. (Perhaps we should include addresses?)
         let sorted_infos = self.infos.iter().sorted_by(|(id1, _), (id2, _)| {
             let name = |id: ModuleId| {
-                self.env
-                    .symbol_pool()
-                    .string(self.env.get_module(id).get_name().name())
+                self.env.symbol_pool().string(self.env.get_module(id).get_name().name())
             };
             Ord::cmp(name(**id1).as_str(), name(**id2).as_str())
         });
@@ -896,11 +860,7 @@ impl<'env> Docgen<'env> {
         // with the `key` ability.
         format!(
             "{} `{}`",
-            if struct_env.has_memory() {
-                "Resource"
-            } else {
-                "Struct"
-            },
+            if struct_env.has_memory() { "Resource" } else { "Struct" },
             self.name_string(struct_env.get_name())
         )
     }
@@ -911,10 +871,9 @@ impl<'env> Docgen<'env> {
         format!(
             "const {}: {} = {};",
             name,
-            const_env.get_type().display(&TypeDisplayContext::WithEnv {
-                env: self.env,
-                type_param_names: None,
-            }),
+            const_env
+                .get_type()
+                .display(&TypeDisplayContext::WithEnv { env: self.env, type_param_names: None }),
             const_env.get_value(),
         )
     }
@@ -927,12 +886,7 @@ impl<'env> Docgen<'env> {
         if ability_tokens.is_empty() {
             format!("struct {}{}", name, type_params)
         } else {
-            format!(
-                "struct {}{} has {}",
-                name,
-                type_params,
-                ability_tokens.join(", ")
-            )
+            format!("struct {}{} has {}", name, type_params, ability_tokens.join(", "))
         }
     }
 
@@ -974,10 +928,7 @@ impl<'env> Docgen<'env> {
         if self.options.include_call_diagrams {
             let func_name = func_env.get_simple_name_string();
             self.gen_call_diagram(func_env.get_qualified_id(), true);
-            self.begin_collapsed(&format!(
-                "Show all the functions that \"{}\" calls",
-                func_name
-            ));
+            self.begin_collapsed(&format!("Show all the functions that \"{}\" calls", func_name));
             self.image(&format!(
                 "img/{}_forward_call_graph.svg",
                 func_env.get_name_string().to_string().replace("::", "_")
@@ -985,10 +936,7 @@ impl<'env> Docgen<'env> {
             self.end_collapsed();
 
             self.gen_call_diagram(func_env.get_qualified_id(), false);
-            self.begin_collapsed(&format!(
-                "Show all the functions that call \"{}\"",
-                func_name
-            ));
+            self.begin_collapsed(&format!("Show all the functions that call \"{}\"", func_name));
             self.image(&format!(
                 "img/{}_backward_call_graph.svg",
                 func_env.get_name_string().to_string().replace("::", "_")
@@ -1013,10 +961,7 @@ impl<'env> Docgen<'env> {
         let return_str = match return_types.len() {
             0 => "".to_owned(),
             1 => format!(": {}", return_types[0].display(tctx)),
-            _ => format!(
-                ": ({})",
-                return_types.iter().map(|ty| ty.display(tctx)).join(", ")
-            ),
+            _ => format!(": ({})", return_types.iter().map(|ty| ty.display(tctx)).join(", ")),
         };
         let entry_str = if func_env.is_entry() && !func_env.module_env.is_script_module() {
             "entry ".to_owned()
@@ -1069,10 +1014,7 @@ impl<'env> Docgen<'env> {
                 .map(|TypeParameter(name, _)| *name)
                 .collect_vec(),
         );
-        TypeDisplayContext::WithEnv {
-            env: self.env,
-            type_param_names,
-        }
+        TypeDisplayContext::WithEnv { env: self.env, type_param_names }
     }
 
     /// Creates a type display context for a struct.
@@ -1087,10 +1029,7 @@ impl<'env> Docgen<'env> {
                 .map(|TypeParameter(name, _)| *name)
                 .collect_vec(),
         );
-        TypeDisplayContext::WithEnv {
-            env: self.env,
-            type_param_names,
-        }
+        TypeDisplayContext::WithEnv { env: self.env, type_param_names }
     }
 
     /// Increments section nest.
@@ -1111,10 +1050,7 @@ impl<'env> Docgen<'env> {
         }
         if !label.is_empty() {
             self.label(label);
-            let entry = TocEntry {
-                title: s.to_owned(),
-                label: label.to_string(),
-            };
+            let entry = TocEntry { title: s.to_owned(), label: label.to_string() };
             self.toc.borrow_mut().push((level, entry));
         }
         emitln!(
@@ -1229,12 +1165,8 @@ impl<'env> Docgen<'env> {
                         text,
                     );
 
-                    write!(
-                        &mut decorated_text,
-                        "<code>{}</code>",
-                        self.decorate_code(&code)
-                    )
-                    .unwrap()
+                    write!(&mut decorated_text, "<code>{}</code>", self.decorate_code(&code))
+                        .unwrap()
                 }
             } else {
                 decorated_text.push(chr);
@@ -1365,10 +1297,7 @@ impl<'env> Docgen<'env> {
                 None
             }
         };
-        let parts_sym = parts
-            .iter()
-            .map(|p| self.env.symbol_pool().make(p))
-            .collect_vec();
+        let parts_sym = parts.iter().map(|p| self.env.symbol_pool().make(p)).collect_vec();
 
         match (module_opt, parts_sym.len()) {
             (Some(module), 0) => Some(self.ref_for_module(&module)),
@@ -1404,30 +1333,18 @@ impl<'env> Docgen<'env> {
 
     /// Create label for a module.
     fn make_label_for_module(&self, module_env: &ModuleEnv<'_>) -> String {
-        module_env
-            .get_name()
-            .display_full(self.env.symbol_pool())
-            .to_string()
-            .replace("::", "_")
+        module_env.get_name().display_full(self.env.symbol_pool()).to_string().replace("::", "_")
     }
 
     /// Return the label for a module.
     fn label_for_module(&self, module_env: &ModuleEnv<'_>) -> &str {
-        if let Some(info) = self.infos.get(&module_env.get_id()) {
-            &info.label
-        } else {
-            ""
-        }
+        if let Some(info) = self.infos.get(&module_env.get_id()) { &info.label } else { "" }
     }
 
     /// Return the reference for a module.
     fn ref_for_module(&self, module_env: &ModuleEnv<'_>) -> String {
         if let Some(info) = self.infos.get(&module_env.get_id()) {
-            let extension = if !self
-                .current_module
-                .as_ref()
-                .map(|x| x.is_target())
-                .unwrap_or(true)
+            let extension = if !self.current_module.as_ref().map(|x| x.is_target()).unwrap_or(true)
             {
                 "../../"
             } else {
@@ -1451,11 +1368,7 @@ impl<'env> Docgen<'env> {
 
     /// Return the reference for an item in a module.
     fn ref_for_module_item(&self, module_env: &ModuleEnv<'_>, item: Symbol) -> String {
-        format!(
-            "{}_{}",
-            self.ref_for_module(module_env),
-            item.display(self.env.symbol_pool())
-        )
+        format!("{}_{}", self.ref_for_module(module_env), item.display(self.env.symbol_pool()))
     }
 
     /// Create a unique label for a section header.
@@ -1516,12 +1429,7 @@ impl<'env> Docgen<'env> {
         if tps.is_empty() {
             "".to_owned()
         } else {
-            format!(
-                "<{}>",
-                tps.iter()
-                    .map(|tp| self.type_parameter_display(tp))
-                    .join(", ")
-            )
+            format!("<{}>", tps.iter().map(|tp| self.type_parameter_display(tp)).join(", "))
         }
     }
 

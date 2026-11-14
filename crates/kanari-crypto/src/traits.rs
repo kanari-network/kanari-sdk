@@ -71,10 +71,7 @@ pub struct PublicKeyVerifier<'a> {
 impl<'a> PublicKeyVerifier<'a> {
     /// Create a verifier from an untagged public key/address plus explicit curve.
     pub const fn new(public_key_or_address: &'a str, curve_type: CurveType) -> Self {
-        Self {
-            public_key_or_address,
-            curve_type,
-        }
+        Self { public_key_or_address, curve_type }
     }
 }
 
@@ -84,12 +81,7 @@ impl CryptoVerifier for PublicKeyVerifier<'_> {
     }
 
     fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, SignatureError> {
-        verify_signature_with_curve(
-            self.public_key_or_address,
-            message,
-            signature,
-            self.curve_type,
-        )
+        verify_signature_with_curve(self.public_key_or_address, message, signature, self.curve_type)
     }
 }
 

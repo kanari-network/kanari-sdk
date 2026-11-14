@@ -47,12 +47,7 @@ impl<'a> ReferenceSafetyAnalysis<'a> {
         function_context: &'a FunctionContext<'a>,
         name_def_map: &'a HashMap<IdentifierIndex, FunctionDefinitionIndex>,
     ) -> Self {
-        Self {
-            module,
-            function_context,
-            name_def_map,
-            stack: AbstractStack::new(),
-        }
+        Self { module, function_context, name_def_map, stack: AbstractStack::new() }
     }
 
     fn push(&mut self, v: AbstractValue) -> PartialVMResult<()> {
@@ -86,12 +81,7 @@ fn call(
     meter: &mut (impl Meter + ?Sized),
 ) -> PartialVMResult<()> {
     let parameters = verifier.module.signature_at(function_handle.parameters);
-    let arguments = parameters
-        .0
-        .iter()
-        .map(|_| verifier.stack.pop().unwrap())
-        .rev()
-        .collect();
+    let arguments = parameters.0.iter().map(|_| verifier.stack.pop().unwrap()).rev().collect();
 
     let acquired_resources = match verifier.name_def_map.get(&function_handle.name) {
         Some(idx) => {
@@ -148,9 +138,7 @@ fn vec_element_type(
 ) -> PartialVMResult<SignatureToken> {
     match verifier.module.signature_at(idx).0.first() {
         Some(ty) => Ok(ty.clone()),
-        None => Err(PartialVMError::new(
-            StatusCode::VERIFIER_INVARIANT_VIOLATION,
-        )),
+        None => Err(PartialVMError::new(StatusCode::VERIFIER_INVARIANT_VIOLATION)),
     }
 }
 
@@ -163,11 +151,7 @@ fn execute_inner(
 ) -> PartialVMResult<()> {
     meter.add(Scope::Function, STEP_BASE_COST)?;
     meter.add_items(Scope::Function, STEP_PER_LOCAL_COST, state.local_count())?;
-    meter.add_items(
-        Scope::Function,
-        STEP_PER_GRAPH_ITEM_COST,
-        state.graph_size(),
-    )?;
+    meter.add_items(Scope::Function, STEP_PER_GRAPH_ITEM_COST, state.graph_size())?;
 
     match bytecode {
         Bytecode::Pop => state.release_value(safe_unwrap_err!(verifier.stack.pop())),

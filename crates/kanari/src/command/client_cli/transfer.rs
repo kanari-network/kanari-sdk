@@ -91,10 +91,8 @@ impl Transfer {
         eprintln!("  Transaction signed");
         eprintln!("  Submitting transaction to node...");
 
-        let status = client
-            .submit_object_transfer(signed)
-            .await
-            .context("Failed to submit transaction")?;
+        let status =
+            client.submit_object_transfer(signed).await.context("Failed to submit transaction")?;
         print_transaction_status("  ", &status);
         if !status.success {
             anyhow::bail!("Transfer preview failed (status: {})", status.status);

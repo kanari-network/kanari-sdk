@@ -85,6 +85,7 @@ rule; authority lives in the friend gate, not in the value.
 
 ## Function `add_rule`
 
+Add a rule for type <code>T</code> on <code>policy</code>. Requires the owner cap and rule witness.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk_rule.md#0x2_kiosk_rule_add_rule">add_rule</a>&lt;T: store, key&gt;(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">transfer_policy::TransferPolicyCap</a>&lt;T&gt;)
@@ -112,6 +113,7 @@ rule; authority lives in the friend gate, not in the value.
 
 ## Function `remove_rule`
 
+Remove rule <code>R</code> from <code>policy</code>. Requires the owner cap and rule witness.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="kiosk_rule.md#0x2_kiosk_rule_remove_rule">remove_rule</a>&lt;T: store, key&gt;(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">transfer_policy::TransferPolicyCap</a>&lt;T&gt;)

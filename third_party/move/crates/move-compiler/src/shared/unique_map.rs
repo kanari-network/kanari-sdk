@@ -81,9 +81,7 @@ impl<K: TName, V> UniqueMap<K, V> {
     }
 
     pub fn get_full_key_(&self, key: &K::Key) -> Option<K> {
-        self.0
-            .get_key_value(key)
-            .map(|(k, (loc, _))| K::add_loc(*loc, k.clone()))
+        self.0.get_key_value(key).map(|(k, (loc, _))| K::add_loc(*loc, k.clone()))
     }
 
     pub fn remove(&mut self, key: &K) -> Option<V> {
@@ -188,8 +186,7 @@ impl<K: TName, V> UniqueMap<K, V> {
     }
 
     pub fn key_cloned_iter(&self) -> impl Iterator<Item = (K, &V)> {
-        self.into_iter()
-            .map(|(loc, k_, v)| (K::add_loc(loc, k_.clone()), v))
+        self.into_iter().map(|(loc, k_, v)| (K::add_loc(loc, k_.clone()), v))
     }
 
     pub fn iter_mut(&'_ mut self) -> IterMut<'_, K, V> {
@@ -197,17 +194,14 @@ impl<K: TName, V> UniqueMap<K, V> {
     }
 
     pub fn key_cloned_iter_mut(&mut self) -> impl Iterator<Item = (K, &mut V)> {
-        self.into_iter()
-            .map(|(loc, k_, v)| (K::add_loc(loc, k_.clone()), v))
+        self.into_iter().map(|(loc, k_, v)| (K::add_loc(loc, k_.clone()), v))
     }
 
     pub fn maybe_from_opt_iter(
         iter: impl Iterator<Item = Option<(K, V)>>,
     ) -> Option<Result<UniqueMap<K, V>, (K::Key, K::Loc, K::Loc)>> {
         // TODO remove collect in favor of more efficient impl
-        Some(Self::maybe_from_iter(
-            iter.collect::<Option<Vec<_>>>()?.into_iter(),
-        ))
+        Some(Self::maybe_from_iter(iter.collect::<Option<Vec<_>>>()?.into_iter()))
     }
 
     pub fn maybe_from_iter(
@@ -226,8 +220,7 @@ impl<K: TName, V> UniqueMap<K, V> {
 
 impl<K: TName, V: PartialEq> PartialEq for UniqueMap<K, V> {
     fn eq(&self, other: &UniqueMap<K, V>) -> bool {
-        self.iter()
-            .all(|(_, k_, v1)| other.get_(k_).map(|v2| v1 == v2).unwrap_or(false))
+        self.iter().all(|(_, k_, v1)| other.get_(k_).map(|v2| v1 == v2).unwrap_or(false))
             && other.iter().all(|(_, k_, _)| self.contains_key_(k_))
     }
 }

@@ -39,9 +39,7 @@ impl NodeIndexer {
 
         info!("Node indexer initialized at {:?}", db_path);
 
-        Ok(Self {
-            indexer: indexer_arc,
-        })
+        Ok(Self { indexer: indexer_arc })
     }
 
     fn lock_indexer(&self) -> Result<std::sync::MutexGuard<'_, Indexer>> {
@@ -64,8 +62,7 @@ impl NodeIndexer {
         let height = block.header.height;
         let idx = self.lock_indexer()?;
 
-        idx.index_block(block)
-            .with_context(|| format!("Failed to index block #{}", height))?;
+        idx.index_block(block).with_context(|| format!("Failed to index block #{}", height))?;
 
         if height.is_multiple_of(100) {
             info!("[INDEXER] Indexed block #{}", height);
@@ -78,9 +75,7 @@ impl NodeIndexer {
     pub fn get_stats(&self) -> Result<String> {
         let idx = self.lock_indexer()?;
 
-        let stats = idx
-            .get_statistics()
-            .context("Failed to get indexer statistics")?;
+        let stats = idx.get_statistics().context("Failed to get indexer statistics")?;
         Ok(format!("{}", stats))
     }
 }

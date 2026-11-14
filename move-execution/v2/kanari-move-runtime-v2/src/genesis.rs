@@ -33,20 +33,12 @@ pub fn init_genesis(state: &mut StateManager) -> Result<()> {
         .context("Failed to load embedded system modules")?;
 
     log::info!("Discovered {} framework modules", sorted_modules.len());
-    log::info!(
-        "Publishing {} framework modules in dependency order",
-        sorted_modules.len()
-    );
+    log::info!("Publishing {} framework modules in dependency order", sorted_modules.len());
 
     // Publish each module and apply the resulting changeset immediately.
     for (idx, module) in sorted_modules.iter().enumerate() {
         let module_name = &module.file_name;
-        log::info!(
-            "[{}/{}] Publishing {}...",
-            idx + 1,
-            sorted_modules.len(),
-            module_name
-        );
+        log::info!("[{}/{}] Publishing {}...", idx + 1, sorted_modules.len(), module_name);
 
         match runtime.bootstrap_module_with_context_and_persistence(
             module.bytes.clone(),

@@ -126,28 +126,18 @@ pub struct GasCost {
 
 impl GasCost {
     pub fn new(instruction_gas: u64, memory_gas: u64, stack_height_gas: u64) -> Self {
-        Self {
-            instruction_gas,
-            memory_gas,
-            stack_height_gas,
-        }
+        Self { instruction_gas, memory_gas, stack_height_gas }
     }
 
     /// Convert a GasCost to a total gas charge in `InternalGas`.
     #[inline]
     pub fn total(&self) -> u64 {
-        self.instruction_gas
-            .add(self.memory_gas)
-            .add(self.stack_height_gas)
+        self.instruction_gas.add(self.memory_gas).add(self.stack_height_gas)
     }
 
     #[inline]
     pub fn total_internal(&self) -> InternalGas {
-        GasQuantity::new(
-            self.instruction_gas
-                .add(self.memory_gas)
-                .add(self.stack_height_gas),
-        )
+        GasQuantity::new(self.instruction_gas.add(self.memory_gas).add(self.stack_height_gas))
     }
 }
 
@@ -418,12 +408,7 @@ fn get_simple_instruction_stack_change(
         Add | Sub | Mul | Mod | Div => (2, 1, Type::U8.size() + Type::U8.size(), Type::U256.size()),
         BitOr | BitAnd | Xor => (2, 1, Type::U8.size() + Type::U8.size(), Type::U256.size()),
         Shl | Shr => (2, 1, Type::U8.size() + Type::U8.size(), Type::U256.size()),
-        Or | And => (
-            2,
-            1,
-            Type::Bool.size() + Type::Bool.size(),
-            Type::Bool.size(),
-        ),
+        Or | And => (2, 1, Type::Bool.size() + Type::Bool.size(), Type::Bool.size()),
         Lt | Gt | Le | Ge => (2, 1, Type::U8.size() + Type::U8.size(), Type::Bool.size()),
         Not => (1, 1, Type::Bool.size(), Type::Bool.size()),
         Abort => (1, 0, Type::U64.size(), 0.into()),
@@ -448,10 +433,7 @@ impl<'b> GasMeter for GasStatus<'b> {
     ) -> PartialVMResult<()> {
         // Charge for the number of pushes on to the stack that the return of this function is
         // going to cause.
-        let pushes = ret_vals
-            .as_ref()
-            .map(|ret_vals| ret_vals.len())
-            .unwrap_or(0) as u64;
+        let pushes = ret_vals.as_ref().map(|ret_vals| ret_vals.len()).unwrap_or(0) as u64;
         // Calculate the number of bytes that are getting pushed onto the stack.
         let size_increase = ret_vals
             .map(|ret_vals| {
@@ -497,9 +479,8 @@ impl<'b> GasMeter for GasStatus<'b> {
         let pops = args.len() as u64;
         // Size stays the same -- we're just moving it from the operand stack to the locals. But
         // the size on the operand stack is reduced by sum_{args} arg.size().
-        let stack_reduction_size = args.fold(AbstractMemorySize::new(0), |acc, elem| {
-            acc + elem.legacy_abstract_memory_size()
-        });
+        let stack_reduction_size = args
+            .fold(AbstractMemorySize::new(0), |acc, elem| acc + elem.legacy_abstract_memory_size());
         self.charge(1, 0, pops, 0, stack_reduction_size.into())
     }
 
@@ -514,9 +495,8 @@ impl<'b> GasMeter for GasStatus<'b> {
         // We have to perform this many pops from the operand stack for this function call.
         let pops = args.len() as u64;
         // Calculate the size reduction on the operand stack.
-        let stack_reduction_size = args.fold(AbstractMemorySize::new(0), |acc, elem| {
-            acc + elem.legacy_abstract_memory_size()
-        });
+        let stack_reduction_size = args
+            .fold(AbstractMemorySize::new(0), |acc, elem| acc + elem.legacy_abstract_memory_size());
         // Charge for the pops, no pushes, and account for the stack size decrease. Also track the
         // `CallGeneric` instruction we must have encountered for this.
         self.charge(1, 0, pops, 0, stack_reduction_size.into())
@@ -580,13 +560,7 @@ impl<'b> GasMeter for GasStatus<'b> {
         // We read the the reference so we are decreasing the size of the stack by the size of the
         // reference, and adding to it the size of the value that has been read from that
         // reference.
-        self.charge(
-            1,
-            1,
-            1,
-            ref_val.legacy_abstract_memory_size().into(),
-            REFERENCE_SIZE.into(),
-        )
+        self.charge(1, 1, 1, ref_val.legacy_abstract_memory_size().into(), REFERENCE_SIZE.into())
     }
 
     fn charge_write_ref(
@@ -608,13 +582,7 @@ impl<'b> GasMeter for GasStatus<'b> {
 
     fn charge_eq(&mut self, lhs: impl ValueView, rhs: impl ValueView) -> PartialVMResult<()> {
         let size_reduction = lhs.legacy_abstract_memory_size() + rhs.legacy_abstract_memory_size();
-        self.charge(
-            1,
-            1,
-            2,
-            (Type::Bool.size() + size_reduction).into(),
-            size_reduction.into(),
-        )
+        self.charge(1, 1, 2, (Type::Bool.size() + size_reduction).into(), size_reduction.into())
     }
 
     fn charge_neq(&mut self, lhs: impl ValueView, rhs: impl ValueView) -> PartialVMResult<()> {
@@ -644,13 +612,7 @@ impl<'b> GasMeter for GasStatus<'b> {
         _ty: impl TypeView,
         _is_success: bool,
     ) -> PartialVMResult<()> {
-        self.charge(
-            1,
-            1,
-            2,
-            REFERENCE_SIZE.into(),
-            (REFERENCE_SIZE + Type::U64.size()).into(),
-        )
+        self.charge(1, 1, 2, REFERENCE_SIZE.into(), (REFERENCE_SIZE + Type::U64.size()).into())
     }
 
     fn charge_vec_push_back(
@@ -758,11 +720,7 @@ pub fn initial_cost_schedule() -> CostTable {
     .into_iter()
     .collect();
 
-    CostTable {
-        instruction_tiers,
-        stack_size_tiers,
-        stack_height_tiers,
-    }
+    CostTable { instruction_tiers, stack_size_tiers, stack_height_tiers }
 }
 
 static ZERO_COST_SCHEDULE: Lazy<CostTable> = Lazy::new(zero_cost_schedule);

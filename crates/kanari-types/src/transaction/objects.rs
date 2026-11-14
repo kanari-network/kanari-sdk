@@ -19,11 +19,7 @@ pub struct ObjectRef {
 
 impl ObjectRef {
     pub fn new(object_id: impl Into<String>, version: Option<u64>, digest: Option<String>) -> Self {
-        Self {
-            object_id: object_id.into(),
-            version,
-            digest,
-        }
+        Self { object_id: object_id.into(), version, digest }
     }
 
     pub fn has_full_metadata(&self) -> bool {
@@ -65,10 +61,7 @@ impl GasPayment {
     /// Always normalized, so `0x02::..` style spellings behave identically to
     /// `0x2::..` everywhere gas is validated or charged.
     pub fn gas_coin_type(&self) -> String {
-        let raw = self
-            .coin_type
-            .clone()
-            .unwrap_or_else(|| crate::gas_coin::GAS_COIN.to_string());
+        let raw = self.coin_type.clone().unwrap_or_else(|| crate::gas_coin::GAS_COIN.to_string());
         crate::coin::CoinModule::normalize_token_type(&raw)
     }
 
@@ -86,14 +79,7 @@ impl GasPayment {
         coin_type: Option<String>,
         price_version: Option<u64>,
     ) -> Self {
-        Self {
-            payment_objects,
-            owner,
-            budget,
-            price,
-            coin_type,
-            price_version,
-        }
+        Self { payment_objects, owner, budget, price, coin_type, price_version }
     }
 }
 

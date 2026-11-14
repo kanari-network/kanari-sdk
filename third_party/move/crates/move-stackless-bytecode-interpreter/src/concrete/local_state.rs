@@ -22,6 +22,8 @@ pub enum AbortInfo {
     User(u64, Location),
     /// Internal abort (e.g., integer overflow or resource does not exist in global storage)
     Internal(StatusCode, Location),
+    /// Internal abort with an additional sub status (e.g., vector operation errors)
+    InternalWithSubStatus(StatusCode, u64, Location),
 }
 
 impl AbortInfo {
@@ -34,6 +36,9 @@ impl AbortInfo {
             Self::Internal(status_code, location) => {
                 PartialVMError::new(status_code).finish(location)
             }
+            Self::InternalWithSubStatus(status_code, sub_status, location) => {
+                PartialVMError::new(status_code).with_sub_status(sub_status).finish(location)
+            }
         }
     }
 
@@ -42,6 +47,7 @@ impl AbortInfo {
         match self {
             Self::User(status_code, _) => *status_code,
             Self::Internal(status_code, _) => *status_code as u64,
+            Self::InternalWithSubStatus(_, sub_status, _) => *sub_status,
         }
     }
 }
@@ -170,11 +176,7 @@ impl LocalState {
             .iter()
             .enumerate()
             .filter_map(|(idx, slot)| slot.get_content().map(|(_, ptr)| (idx, ptr)))
-            .chain(
-                self.destroyed_args
-                    .iter()
-                    .map(|(idx, val)| (*idx, val.get_ptr())),
-            )
+            .chain(self.destroyed_args.iter().map(|(idx, val)| (*idx, val.get_ptr())))
             .collect()
     }
 
@@ -187,10 +189,7 @@ impl LocalState {
     }
     /// Check whether execution of the current function is finished or not
     pub fn is_terminated(&self) -> bool {
-        matches!(
-            self.termination,
-            TerminationStatus::Return(_) | TerminationStatus::Abort(_)
-        )
+        matches!(self.termination, TerminationStatus::Return(_) | TerminationStatus::Abort(_))
     }
     /// Check whether we are executing in a post-abort status
     pub fn is_post_abort(&self) -> bool {
@@ -209,10 +208,7 @@ impl LocalState {
             TerminationStatus::PostAbort(original_info) => {
                 // re-abort, make sure we are aborting with the same status code
                 if cfg!(debug_assertions) {
-                    assert_eq!(
-                        original_info.get_status_code(),
-                        abort_info.get_status_code()
-                    );
+                    assert_eq!(original_info.get_status_code(), abort_info.get_status_code());
                 }
                 original_info.clone()
             }

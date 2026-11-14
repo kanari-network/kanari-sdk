@@ -27,26 +27,17 @@ pub struct RateLimitConfig {
 impl RateLimitConfig {
     /// Default rate limit for login/register endpoints (10 requests per minute)
     pub fn strict() -> Self {
-        Self {
-            max_requests: 10,
-            interval_secs: 60,
-        }
+        Self { max_requests: 10, interval_secs: 60 }
     }
 
     /// Default rate limit for general endpoints (60 requests per minute)
     pub fn moderate() -> Self {
-        Self {
-            max_requests: 60,
-            interval_secs: 60,
-        }
+        Self { max_requests: 60, interval_secs: 60 }
     }
 
     /// Relaxed rate limit for read-only endpoints (120 requests per minute)
     pub fn relaxed() -> Self {
-        Self {
-            max_requests: 120,
-            interval_secs: 60,
-        }
+        Self { max_requests: 120, interval_secs: 60 }
     }
 }
 
@@ -111,10 +102,7 @@ pub struct RateLimitError {
 impl RateLimiter {
     /// Create a new rate limiter with the given configuration
     pub fn new(config: RateLimitConfig) -> Self {
-        Self {
-            config,
-            buckets: Arc::new(Mutex::new(HashMap::new())),
-        }
+        Self { config, buckets: Arc::new(Mutex::new(HashMap::new())) }
     }
 
     /// Check if a request from the given IP is allowed
@@ -136,9 +124,7 @@ impl RateLimiter {
             Ok(())
         } else {
             warn!("Rate limit exceeded for IP: {}", ip);
-            Err(RateLimitError {
-                retry_after_secs: self.config.interval_secs,
-            })
+            Err(RateLimitError { retry_after_secs: self.config.interval_secs })
         }
     }
 
@@ -154,10 +140,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_requests_over_limit() {
-        let limiter = RateLimiter::new(RateLimitConfig {
-            max_requests: 2,
-            interval_secs: 60,
-        });
+        let limiter = RateLimiter::new(RateLimitConfig { max_requests: 2, interval_secs: 60 });
         let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
         assert!(limiter.check_rate_limit(ip).await.is_ok());
         assert!(limiter.check_rate_limit(ip).await.is_ok());
@@ -166,20 +149,14 @@ mod tests {
 
     #[tokio::test]
     async fn removes_stale_ip_buckets() {
-        let limiter = RateLimiter::new(RateLimitConfig {
-            max_requests: 1,
-            interval_secs: 1,
-        });
+        let limiter = RateLimiter::new(RateLimitConfig { max_requests: 1, interval_secs: 1 });
         let stale_ip = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
         limiter.check_rate_limit(stale_ip).await.unwrap();
         {
             let mut buckets = limiter.buckets.lock().await;
             buckets.get_mut(&stale_ip).unwrap().last_activity -= Duration::from_secs(3);
         }
-        limiter
-            .check_rate_limit(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2)))
-            .await
-            .unwrap();
+        limiter.check_rate_limit(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 2))).await.unwrap();
         assert_eq!(limiter.buckets.lock().await.len(), 1);
     }
 

@@ -52,9 +52,7 @@ fn validate_index_syntax_methods(
     let (index_mut_module, index_mut_fn) = &index_mut.target_function;
 
     let index_finfo = context.function_info(index_module, index_fn).clone();
-    let mut_finfo = context
-        .function_info(index_mut_module, index_mut_fn)
-        .clone();
+    let mut_finfo = context.function_info(index_mut_module, index_mut_fn).clone();
 
     if index_finfo.signature.type_parameters.len() != mut_finfo.signature.type_parameters.len() {
         let index_msg = format!(
@@ -99,18 +97,13 @@ fn validate_index_syntax_methods(
     let mut valid = true;
 
     // Check that the type parameters have the same abilities.
-    for (index_tparam, mut_tparam) in index_finfo
-        .signature
-        .type_parameters
-        .iter()
-        .zip(mut_finfo.signature.type_parameters.iter())
+    for (index_tparam, mut_tparam) in
+        index_finfo.signature.type_parameters.iter().zip(mut_finfo.signature.type_parameters.iter())
     {
         for ability in index_tparam.abilities.iter() {
             if !mut_tparam.abilities.has_ability(&ability) {
-                let index_msg = format!(
-                    "This index function type parameter has the '{}' ability",
-                    ability
-                );
+                let index_msg =
+                    format!("This index function type parameter has the '{}' ability", ability);
                 let index_mut_msg = "This mutable index function type parameter does not";
                 let mut diag = diag!(
                     TypeSafety::IncompatibleSyntaxMethods,
@@ -190,10 +183,7 @@ fn validate_index_syntax_methods(
             let (_, _, index_type) = &index_finfo.signature.parameters[ndx];
             let (_, _, mut_type) = &mut_finfo.signature.parameters[ndx];
             // This case shouldn't really be reachable, but we might as well provide an error.
-            let index_msg = format!(
-                "This index function subject has type {}",
-                ty_str(index_type)
-            );
+            let index_msg = format!("This index function subject has type {}", ty_str(index_type));
             let N::Type_::Ref(false, inner) =
                 core::ready_tvars(&subst, subject_ref_type.clone()).value
             else {
@@ -267,13 +257,7 @@ fn validate_index_syntax_methods(
     // Similar to the subject type, we ensure the return types are the same. We already checked
     // that they are appropriately-shaped references, and now we ensure they refer to the same type
     // under the reference.
-    if core::subtype(
-        subst.clone(),
-        &mut_finfo.signature.return_type,
-        &index_ty.return_,
-    )
-    .is_err()
-    {
+    if core::subtype(subst.clone(), &mut_finfo.signature.return_type, &index_ty.return_).is_err() {
         let index_type = &index_finfo.signature.return_type;
         let mut_type = &mut_finfo.signature.return_type;
         let index_msg = format!("This index function returns type {}", ty_str(index_type));
@@ -337,19 +321,11 @@ fn add_type_param_info(
             added_info = true;
             diag.add_secondary_label((
                 *index_loc,
-                format!(
-                    "Type parameter {} appears in position {} here",
-                    name,
-                    index_posn + 1
-                ),
+                format!("Type parameter {} appears in position {} here", name, index_posn + 1),
             ));
             diag.add_secondary_label((
                 *mut_loc,
-                format!(
-                    "Type parameter {} appears in position {} here",
-                    name,
-                    mut_posn + 1
-                ),
+                format!("Type parameter {} appears in position {} here", name, mut_posn + 1),
             ));
         }
     }
@@ -367,10 +343,7 @@ fn type_param_positions(
         .into_iter()
         .filter_map(|tparam| {
             if let Some(posn) = tparams.iter().position(|t| t == &tparam) {
-                Some((
-                    tparam.user_specified_name,
-                    (posn, tparam.user_specified_name.loc),
-                ))
+                Some((tparam.user_specified_name, (posn, tparam.user_specified_name.loc)))
             } else {
                 None
             }

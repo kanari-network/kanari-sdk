@@ -52,6 +52,14 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 -  [Resource `TransferPolicy`](#0x2_transfer_policy_TransferPolicy)
 -  [Resource `TransferPolicyCap`](#0x2_transfer_policy_TransferPolicyCap)
 -  [Struct `TransferRequest`](#0x2_transfer_policy_TransferRequest)
+-  [Struct `RuleAdded`](#0x2_transfer_policy_RuleAdded)
+-  [Struct `RuleUpdated`](#0x2_transfer_policy_RuleUpdated)
+-  [Struct `RuleRemoved`](#0x2_transfer_policy_RuleRemoved)
+-  [Struct `ReceiptReported`](#0x2_transfer_policy_ReceiptReported)
+-  [Struct `CollectionRecorded`](#0x2_transfer_policy_CollectionRecorded)
+-  [Struct `PayoutWithdrawn`](#0x2_transfer_policy_PayoutWithdrawn)
+-  [Struct `PolicyDestroyed`](#0x2_transfer_policy_PolicyDestroyed)
+-  [Struct `CapTransferred`](#0x2_transfer_policy_CapTransferred)
 -  [Constants](#@Constants_2)
 -  [Function `new`](#0x2_transfer_policy_new)
 -  [Function `new_for_collection`](#0x2_transfer_policy_new_for_collection)
@@ -86,6 +94,7 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 -  [Function `take_collection`](#0x2_transfer_policy_take_collection)
 -  [Function `record_payout`](#0x2_transfer_policy_record_payout)
 -  [Function `owed`](#0x2_transfer_policy_owed)
+-  [Function `withdraw_owed`](#0x2_transfer_policy_withdraw_owed)
 -  [Function `rule_key`](#0x2_transfer_policy_rule_key)
 -  [Function `amount_of`](#0x2_transfer_policy_amount_of)
 -  [Function `set_amount`](#0x2_transfer_policy_set_amount)
@@ -96,6 +105,7 @@ Collected value is tracked as plain <code>u64</code> amounts per rule plus a run
 <b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="dependencies/move-stdlib/type_name.md#0x1_type_name">0x1::type_name</a>;
 <b>use</b> <a href="collection.md#0x2_collection">0x2::collection</a>;
+<b>use</b> <a href="event.md#0x2_event">0x2::event</a>;
 <b>use</b> <a href="object.md#0x2_object">0x2::object</a>;
 <b>use</b> <a href="package.md#0x2_package">0x2::package</a>;
 <b>use</b> <a href="transfer.md#0x2_transfer">0x2::transfer</a>;
@@ -128,7 +138,8 @@ encoded; this module cannot interpret them, which is the point.
 <code>receipts: <a href="vec_set.md#0x2_vec_set_VecSet">vec_set::VecSet</a>&lt;<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
 </dt>
 <dd>
- Receipt names collected so far.
+ Receipt names collected so far. Using <code>VecSet</code> because we only need
+ to track which rules have reported (set semantics), not key-value pairs.
 </dd>
 <dt>
 <code>config: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
@@ -291,6 +302,290 @@ A pending transfer awaiting rule resolution. No abilities, on purpose.
 
 </details>
 
+<a name="0x2_transfer_policy_RuleAdded"></a>
+
+## Struct `RuleAdded`
+
+Emitted when a new rule is registered.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_RuleAdded">RuleAdded</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>rule_name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_RuleUpdated"></a>
+
+## Struct `RuleUpdated`
+
+Emitted when a rule's config is updated.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_RuleUpdated">RuleUpdated</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>rule_name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_RuleRemoved"></a>
+
+## Struct `RuleRemoved`
+
+Emitted when a rule is removed.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_RuleRemoved">RuleRemoved</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>rule_name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_ReceiptReported"></a>
+
+## Struct `ReceiptReported`
+
+Emitted when a rule reports its receipt.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_ReceiptReported">ReceiptReported</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>rule_name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>request_item: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_CollectionRecorded"></a>
+
+## Struct `CollectionRecorded`
+
+Emitted when a rule collects payment.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_CollectionRecorded">CollectionRecorded</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>rule_name: <a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_PayoutWithdrawn"></a>
+
+## Struct `PayoutWithdrawn`
+
+Emitted when the owner withdraws owed amounts.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_PayoutWithdrawn">PayoutWithdrawn</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>recipient: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_PolicyDestroyed"></a>
+
+## Struct `PolicyDestroyed`
+
+Emitted when a policy is destroyed.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_PolicyDestroyed">PolicyDestroyed</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>policy_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_transfer_policy_CapTransferred"></a>
+
+## Struct `CapTransferred`
+
+Emitted when the owner cap is transferred.
+
+
+<pre><code><b>struct</b> <a href="transfer_policy.md#0x2_transfer_policy_CapTransferred">CapTransferred</a> <b>has</b> <b>copy</b>, drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>cap_id: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>new_owner: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
 <a name="@Constants_2"></a>
 
 ## Constants
@@ -356,6 +651,16 @@ A receipt or collection was submitted for an unregistered rule.
 
 
 
+<a name="0x2_transfer_policy_E_OWED_OVERFLOW"></a>
+
+Overflow when recording payout (owed + amount > u64::MAX).
+
+
+<pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_OWED_OVERFLOW">E_OWED_OVERFLOW</a>: u64 = 20;
+</code></pre>
+
+
+
 <a name="0x2_transfer_policy_E_POLICY_MISMATCH"></a>
 
 A request was created by a different policy.
@@ -372,6 +677,16 @@ A rule exists that this call did not register.
 
 
 <pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_E_RULE_ALREADY_PRESENT">E_RULE_ALREADY_PRESENT</a>: u64 = 11;
+</code></pre>
+
+
+
+<a name="0x2_transfer_policy_U64_MAX"></a>
+
+Maximum value of u64 (2^64 - 1).
+
+
+<pre><code><b>const</b> <a href="transfer_policy.md#0x2_transfer_policy_U64_MAX">U64_MAX</a>: u64 = 18446744073709551615;
 </code></pre>
 
 
@@ -524,6 +839,11 @@ lost is the <code>owed</code> accounting figure.
     <b>let</b> _ = owed;
     <b>let</b> _ = collection_scoped;
     <b>let</b> _ = collection_id;
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_PolicyDestroyed">PolicyDestroyed</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&id))
+        }
+    );
     <a href="object.md#0x2_object_delete">object::delete</a>(id);
 }
 </code></pre>
@@ -549,6 +869,12 @@ Transfer the owner cap, handing over full control of <code>T</code>'s rules.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_transfer_cap">transfer_cap</a>&lt;T: key + store&gt;(cap: <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;, recipient: <b>address</b>) {
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_CapTransferred">CapTransferred</a> {
+            cap_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&cap.id)),
+            new_owner: recipient
+        }
+    );
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(cap, recipient);
 }
 </code></pre>
@@ -791,16 +1117,7 @@ True iff every registered rule has reported on <code>request</code>.
     policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     request: &<a href="transfer_policy.md#0x2_transfer_policy_TransferRequest">TransferRequest</a>&lt;T&gt;
 ): bool {
-    <b>let</b> keys = <a href="vec_map.md#0x2_vec_map_keys">vec_map::keys</a>(&policy.rules);
-    <b>let</b> i = 0;
-    <b>while</b> (i &lt; <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&keys)) {
-        <b>let</b> k = *<a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&keys, i);
-        <b>if</b> (!<a href="vec_set.md#0x2_vec_set_contains">vec_set::contains</a>(&request.receipts, &k)) {
-            <b>return</b> <b>false</b>
-        };
-        i = i + 1;
-    };
-    <b>true</b>
+    <a href="transfer_policy.md#0x2_transfer_policy_receipts_count">receipts_count</a>(policy, request) == <a href="vec_map.md#0x2_vec_map_size">vec_map::size</a>(&policy.rules)
 }
 </code></pre>
 
@@ -941,6 +1258,12 @@ Requires the type owner's <code><a href="transfer_policy.md#0x2_transfer_policy_
     <b>let</b> key = <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;();
     <b>assert</b>!(!<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_RULE_ALREADY_PRESENT">E_RULE_ALREADY_PRESENT</a>);
     <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> policy.rules, key, <a href="transfer_policy.md#0x2_transfer_policy_new_rule_config">new_rule_config</a>(config));
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_RuleAdded">RuleAdded</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            rule_name: <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;()
+        }
+    );
 }
 </code></pre>
 
@@ -978,6 +1301,12 @@ Removes first: <code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>
     <b>let</b> _ = removed_key;
     <b>let</b> _ = removed;
     <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> policy.rules, key, <a href="transfer_policy.md#0x2_transfer_policy_new_rule_config">new_rule_config</a>(config));
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_RuleUpdated">RuleUpdated</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            rule_name: <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;()
+        }
+    );
 }
 </code></pre>
 
@@ -1012,6 +1341,12 @@ already resolved.
     <b>let</b> (removed_key, removed) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> policy.rules, &key);
     <b>let</b> _ = removed_key;
     <b>let</b> _ = removed;
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_RuleRemoved">RuleRemoved</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            rule_name: <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;()
+        }
+    );
 }
 </code></pre>
 
@@ -1179,6 +1514,13 @@ witness, so a rule's module is the only thing that can declare it paid.
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>);
     <a href="vec_set.md#0x2_vec_set_insert">vec_set::insert</a>(&<b>mut</b> <a href="vec_map.md#0x2_vec_map_get_mut">vec_map::get_mut</a>(&<b>mut</b> policy.rules, &key).receipts, key);
     <a href="vec_set.md#0x2_vec_set_insert">vec_set::insert</a>(&<b>mut</b> request.receipts, key);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_ReceiptReported">ReceiptReported</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            rule_name: <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;(),
+            request_item: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&request.item)
+        }
+    );
 }
 </code></pre>
 
@@ -1308,6 +1650,13 @@ because <code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a></code>
     <b>assert</b>!(<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.rules, &key), <a href="transfer_policy.md#0x2_transfer_policy_E_NO_SUCH_RULE">E_NO_SUCH_RULE</a>);
     <b>let</b> already = <a href="transfer_policy.md#0x2_transfer_policy_amount_of">amount_of</a>(policy, &key);
     <a href="transfer_policy.md#0x2_transfer_policy_set_amount">set_amount</a>(policy, &key, already + amount);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_CollectionRecorded">CollectionRecorded</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            rule_name: <a href="transfer_policy.md#0x2_transfer_policy_rule_key">rule_key</a>&lt;Rule&gt;(),
+            amount
+        }
+    );
 }
 </code></pre>
 
@@ -1375,6 +1724,7 @@ nor <code>drop</code> and so cannot live in a shareable struct.
     policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
     amount: u64
 ) {
+    <b>assert</b>!(policy.<a href="transfer_policy.md#0x2_transfer_policy_owed">owed</a> &lt;= <a href="transfer_policy.md#0x2_transfer_policy_U64_MAX">U64_MAX</a> - amount, <a href="transfer_policy.md#0x2_transfer_policy_E_OWED_OVERFLOW">E_OWED_OVERFLOW</a>);
     policy.owed = policy.owed + amount;
 }
 </code></pre>
@@ -1401,6 +1751,47 @@ Total the owner has been paid across the policy's lifetime.
 
 <pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_owed">owed</a>&lt;T: key + store&gt;(policy: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;): u64 {
     policy.owed
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_transfer_policy_withdraw_owed"></a>
+
+## Function `withdraw_owed`
+
+Withdraw the owed amount, resetting the accounting counter.
+
+The caller is responsible for transferring <code>Coin&lt;T&gt;</code> to <code>recipient</code>
+after receiving the amount. This keeps custody separate from accounting.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_withdraw_owed">withdraw_owed</a>&lt;T: store, key&gt;(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">transfer_policy::TransferPolicyCap</a>&lt;T&gt;, recipient: <b>address</b>): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_withdraw_owed">withdraw_owed</a>&lt;T: key + store&gt;(
+    policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;,
+    _cap: &<a href="transfer_policy.md#0x2_transfer_policy_TransferPolicyCap">TransferPolicyCap</a>&lt;T&gt;,
+    recipient: <b>address</b>
+): u64 {
+    <b>let</b> amount = policy.owed;
+    policy.owed = 0;
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="transfer_policy.md#0x2_transfer_policy_PayoutWithdrawn">PayoutWithdrawn</a> {
+            policy_id: <a href="object.md#0x2_object_id_to_address">object::id_to_address</a>(&<a href="object.md#0x2_object_uid_to_inner">object::uid_to_inner</a>(&policy.id)),
+            amount,
+            recipient
+        }
+    );
+    amount
 }
 </code></pre>
 
@@ -1467,8 +1858,7 @@ Read a ledger entry without requiring the rule to be registered.
 
 ## Function `set_amount`
 
-Write a ledger entry. <code><a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a></code> aborts on a duplicate key, so an
-existing entry is removed first.
+Write a ledger entry. Updates in-place if key exists, otherwise inserts.
 
 
 <pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_set_amount">set_amount</a>&lt;T: store, key&gt;(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">transfer_policy::TransferPolicy</a>&lt;T&gt;, key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, value: u64)
@@ -1482,11 +1872,11 @@ existing entry is removed first.
 
 <pre><code><b>fun</b> <a href="transfer_policy.md#0x2_transfer_policy_set_amount">set_amount</a>&lt;T: key + store&gt;(policy: &<b>mut</b> <a href="transfer_policy.md#0x2_transfer_policy_TransferPolicy">TransferPolicy</a>&lt;T&gt;, key: &<a href="dependencies/move-stdlib/vector.md#0x1_vector">vector</a>&lt;u8&gt;, value: u64) {
     <b>if</b> (<a href="vec_map.md#0x2_vec_map_contains">vec_map::contains</a>(&policy.amounts, key)) {
-        <b>let</b> (removed_key, removed) = <a href="vec_map.md#0x2_vec_map_remove">vec_map::remove</a>(&<b>mut</b> policy.amounts, key);
-        <b>let</b> _ = removed_key;
-        <b>let</b> _ = removed;
-    };
-    <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> policy.amounts, *key, value);
+        // Use get_mut <b>to</b> <b>update</b> in-place
+        *<a href="vec_map.md#0x2_vec_map_get_mut">vec_map::get_mut</a>(&<b>mut</b> policy.amounts, key) = value;
+    } <b>else</b> {
+        <a href="vec_map.md#0x2_vec_map_insert">vec_map::insert</a>(&<b>mut</b> policy.amounts, *key, value);
+    }
 }
 </code></pre>
 

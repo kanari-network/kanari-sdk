@@ -29,9 +29,7 @@ impl Utf8String {
     /// Create from string slice
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
-        Self {
-            bytes: s.as_bytes().to_vec(),
-        }
+        Self { bytes: s.as_bytes().to_vec() }
     }
 
     /// Convert to Rust String

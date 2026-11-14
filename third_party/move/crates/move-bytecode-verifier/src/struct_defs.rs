@@ -61,10 +61,7 @@ impl<'a> StructDefGraphBuilder<'a> {
             handle_to_def.insert(sh_idx, StructDefinitionIndex(idx as TableIndex));
         }
 
-        Self {
-            module,
-            handle_to_def,
-        }
+        Self { module, handle_to_def }
     }
 
     fn build(self) -> PartialVMResult<DiGraphMap<StructDefinitionIndex, ()>> {
@@ -113,27 +110,19 @@ impl<'a> StructDefGraphBuilder<'a> {
             | T::Signer
             | T::TypeParameter(_) => (),
             T::Reference(_) | T::MutableReference(_) => {
-                return Err(
-                    PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
-                        .with_message("Reference field when checking recursive structs".to_owned()),
-                );
+                return Err(PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR)
+                    .with_message("Reference field when checking recursive structs".to_owned()));
             }
             T::Vector(inner) => self.add_signature_token(neighbors, cur_idx, inner)?,
             T::Struct(sh_idx) => {
                 if let Some(struct_def_idx) = self.handle_to_def.get(sh_idx) {
-                    neighbors
-                        .entry(cur_idx)
-                        .or_default()
-                        .insert(*struct_def_idx);
+                    neighbors.entry(cur_idx).or_default().insert(*struct_def_idx);
                 }
             }
             T::StructInstantiation(struct_inst) => {
                 let (sh_idx, inners) = &**struct_inst;
                 if let Some(struct_def_idx) = self.handle_to_def.get(sh_idx) {
-                    neighbors
-                        .entry(cur_idx)
-                        .or_default()
-                        .insert(*struct_def_idx);
+                    neighbors.entry(cur_idx).or_default().insert(*struct_def_idx);
                 }
                 for t in inners {
                     self.add_signature_token(neighbors, cur_idx, t)?

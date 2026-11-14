@@ -77,10 +77,7 @@ pub fn verify_groth16_proof(
     proof_bytes: &[u8],
 ) -> Result<bool, SignatureError> {
     if vk_bytes.is_empty() || vk_bytes.len() > MAX_VK_BYTES {
-        return Err(SignatureError::InvalidFormat(format!(
-            "bad vk length {}",
-            vk_bytes.len()
-        )));
+        return Err(SignatureError::InvalidFormat(format!("bad vk length {}", vk_bytes.len())));
     }
     if proof_bytes.is_empty() || proof_bytes.len() > MAX_PROOF_BYTES {
         return Err(SignatureError::InvalidFormat(format!(
@@ -214,21 +211,14 @@ mod tests {
         // Returns (vk_bytes, public_inputs_bytes, proof_bytes) for a=6,b=7,c=42.
         let mut rng = test_seeded_rng();
         let c = Fr::from(42u64);
-        let circuit = MulCircuit {
-            a: Some(Fr::from(6u64)),
-            b: Some(Fr::from(7u64)),
-            c,
-        };
+        let circuit = MulCircuit { a: Some(Fr::from(6u64)), b: Some(Fr::from(7u64)), c };
         let (pk, vk) =
             Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng).expect("setup works");
         let mut vk_bytes = Vec::new();
-        vk.serialize_compressed(&mut vk_bytes)
-            .expect("vk serializes");
+        vk.serialize_compressed(&mut vk_bytes).expect("vk serializes");
         let proof = Groth16::<Bn254>::prove(&pk, circuit, &mut rng).expect("honest proof proves");
         let mut proof_bytes = Vec::new();
-        proof
-            .serialize_compressed(&mut proof_bytes)
-            .expect("proof serializes");
+        proof.serialize_compressed(&mut proof_bytes).expect("proof serializes");
         let mut inputs_bytes = Vec::new();
         inputs_bytes.extend_from_slice(&fr_to_be_bytes(c));
         (vk_bytes, inputs_bytes, proof_bytes)

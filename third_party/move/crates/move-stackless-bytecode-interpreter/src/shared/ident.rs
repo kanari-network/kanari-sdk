@@ -10,7 +10,7 @@ use move_stackless_bytecode::{
     function_target::FunctionTarget, function_target_pipeline::FunctionVariant,
 };
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct ModuleIdent {
     pub address: AccountAddress,
     pub name: String,
@@ -23,7 +23,7 @@ pub struct FunctionIdent {
     pub variant: FunctionVariant,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct StructIdent {
     pub module: ModuleIdent,
     pub name: String,
@@ -60,10 +60,7 @@ impl ModuleIdent {
         let env = module_env.env;
         Self {
             address: *module_env.self_address(),
-            name: env
-                .symbol_pool()
-                .string(module_env.get_name().name())
-                .to_string(),
+            name: env.symbol_pool().string(module_env.get_name().name()).to_string(),
         }
     }
 }

@@ -40,20 +40,14 @@ impl StateManager {
             }
         }
         for owner in owners {
-            let ledger = self
-                .load_owner_state(&owner)?
-                .map(|state| state.native_balance())
-                .unwrap_or(0);
-            let object = object_balances
-                .get(&(owner, GAS_COIN.to_string()))
-                .copied()
-                .unwrap_or(0);
+            let ledger =
+                self.load_owner_state(&owner)?.map(|state| state.native_balance()).unwrap_or(0);
+            let object = object_balances.get(&(owner, GAS_COIN.to_string())).copied().unwrap_or(0);
             let amount = if ledger > 0 { ledger } else { object };
             if amount > 0 {
                 let total = totals.entry(GAS_COIN.to_string()).or_insert(0);
-                *total = total
-                    .checked_add(amount)
-                    .require("Native wallet supply index overflow")?;
+                *total =
+                    total.checked_add(amount).require("Native wallet supply index overflow")?;
             }
         }
         Ok(totals)
@@ -61,9 +55,7 @@ impl StateManager {
 
     /// Rebuild the wallet-visible supply index from canonical owner and object data.
     pub(crate) fn ensure_wallet_supply_index(&mut self) -> Result<bool> {
-        let version = self
-            .load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?
-            .unwrap_or(0);
+        let version = self.load_internal::<u32>(WALLET_SUPPLY_INDEX_VERSION_KEY)?.unwrap_or(0);
         ensure!(
             version <= WALLET_SUPPLY_INDEX_VERSION,
             "Wallet supply index version {} is newer than runtime version {}",
@@ -76,10 +68,7 @@ impl StateManager {
         self.global_token_supplies = self.compute_wallet_supply_index()?;
         let supplies = self.global_token_supplies.clone();
         self.save_internal(b"global_token_supplies", &supplies)?;
-        self.save_internal(
-            WALLET_SUPPLY_INDEX_VERSION_KEY,
-            &WALLET_SUPPLY_INDEX_VERSION,
-        )?;
+        self.save_internal(WALLET_SUPPLY_INDEX_VERSION_KEY, &WALLET_SUPPLY_INDEX_VERSION)?;
         Ok(true)
     }
 
@@ -89,18 +78,14 @@ impl StateManager {
         owner: AccountAddress,
     ) -> Result<BTreeMap<String, u64>> {
         let owner_state = self.load_owner_state(&owner)?;
-        let native_ledger_balance = owner_state
-            .as_ref()
-            .map(OwnerState::native_balance)
-            .filter(|balance| *balance > 0);
+        let native_ledger_balance =
+            owner_state.as_ref().map(OwnerState::native_balance).filter(|balance| *balance > 0);
         let mut balances = self.compute_owned_token_balances(owner, native_ledger_balance)?;
 
         if let Some(owner_state) = owner_state {
             let native_balance = owner_state.native_balance();
             if native_balance > 0 {
-                balances
-                    .entry(GAS_COIN.to_string())
-                    .or_insert(native_balance);
+                balances.entry(GAS_COIN.to_string()).or_insert(native_balance);
             }
         }
 
@@ -114,11 +99,7 @@ impl StateManager {
         token_type: &str,
     ) -> Result<u64> {
         let token_type = CoinModule::normalize_token_type(token_type);
-        Ok(self
-            .resolve_owner_token_balances(owner)?
-            .get(&token_type)
-            .copied()
-            .unwrap_or(0))
+        Ok(self.resolve_owner_token_balances(owner)?.get(&token_type).copied().unwrap_or(0))
     }
 
     /// Resolve the native token balance for an owner.
@@ -150,9 +131,7 @@ impl StateManager {
             };
 
             let entry = aggregated.entry(token_type).or_insert(0);
-            *entry = entry
-                .checked_add(amount)
-                .require("Owned token balance overflow")?;
+            *entry = entry.checked_add(amount).require("Owned token balance overflow")?;
         }
 
         if let Some(native_balance) = native_ledger_balance {

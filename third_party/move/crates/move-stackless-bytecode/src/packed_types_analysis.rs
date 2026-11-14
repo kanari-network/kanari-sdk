@@ -40,12 +40,9 @@ pub fn get_packed_types(
         if is_script || module_name == "Genesis" {
             for func_env in module_env.get_functions() {
                 let fun_target = targets.get_target(&func_env, &FunctionVariant::Baseline);
-                let annotation = fun_target
-                    .get_annotations()
-                    .get::<PackedTypesState>()
-                    .expect(
-                        "Invariant violation: usage analysis should be run before calling this",
-                    );
+                let annotation = fun_target.get_annotations().get::<PackedTypesState>().expect(
+                    "Invariant violation: usage analysis should be run before calling this",
+                );
 
                 packed_types.extend(annotation.closed_types.clone());
                 // instantiate the tx script open types with XUS, XDX
@@ -92,10 +89,8 @@ struct PackedTypesState {
 impl AbstractDomain for PackedTypesState {
     // TODO: would be cool to add a derive(Join) macro for this
     fn join(&mut self, other: &Self) -> JoinResult {
-        match (
-            self.closed_types.join(&other.closed_types),
-            self.open_types.join(&other.open_types),
-        ) {
+        match (self.closed_types.join(&other.closed_types), self.open_types.join(&other.open_types))
+        {
             (JoinResult::Unchanged, JoinResult::Unchanged) => JoinResult::Unchanged,
             _ => JoinResult::Changed,
         }
@@ -125,9 +120,7 @@ impl<'a> TransferFunctions for PackedTypesAnalysis<'a> {
                         }
                         None => {
                             // type is open
-                            state
-                                .open_types
-                                .insert(Type::Struct(*mid, *sid, types.clone()));
+                            state.open_types.insert(Type::Struct(*mid, *sid, types.clone()));
                         }
                     }
                 }

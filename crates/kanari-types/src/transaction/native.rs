@@ -3,14 +3,8 @@
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeCall {
-    Transfer {
-        coin_object_id: String,
-        recipient: String,
-        amount: u64,
-    },
-    Burn {
-        amount: u64,
-    },
+    Transfer { coin_object_id: String, recipient: String, amount: u64 },
+    Burn { amount: u64 },
 }
 
 impl NativeCall {

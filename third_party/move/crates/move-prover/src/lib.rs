@@ -86,12 +86,7 @@ pub fn run_move_prover_with_model<W: WriteColor>(
     let now = timer.unwrap_or_else(Instant::now);
 
     let build_duration = now.elapsed();
-    check_errors(
-        env,
-        &options,
-        error_writer,
-        "exiting with model building errors",
-    )?;
+    check_errors(env, &options, error_writer, "exiting with model building errors")?;
     env.report_diag(error_writer, options.prover.report_severity);
 
     // Add the prover options as an extension to the environment, so they can be accessed
@@ -122,12 +117,7 @@ pub fn run_move_prover_with_model<W: WriteColor>(
 
     // Report durations.
     info!("{:.3}s build", build_duration.as_secs_f64(),);
-    check_errors(
-        env,
-        &options,
-        error_writer,
-        "exiting with verification errors",
-    )
+    check_errors(env, &options, error_writer, "exiting with verification errors")
 }
 
 pub fn check_errors<W: WriteColor>(
@@ -137,11 +127,7 @@ pub fn check_errors<W: WriteColor>(
     msg: &'static str,
 ) -> anyhow::Result<()> {
     env.report_diag(error_writer, options.prover.report_severity);
-    if env.has_errors() {
-        Err(anyhow!(msg))
-    } else {
-        Ok(())
-    }
+    if env.has_errors() { Err(anyhow!(msg)) } else { Ok(()) }
 }
 
 /// Create bytecode and process it.
@@ -150,9 +136,10 @@ pub fn create_and_process_bytecode(options: &Options, env: &GlobalEnv) -> Functi
     let output_dir = Path::new(&options.output_path)
         .parent()
         .expect("expect the parent directory of the output path to exist");
-    let output_prefix = options.move_sources.first().map_or("bytecode", |s| {
-        Path::new(s).file_name().unwrap().to_str().unwrap()
-    });
+    let output_prefix = options
+        .move_sources
+        .first()
+        .map_or("bytecode", |s| Path::new(s).file_name().unwrap().to_str().unwrap());
 
     // Add function targets for all functions in the environment.
     for module_env in env.get_modules() {
@@ -176,11 +163,7 @@ pub fn create_and_process_bytecode(options: &Options, env: &GlobalEnv) -> Functi
     };
 
     if options.prover.dump_bytecode {
-        let dump_file_base = output_dir
-            .join(output_prefix)
-            .into_os_string()
-            .into_string()
-            .unwrap();
+        let dump_file_base = output_dir.join(output_prefix).into_os_string().into_string().unwrap();
         pipeline.run_with_dump(env, &mut targets, &dump_file_base, options.prover.dump_cfg)
     } else {
         pipeline.run(env, &mut targets);
@@ -261,11 +244,7 @@ fn run_escape(env: &GlobalEnv, options: &Options, now: Instant) {
         let fname = env.get_file(d.labels[0].file_id).to_str().unwrap();
         options.move_sources.iter().any(|d| {
             let p = Path::new(d);
-            if p.is_file() {
-                d == fname
-            } else {
-                Path::new(fname).parent().unwrap() == p
-            }
+            if p.is_file() { d == fname } else { Path::new(fname).parent().unwrap() == p }
         }) && d.severity >= Severity::Error
     });
     println!("{}", String::from_utf8_lossy(&error_writer.into_inner()));

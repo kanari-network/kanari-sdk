@@ -39,45 +39,43 @@ pub fn make_ecdsa_r1_natives(
 
 /// Creates the ecdsa_r1::native_verify native function
 fn make_verify_r1_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(
-        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
-            use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, gas_cost);
-            expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
+    make_native(move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        use move_vm_types::natives::function::NativeResult as NR;
+        native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(arguments.len(), 4, ty_args.len(), 0)?;
 
-            let hash_type: u8 = pop_arg!(arguments, u8);
-            let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
-            let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
-            let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        let hash_type: u8 = pop_arg!(arguments, u8);
+        let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
 
-            let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
-            let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
-            let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
+        let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
+        let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
+        let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
 
-            // Validate inputs
-            if signature.is_empty() {
-                return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE));
+        // Validate inputs
+        if signature.is_empty() {
+            return Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE));
+        }
+
+        if msg.len() > MAX_MSG_BYTES {
+            return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
+        }
+
+        // Disallow Keccak for P-256 (non-standard)
+        if hash_type == 0u8 {
+            return Ok(NR::err(context.gas_used(), E_UNSUPPORTED_HASH_FOR_P256));
+        }
+
+        match verify_p256_sha256_native(&public_key, &signature, &msg) {
+            Ok(verified) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)])),
+            Err(NativeCryptoError::InvalidPublicKey) => {
+                Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY))
             }
-
-            if msg.len() > MAX_MSG_BYTES {
-                return Ok(NR::err(context.gas_used(), E_INVALID_MESSAGE));
+            Err(NativeCryptoError::InvalidSignature) => {
+                Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]))
             }
-
-            // Disallow Keccak for P-256 (non-standard)
-            if hash_type == 0u8 {
-                return Ok(NR::err(context.gas_used(), E_UNSUPPORTED_HASH_FOR_P256));
-            }
-
-            match verify_p256_sha256_native(&public_key, &signature, &msg) {
-                Ok(verified) => Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)])),
-                Err(NativeCryptoError::InvalidPublicKey) => {
-                    Ok(NR::err(context.gas_used(), E_INVALID_PUBKEY))
-                }
-                Err(NativeCryptoError::InvalidSignature) => {
-                    Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]))
-                }
-                Err(_) => Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE)),
-            }
-        },
-    )
+            Err(_) => Ok(NR::err(context.gas_used(), E_INVALID_SIGNATURE)),
+        }
+    })
 }

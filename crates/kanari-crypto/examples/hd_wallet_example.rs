@@ -32,10 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let curve = CurveType::K256;
 
     let child_wallet: Wallet = create_hd_wallet(password, path, curve)?;
-    println!(
-        "Derived child wallet for path {} -> address {}",
-        path, child_wallet.address
-    );
+    println!("Derived child wallet for path {} -> address {}", path, child_wallet.address);
 
     // 4) Persist the child wallet into keystore
     save_hd_wallet(&child_wallet, password)?;

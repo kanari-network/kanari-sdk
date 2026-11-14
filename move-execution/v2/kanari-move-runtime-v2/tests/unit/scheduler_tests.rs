@@ -46,10 +46,7 @@ fn test_schedule_preserves_global_order_across_conflict_aware_waves() {
         create_dummy_tx("D", "M4", Some("Obj2")),
     ];
 
-    let expected_hashes = txs
-        .iter()
-        .map(|tx| tx.transaction_hash().to_vec())
-        .collect::<Vec<_>>();
+    let expected_hashes = txs.iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
     assert_eq!(waves.len(), 2);
@@ -71,10 +68,8 @@ fn test_schedule_empty_batch() {
 
 #[test]
 fn test_apparently_independent_transactions_are_speculated_together() {
-    let txs = vec![
-        create_dummy_tx("A", "M1", Some("Obj1")),
-        create_dummy_tx("B", "M2", Some("Obj2")),
-    ];
+    let txs =
+        vec![create_dummy_tx("A", "M1", Some("Obj1")), create_dummy_tx("B", "M2", Some("Obj2"))];
 
     let waves = TransactionScheduler::schedule(txs);
     assert_eq!(waves.len(), 1);
@@ -104,10 +99,7 @@ fn test_later_independent_transaction_is_not_moved_before_earlier_conflict() {
         create_dummy_tx("D", "M4", Some("Obj3")),
     ];
 
-    let expected_hashes = txs
-        .iter()
-        .map(|tx| tx.transaction_hash().to_vec())
-        .collect::<Vec<_>>();
+    let expected_hashes = txs.iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
     let waves = TransactionScheduler::schedule(txs);
 
     assert_eq!(waves.len(), 2);
@@ -123,14 +115,9 @@ fn test_later_independent_transaction_is_not_moved_before_earlier_conflict() {
 
 #[test]
 fn test_schedule_bounds_large_speculative_batches() {
-    let txs = (0..130)
-        .map(|i| create_dummy_tx(&format!("sender-{i}"), "M", None))
-        .collect();
+    let txs = (0..130).map(|i| create_dummy_tx(&format!("sender-{i}"), "M", None)).collect();
     let waves = TransactionScheduler::schedule(txs);
-    assert_eq!(
-        waves.iter().map(Vec::len).collect::<Vec<_>>(),
-        vec![64, 64, 2]
-    );
+    assert_eq!(waves.iter().map(Vec::len).collect::<Vec<_>>(), vec![64, 64, 2]);
 }
 
 proptest! {

@@ -26,11 +26,7 @@ impl<'env, 'info> Context<'env, 'info> {
         info: &'info NamingProgramInfo,
         current_module: ModuleIdent,
     ) -> Self {
-        Self {
-            env,
-            info,
-            current_module,
-        }
+        Self { env, info, current_module }
     }
 }
 
@@ -46,11 +42,7 @@ pub fn program(env: &mut CompilationEnv, info: &mut NamingProgramInfo, inner: &m
     let module_use_funs = modules
         .key_cloned_iter()
         .map(|(mident, mdef)| {
-            let N::UseFuns {
-                resolved,
-                implicit_candidates,
-                color: _,
-            } = &mdef.use_funs;
+            let N::UseFuns { resolved, implicit_candidates, color: _ } = &mdef.use_funs;
             assert!(implicit_candidates.is_empty());
             (mident, resolved.clone())
         })
@@ -65,9 +57,7 @@ fn module(
     mdef: &mut N::ModuleDefinition,
 ) {
     let context = &mut Context::new(env, info, mident);
-    context
-        .env
-        .add_warning_filter_scope(mdef.warning_filter.clone());
+    context.env.add_warning_filter_scope(mdef.warning_filter.clone());
     use_funs(context, &mut mdef.use_funs);
     for (_, _, c) in &mut mdef.constants {
         constant(context, c);
@@ -79,17 +69,13 @@ fn module(
 }
 
 fn constant(context: &mut Context, c: &mut N::Constant) {
-    context
-        .env
-        .add_warning_filter_scope(c.warning_filter.clone());
+    context.env.add_warning_filter_scope(c.warning_filter.clone());
     exp(context, &mut c.value);
     context.env.pop_warning_filter_scope();
 }
 
 fn function(context: &mut Context, function: &mut N::Function) {
-    context
-        .env
-        .add_warning_filter_scope(function.warning_filter.clone());
+    context.env.add_warning_filter_scope(function.warning_filter.clone());
     if let N::FunctionBody_::Defined(seq) = &mut function.body.value {
         sequence(context, seq)
     }
@@ -101,11 +87,7 @@ fn function(context: &mut Context, function: &mut N::Function) {
 //**************************************************************************************************
 
 fn use_funs(context: &mut Context, uf: &mut N::UseFuns) {
-    let N::UseFuns {
-        resolved,
-        implicit_candidates,
-        color: _,
-    } = uf;
+    let N::UseFuns { resolved, implicit_candidates, color: _ } = uf;
     // remove any incorrect resolved functions
     for (tn, methods) in &mut *resolved {
         *methods = std::mem::take(methods).filter_map(|method, mut nuf| {
@@ -117,10 +99,7 @@ fn use_funs(context: &mut Context, uf: &mut N::UseFuns) {
                 "ICE all resolved use funs should be explicit at this stage. kind {kind:?}"
             );
             let (first_ty_loc, first_ty) = first_arg_type(context, &m, &f);
-            let is_valid = match first_ty
-                .as_ref()
-                .and_then(|ty| ty.value.unfold_to_type_name())
-            {
+            let is_valid = match first_ty.as_ref().and_then(|ty| ty.value.unfold_to_type_name()) {
                 Some(first_tn) => first_tn == tn,
                 None => false,
             };
@@ -144,11 +123,8 @@ fn use_funs(context: &mut Context, uf: &mut N::UseFuns) {
                             module's types, otherwise they must be internal to the declared scope.",
                             Visibility::PUBLIC
                         );
-                        let mut diag = diag!(
-                            Declarations::InvalidUseFun,
-                            (loc, msg),
-                            (public_loc, vis_msg)
-                        );
+                        let mut diag =
+                            diag!(Declarations::InvalidUseFun, (loc, msg), (public_loc, vis_msg));
                         if let Some(m) = defining_module {
                             diag.add_secondary_label((
                                 m.loc,
@@ -199,17 +175,14 @@ fn use_funs(context: &mut Context, uf: &mut N::UseFuns) {
         let Some((target_f, tn)) = is_valid_method(context, &target_m, target_f) else {
             if matches!(ekind, E::ImplicitUseFunKind::UseAlias { used: false }) {
                 let msg = format!("Unused 'use' of alias '{}'. Consider removing it", method);
-                context
-                    .env
-                    .add_diag(diag!(UnusedItem::Alias, (method.loc, msg),))
+                context.env.add_diag(diag!(UnusedItem::Alias, (method.loc, msg),))
             }
             continue;
         };
         let (kind, used) = match ekind {
-            E::ImplicitUseFunKind::FunctionDeclaration => (
-                N::UseFunKind::FunctionDeclaration,
-                /* silences unused warning */ true,
-            ),
+            E::ImplicitUseFunKind::FunctionDeclaration => {
+                (N::UseFunKind::FunctionDeclaration, /* silences unused warning */ true)
+            }
             E::ImplicitUseFunKind::UseAlias { used } => {
                 assert!(is_public.is_none());
                 (N::UseFunKind::UseAlias, used)
@@ -255,12 +228,7 @@ fn is_valid_method(
 ) -> Option<(FunctionName, N::TypeName)> {
     let target_f = FunctionName(target_f);
     // possible the function was removed, e.g. a spec function
-    if !context
-        .info
-        .module(target_m)
-        .functions
-        .contains_key(&target_f)
-    {
+    if !context.info.module(target_m).functions.contains_key(&target_f) {
         return None;
     }
     let (_, first_ty) = first_arg_type(context, target_m, &target_f);
@@ -271,11 +239,7 @@ fn is_valid_method(
         N::TypeName_::Builtin(sp!(_, bt_)) => context.env.primitive_definer(*bt_)?,
         N::TypeName_::ModuleType(m, _) => m,
     };
-    if defining_module == target_m {
-        Some((target_f, tn.clone()))
-    } else {
-        None
-    }
+    if defining_module == target_m { Some((target_f, tn.clone())) } else { None }
 }
 
 fn first_arg_type(
@@ -284,12 +248,7 @@ fn first_arg_type(
     f: &FunctionName,
 ) -> (Loc, Option<N::Type>) {
     let finfo = context.info.function_info(m, f);
-    match finfo
-        .signature
-        .parameters
-        .first()
-        .map(|(_, _, t)| t.clone())
-    {
+    match finfo.signature.parameters.first().map(|(_, _, t)| t.clone()) {
         None => (finfo.defined_loc, None),
         Some(t) => (t.loc, Some(t)),
     }
@@ -353,11 +312,7 @@ fn exp(context: &mut Context, sp!(_, e_): &mut N::Exp) {
             exp(context, econd);
             exp(context, ebody)
         }
-        N::Exp_::Block(N::Block {
-            name: _,
-            from_macro_argument: _,
-            seq,
-        }) => sequence(context, seq),
+        N::Exp_::Block(N::Block { name: _, from_macro_argument: _, seq }) => sequence(context, seq),
         N::Exp_::FieldMutate(ed, e) => {
             exp_dotted(context, ed);
             exp(context, e)

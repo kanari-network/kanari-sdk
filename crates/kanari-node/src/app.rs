@@ -35,9 +35,7 @@ pub fn default_data_dir() -> std::path::PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".kanari")
-        .join("kanari-db")
+    std::path::PathBuf::from(home).join(".kanari").join("kanari-db")
 }
 
 fn env_write_guard() -> &'static Mutex<()> {
@@ -46,8 +44,7 @@ fn env_write_guard() -> &'static Mutex<()> {
 }
 
 fn path_to_env_value(path: &std::path::Path) -> Result<&str> {
-    path.to_str()
-        .ok_or_else(|| anyhow::anyhow!("Invalid data directory path: {}", path.display()))
+    path.to_str().ok_or_else(|| anyhow::anyhow!("Invalid data directory path: {}", path.display()))
 }
 
 fn short_value(value: impl AsRef<str>) -> String {
@@ -60,15 +57,11 @@ fn short_value(value: impl AsRef<str>) -> String {
 }
 
 fn divergence_snapshot_dump_dir() -> Option<PathBuf> {
-    std::env::var("KANARI_DIVERGENCE_SNAPSHOT_DIR")
-        .ok()
-        .map(PathBuf::from)
+    std::env::var("KANARI_DIVERGENCE_SNAPSHOT_DIR").ok().map(PathBuf::from)
 }
 
 fn divergence_reference_snapshot_path() -> Option<PathBuf> {
-    std::env::var("KANARI_DIVERGENCE_REFERENCE_SNAPSHOT")
-        .ok()
-        .map(PathBuf::from)
+    std::env::var("KANARI_DIVERGENCE_REFERENCE_SNAPSHOT").ok().map(PathBuf::from)
 }
 
 fn sanitize_path_component(value: &str) -> String {
@@ -83,11 +76,7 @@ fn sanitize_path_component(value: &str) -> String {
 
 fn write_snapshot_dump(path: &Path, snapshot: &CanonicalStateSnapshotResponse) {
     if let Err(error) = write_json_pretty_atomically(path, snapshot) {
-        tracing::warn!(
-            "Failed to write startup divergence snapshot {}: {}",
-            path.display(),
-            error
-        );
+        tracing::warn!("Failed to write startup divergence snapshot {}: {}", path.display(), error);
     } else {
         tracing::info!("Wrote startup divergence snapshot to {}", path.display());
     }
@@ -117,9 +106,7 @@ fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_pee
         match read_json_file::<CanonicalStateSnapshotResponse>(&reference_path).ok() {
             Some(reference) => {
                 let diff = match engine.compare_canonical_state_snapshot(
-                    &CompareCanonicalStateSnapshotRequest {
-                        entries: reference.entries.clone(),
-                    },
+                    &CompareCanonicalStateSnapshotRequest { entries: reference.entries.clone() },
                 ) {
                     Ok(diff) => diff,
                     Err(error) => {
@@ -152,11 +139,8 @@ fn emit_startup_divergence_diagnostics(engine: &Arc<BlockchainEngine>, local_pee
     }
 
     if let Some(dir) = divergence_snapshot_dump_dir() {
-        let filename = format!(
-            "startup-h{}-{}.json",
-            snapshot.height,
-            sanitize_path_component(local_peer_id)
-        );
+        let filename =
+            format!("startup-h{}-{}.json", snapshot.height, sanitize_path_component(local_peer_id));
         write_snapshot_dump(&dir.join(filename), &snapshot);
     }
 }
@@ -290,11 +274,8 @@ pub fn configure_consensus_signing_key(
         );
         Zeroizing::new(trimmed.to_string())
     };
-    let private_key = Zeroizing::new(decode_hex_exact(
-        "consensus private key seed",
-        &private_key_hex,
-        32,
-    )?);
+    let private_key =
+        Zeroizing::new(decode_hex_exact("consensus private key seed", &private_key_hex, 32)?);
     let private_key: [u8; 32] = private_key
         .as_slice()
         .try_into()
@@ -304,18 +285,12 @@ pub fn configure_consensus_signing_key(
 
     let public_key_hex_by_authority: BTreeMap<String, String> = read_json_file(public_keys_path)
         .with_context(|| {
-            format!(
-                "Invalid consensus public keys JSON {}",
-                public_keys_path.display()
-            )
+            format!("Invalid consensus public keys JSON {}", public_keys_path.display())
         })?;
 
     let mut public_keys = BTreeMap::new();
     for (authority, key_hex) in public_key_hex_by_authority {
-        public_keys.insert(
-            authority,
-            decode_hex_exact("consensus public key", &key_hex, 32)?,
-        );
+        public_keys.insert(authority, decode_hex_exact("consensus public key", &key_hex, 32)?);
     }
 
     engine.set_consensus_signing_key(signing_key, public_keys)
@@ -434,23 +409,17 @@ fn serialize_and_queue_message<T: Serialize>(
 }
 
 fn detect_local_ip() -> Option<String> {
-    std::net::UdpSocket::bind("0.0.0.0:0")
-        .ok()
-        .and_then(|socket| {
-            if socket.connect("8.8.8.8:80").is_ok() {
-                socket.local_addr().ok().map(|a| a.ip().to_string())
-            } else {
-                None
-            }
-        })
+    std::net::UdpSocket::bind("0.0.0.0:0").ok().and_then(|socket| {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            socket.local_addr().ok().map(|a| a.ip().to_string())
+        } else {
+            None
+        }
+    })
 }
 
 fn current_chain_height(engine: &Arc<BlockchainEngine>) -> u64 {
-    engine
-        .blockchain
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .height()
+    engine.blockchain.read().unwrap_or_else(|e| e.into_inner()).height()
 }
 
 fn extract_failed_tx_hash(error_text: &str) -> Option<Vec<u8>> {
@@ -529,10 +498,7 @@ pub async fn run_node(
             Some(idx)
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to initialize indexer: {}. Indexing will be disabled.",
-                e
-            );
+            tracing::warn!("Failed to initialize indexer: {}. Indexing will be disabled.", e);
             None
         }
     };

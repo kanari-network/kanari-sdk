@@ -44,10 +44,7 @@ fn ty_to_sig(ty: &MoveTypeLayout) -> Option<SignatureToken> {
 
 impl Constant {
     pub fn serialize_constant(ty: &MoveTypeLayout, v: &MoveValue) -> Option<Self> {
-        Some(Self {
-            type_: ty_to_sig(ty)?,
-            data: v.simple_serialize()?,
-        })
+        Some(Self { type_: ty_to_sig(ty)?, data: v.simple_serialize()? })
     }
 
     pub fn deserialize_constant(&self) -> Option<MoveValue> {

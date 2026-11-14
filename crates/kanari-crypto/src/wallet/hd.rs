@@ -41,13 +41,7 @@ pub fn create_hd_wallet(
         zk.to_string()
     };
 
-    Ok(Wallet::new(
-        address,
-        priv_key,
-        String::new(),
-        Some(derivation_path.to_string()),
-        curve,
-    ))
+    Ok(Wallet::new(address, priv_key, String::new(), Some(derivation_path.to_string()), curve))
 }
 
 /// Persist a previously-created HD child wallet into the keystore using
@@ -72,9 +66,7 @@ pub fn save_mnemonic(
     validation::validate_storage_password(password)?;
 
     if mnemonic.is_empty() {
-        return Err(WalletError::EncryptionError(
-            "Empty mnemonic not allowed".to_string(),
-        ));
+        return Err(WalletError::EncryptionError("Empty mnemonic not allowed".to_string()));
     }
 
     const MAX_MNEMONIC_SIZE: usize = 10240;
@@ -139,9 +131,7 @@ pub fn check_mnemonic_exists() -> bool {
 pub fn remove_mnemonic() -> Result<(), WalletError> {
     let mut keystore = Keystore::load().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
 
-    keystore
-        .remove_mnemonic()
-        .map_err(|e| WalletError::KeystoreError(e.to_string()))?;
+    keystore.remove_mnemonic().map_err(|e| WalletError::KeystoreError(e.to_string()))?;
 
     Ok(())
 }

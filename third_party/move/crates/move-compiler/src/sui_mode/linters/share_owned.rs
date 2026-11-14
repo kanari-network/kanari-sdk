@@ -87,12 +87,7 @@ impl SimpleAbsIntConstructor for ShareOwnedVerifier {
         _init_state: &mut <Self::AI<'a> as SimpleAbsInt>::State,
     ) -> Option<Self::AI<'a>> {
         if context.attributes.is_test_or_test_only()
-            || program
-                .modules
-                .get(&context.module)
-                .unwrap()
-                .attributes
-                .is_test_or_test_only()
+            || program.modules.get(&context.module).unwrap().attributes.is_test_or_test_only()
         {
             return None;
         }
@@ -109,9 +104,7 @@ impl SimpleAbsInt for ShareOwnedVerifierAI {
     }
 
     fn start_command(&self, _: &mut State) -> ExecutionContext {
-        ExecutionContext {
-            diags: Diagnostics::new(),
-        }
+        ExecutionContext { diags: Diagnostics::new() }
     }
 
     fn finish_command(&self, context: ExecutionContext, _state: &mut State) -> Diagnostics {
@@ -146,18 +139,12 @@ impl SimpleAbsInt for ShareOwnedVerifierAI {
         f: &ModuleCall,
         args: Vec<Value>,
     ) -> Option<Vec<Value>> {
-        if SHARE_FUNCTIONS
-            .iter()
-            .any(|(addr, module, fun)| f.is(addr, module, fun))
+        if SHARE_FUNCTIONS.iter().any(|(addr, module, fun)| f.is(addr, module, fun))
             && args[0] != Value::FreshObj
         {
             let msg = "Potential abort from a (potentially) owned object created by a different transaction.";
             let uid_msg = "Creating a fresh object and sharing it within the same function will ensure this does not abort.";
-            let mut d = diag!(
-                SHARE_OWNED_DIAG,
-                (*loc, msg),
-                (f.arguments[0].exp.loc, uid_msg)
-            );
+            let mut d = diag!(SHARE_OWNED_DIAG, (*loc, msg), (f.arguments[0].exp.loc, uid_msg));
             if let Value::NotFreshObj(l) = args[0] {
                 d.add_secondary_label((l, "A potentially owned object coming from here"))
             }
@@ -166,22 +153,12 @@ impl SimpleAbsInt for ShareOwnedVerifierAI {
         Some(match &return_ty.value {
             Type_::Unit => vec![],
             Type_::Single(t) => {
-                let v = if is_obj_type(t) {
-                    Value::NotFreshObj(t.loc)
-                } else {
-                    Value::Other
-                };
+                let v = if is_obj_type(t) { Value::NotFreshObj(t.loc) } else { Value::Other };
                 vec![v]
             }
             Type_::Multiple(types) => types
                 .iter()
-                .map(|t| {
-                    if is_obj_type(t) {
-                        Value::NotFreshObj(t.loc)
-                    } else {
-                        Value::Other
-                    }
-                })
+                .map(|t| if is_obj_type(t) { Value::NotFreshObj(t.loc) } else { Value::Other })
                 .collect(),
         })
     }
@@ -198,11 +175,7 @@ impl SimpleAbsInt for ShareOwnedVerifierAI {
         let sp!(_, l_) = l;
         if let L::Unpack(_, _, fields) = l_ {
             for (f, l) in fields {
-                let v = if is_obj(l) {
-                    Value::NotFreshObj(f.loc())
-                } else {
-                    Value::default()
-                };
+                let v = if is_obj(l) { Value::NotFreshObj(f.loc()) } else { Value::default() };
                 self.lvalue(context, state, l, v)
             }
             return true;

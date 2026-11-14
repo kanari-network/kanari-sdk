@@ -15,16 +15,12 @@ impl ChangeSet {
 
     /// Canonical settlement coin for this changeset (`None` = native KANARI).
     pub fn gas_coin_type(&self) -> &str {
-        self.gas_coin_type
-            .as_deref()
-            .unwrap_or(kanari_types::gas_coin::GAS_COIN)
+        self.gas_coin_type.as_deref().unwrap_or(kanari_types::gas_coin::GAS_COIN)
     }
 
     /// Whether gas settles in native KANARI (legacy accounting path).
     pub fn is_native_gas(&self) -> bool {
-        self.gas_coin_type
-            .as_deref()
-            .is_none_or(|coin| coin == kanari_types::gas_coin::GAS_COIN)
+        self.gas_coin_type.as_deref().is_none_or(|coin| coin == kanari_types::gas_coin::GAS_COIN)
     }
 
     /// Record the settlement coin before collecting fees.
@@ -50,8 +46,7 @@ impl ChangeSet {
     ) {
         let normalized = CoinModule::normalize_token_type(coin_type);
         if normalized == kanari_types::gas_coin::GAS_COIN {
-            self.get_or_create_owner_delta(dao_address)
-                .credit(gas_amount);
+            self.get_or_create_owner_delta(dao_address).credit(gas_amount);
             let collected = self.native_gas_credits.entry(dao_address).or_insert(0);
             *collected = collected.saturating_add(gas_amount);
             return;
@@ -70,10 +65,7 @@ impl ChangeSet {
         if normalized == kanari_types::gas_coin::GAS_COIN {
             return self.native_gas_credits.values().copied().sum();
         }
-        self.token_gas_credits
-            .get(&normalized)
-            .copied()
-            .unwrap_or(0)
+        self.token_gas_credits.get(&normalized).copied().unwrap_or(0)
     }
 
     /// Sets the total gas consumed by this execution.

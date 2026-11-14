@@ -37,12 +37,7 @@ impl NodeRuntimeConfig {
     }
 
     pub(crate) fn p2p_max_inflight_chunked_payloads_per_peer() -> usize {
-        env_usize_clamped(
-            "KANARI_P2P_MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER",
-            4,
-            1,
-            64,
-        )
+        env_usize_clamped("KANARI_P2P_MAX_INFLIGHT_CHUNKED_PAYLOADS_PER_PEER", 4, 1, 64)
     }
 
     pub(crate) fn p2p_max_concurrent_decompressions() -> usize {

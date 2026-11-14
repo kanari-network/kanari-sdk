@@ -87,10 +87,8 @@ fn parse_entrypoint(input: &str) -> Result<(ModuleId, Identifier)> {
     if tokens.len() != 3 {
         bail!("Invalid entrypoint: {}", input);
     }
-    let module_id = ModuleId::new(
-        AccountAddress::from_hex_literal(tokens[0])?,
-        Identifier::new(tokens[1])?,
-    );
+    let module_id =
+        ModuleId::new(AccountAddress::from_hex_literal(tokens[0])?, Identifier::new(tokens[1])?);
     let func_name = Identifier::new(tokens[2])?;
     Ok((module_id, func_name))
 }
@@ -171,10 +169,8 @@ impl<'env> StacklessBytecodeInterpreter<'env> {
         }
 
         // create the pipeline
-        let options = options_opt.unwrap_or_else(|| ProverOptions {
-            for_interpretation: true,
-            ..Default::default()
-        });
+        let options = options_opt
+            .unwrap_or_else(|| ProverOptions { for_interpretation: true, ..Default::default() });
         let pipeline = default_pipeline_with_options(&options);
         env.set_extension(options);
 
@@ -331,9 +327,8 @@ fn verbose_stepwise_processing(
         return;
     }
 
-    let name = processor_opt
-        .map(|processor| processor.name())
-        .unwrap_or_else(|| "stackless".to_string());
+    let name =
+        processor_opt.map(|processor| processor.name()).unwrap_or_else(|| "stackless".to_string());
 
     // dump bytecode
     let mut text = String::new();
@@ -351,12 +346,7 @@ fn verbose_stepwise_processing(
 
     // dump analysis results, if any
     if let Some(processor) = processor_opt {
-        text += &ProcessorResultDisplay {
-            env,
-            targets,
-            processor,
-        }
-        .to_string();
+        text += &ProcessorResultDisplay { env, targets, processor }.to_string();
     }
     println!("{}", text);
 }
@@ -438,9 +428,7 @@ fn convert_bcs_arguments_to_move_value_arguments(
     };
 
     if (num_signer_args + bcs_args.len()) != params.len() {
-        return Err(PartialVMError::new(
-            StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH,
-        ));
+        return Err(PartialVMError::new(StatusCode::NUMBER_OF_ARGUMENTS_MISMATCH));
     }
     for (arg_bcs, param) in bcs_args.iter().zip(&params[num_signer_args..]) {
         match param.1.clone().into_type_tag(env) {

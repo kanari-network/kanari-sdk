@@ -72,15 +72,8 @@ impl GasParameters {
 
 #[derive(Clone, Debug)]
 pub enum DynamicFieldOp {
-    Add {
-        object_id: String,
-        name_bytes: Vec<u8>,
-        value_bytes: Vec<u8>,
-    },
-    Remove {
-        object_id: String,
-        name_bytes: Vec<u8>,
-    },
+    Add { object_id: String, name_bytes: Vec<u8>, value_bytes: Vec<u8> },
+    Remove { object_id: String, name_bytes: Vec<u8> },
 }
 
 pub trait DynamicFieldResolver: Send + Sync {
@@ -98,9 +91,7 @@ pub struct DynamicFieldStorageExt {
 
 impl DynamicFieldStorageExt {
     pub fn new(resolver: Arc<dyn DynamicFieldResolver>) -> Self {
-        Self {
-            resolver: Some(resolver),
-        }
+        Self { resolver: Some(resolver) }
     }
 
     fn get_dynamic_field(
@@ -194,11 +185,7 @@ pub struct DynamicFieldsExt {
 
 impl DynamicFieldsExt {
     fn field_key(location: &FieldLocation) -> String {
-        format!(
-            "{}:{}",
-            location.object_id,
-            hex::encode(&location.name_bytes)
-        )
+        format!("{}:{}", location.object_id, hex::encode(&location.name_bytes))
     }
 
     fn cached_exists(&self, location: &FieldLocation) -> Option<bool> {
@@ -322,10 +309,7 @@ fn parse_field_location(
     let object_id = object_id_from_uid_ref(uid_ref)?;
     let name_layout = type_layout(context, name_ty)?;
     let name_bytes = serialize_arg_with_layout(&name, &name_layout)?;
-    Ok(FieldLocation {
-        object_id,
-        name_bytes,
-    })
+    Ok(FieldLocation { object_id, name_bytes })
 }
 
 fn parse_value_spec(context: &mut NativeContext, value_ty: &Type) -> PartialVMResult<ValueSpec> {
@@ -635,10 +619,7 @@ fn native_exists_(
         context,
         gas_per_byte * NumBytes::new(location.name_bytes.len() as u64)
     );
-    Ok(NR::ok(
-        context.gas_used(),
-        smallvec![Value::bool(field_exists(context, &location)?)],
-    ))
+    Ok(NR::ok(context.gas_used(), smallvec![Value::bool(field_exists(context, &location)?)]))
 }
 
 fn native_exists_with_type(

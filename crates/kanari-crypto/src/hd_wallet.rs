@@ -83,9 +83,7 @@ pub fn derive_keypair_from_path(
     // Iteratively derive along the path (derive_child accepts a ChildNumber)
     let mut derived = xprv;
     for cn in path.into_iter() {
-        derived = derived
-            .derive_child(cn)
-            .map_err(|e| HdError::DerivationFailed(e.to_string()))?;
+        derived = derived.derive_child(cn).map_err(|e| HdError::DerivationFailed(e.to_string()))?;
     }
 
     // Extract private key bytes (32 bytes) and format as hex
@@ -168,9 +166,7 @@ pub fn derive_multiple_addresses(
 
     // Validate inputs
     if mnemonic_phrase.trim().is_empty() {
-        return Err(HdError::InvalidMnemonic(
-            "Empty mnemonic phrase".to_string(),
-        ));
+        return Err(HdError::InvalidMnemonic("Empty mnemonic phrase".to_string()));
     }
 
     // Password can be empty but validate it's valid UTF-8 by checking length
@@ -202,9 +198,8 @@ pub fn derive_multiple_addresses(
 
     // Increment rate limiter counter only after successful completion
     {
-        let mut limiter = DERIVE_RATE_LIMITER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut limiter =
+            DERIVE_RATE_LIMITER.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some((count_in_window, _)) = limiter.get_mut(&mnemonic_hash) {
             *count_in_window += count;
         }

@@ -24,10 +24,7 @@ pub enum OwnerCommand {
 impl OwnerCommand {
     pub async fn execute(&self) -> Result<()> {
         match self {
-            OwnerCommand::Get {
-                owner,
-                rpc_endpoint,
-            } => {
+            OwnerCommand::Get { owner, rpc_endpoint } => {
                 let rpc = get_rpc_endpoint(rpc_endpoint.clone());
                 let owner_normalized = resolve_sender(owner.clone())?;
 

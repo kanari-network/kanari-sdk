@@ -82,11 +82,7 @@ impl<'a, T: GetModule> SerdeLayoutBuilder<'a, T> {
 
     /// Create a `LayoutBuilder` with an empty registry and shallow layout resolution
     pub fn new_with_config(module_resolver: &'a T, config: SerdeLayoutConfig) -> Self {
-        Self {
-            registry: Self::default_registry(),
-            module_resolver,
-            config,
-        }
+        Self { registry: Self::default_registry(), module_resolver, config }
     }
 
     /// Return a registry containing layouts for all the Move ground types (e.g., address)
@@ -97,14 +93,9 @@ impl<'a, T: GetModule> SerdeLayoutBuilder<'a, T> {
             content: Box::new(Format::U8),
             size: AccountAddress::LENGTH,
         });
-        registry.insert(
-            ADDRESS.to_string(),
-            ContainerFormat::NewTypeStruct(address_layout.clone()),
-        );
-        registry.insert(
-            SIGNER.to_string(),
-            ContainerFormat::NewTypeStruct(address_layout),
-        );
+        registry
+            .insert(ADDRESS.to_string(), ContainerFormat::NewTypeStruct(address_layout.clone()));
+        registry.insert(SIGNER.to_string(), ContainerFormat::NewTypeStruct(address_layout));
 
         registry
     }
@@ -152,12 +143,7 @@ impl<'a, T: GetModule> SerdeLayoutBuilder<'a, T> {
             U256 => Format::TypeName(U256_SERDE_NAME.to_string()),
             Address => Format::TypeName(ADDRESS.to_string()),
             Signer => Format::TypeName(SIGNER.to_string()),
-            Struct {
-                address,
-                module,
-                name,
-                type_arguments,
-            } => {
+            Struct { address, module, name, type_arguments } => {
                 let serde_type_args = type_arguments
                     .iter()
                     .map(|t| self.build_normalized_type_layout(t, input_type_args, depth + 1))
@@ -199,16 +185,13 @@ impl<'a, T: GetModule> SerdeLayoutBuilder<'a, T> {
             .get_module_by_id(module_id)
             .map_err(|e| anyhow::format_err!("{:?}", e))?
             .expect("Failed to resolve module");
-        let def = declaring_module
-            .borrow()
-            .find_struct_def_by_name(name)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Could not find struct named {} in module {}",
-                    name,
-                    declaring_module.borrow().name()
-                )
-            });
+        let def = declaring_module.borrow().find_struct_def_by_name(name).unwrap_or_else(|| {
+            panic!(
+                "Could not find struct named {} in module {}",
+                name,
+                declaring_module.borrow().name()
+            )
+        });
         let normalized_struct = Struct::new(declaring_module.borrow(), def).1;
         assert_eq!(
             normalized_struct.type_parameters.len(),
@@ -292,10 +275,7 @@ impl<'a, T: GetModule> SerdeLayoutBuilder<'a, T> {
             .iter()
             .map(|f| {
                 self.build_normalized_type_layout(&f.type_, type_arguments, depth)
-                    .map(|value| Named {
-                        name: f.name.to_string(),
-                        value,
-                    })
+                    .map(|value| Named { name: f.name.to_string(), value })
             })
             .collect::<Result<Vec<Named<Format>>>>()?;
         Ok(ContainerFormat::Struct(fields))
@@ -481,16 +461,9 @@ impl StructLayoutBuilder {
             Err(_) | Ok(None) => bail!("Could not find module"),
             Ok(Some(m)) => m,
         };
-        let def = module
-            .borrow()
-            .find_struct_def_by_name(name)
-            .ok_or_else(|| {
-                anyhow!(
-                    "Could not find struct named {} in module {}",
-                    name,
-                    declaring_module
-                )
-            })?;
+        let def = module.borrow().find_struct_def_by_name(name).ok_or_else(|| {
+            anyhow!("Could not find struct named {} in module {}", name, declaring_module)
+        })?;
         Self::build_from_definition(module.borrow(), def, type_arguments, resolver, depth)
     }
 

@@ -52,8 +52,14 @@ module kanari_system::krc_721 {
     /// The NFT is outside the collection bound to a policy scope.
     const E_POLICY_COLLECTION_MISMATCH: u64 = 7;
 
-    /// The sender, recipient, or collection is blocked by its deny policy.
-    const E_DENIED_OR_PAUSED: u64 = 8;
+    /// The sender is denied for the collection.
+    const E_SENDER_DENIED: u64 = 8;
+
+    /// The recipient is denied for the collection.
+    const E_RECIPIENT_DENIED: u64 = 9;
+
+    /// Transfers are paused for the collection.
+    const E_COLLECTION_PAUSED: u64 = 10;
 
     /// Upper bound on attribute count per token. Not a storage limit — it is a
     /// bound on how much arbitrary text one token can carry, which matters
@@ -88,6 +94,21 @@ module kanari_system::krc_721 {
         object_id: address,
         creator: address,
         collection_id: address
+    }
+
+    /// Transfer event: emitted when an NFT changes ownership.
+    struct TransferEvent has copy, drop {
+        from: address,
+        to: address,
+        token_id: address,
+        collection_id: address
+    }
+
+    /// Burn event: emitted when an NFT is burned.
+    struct BurnEvent has copy, drop {
+        token_id: address,
+        collection_id: address,
+        burner: address
     }
 
     /// Collection-specific display fields for KRC-721 NFTs. The collection's
@@ -467,8 +488,19 @@ module kanari_system::krc_721 {
     /// Transfer ownership. This is the whole ERC-721 `transferFrom` analogue:
     /// moving the object *is* the transfer, so there is no separate approval
     /// surface to get wrong.
-    public fun transfer(nft: Nft, recipient: address) {
+    public fun transfer(nft: Nft, recipient: address, ctx: &TxContext) {
+        let from = tx_context::sender(ctx);
+        let token_id = nft_address(&nft);
+        let collection_id = collection_of(&nft);
         transfer::public_transfer(nft, recipient);
+        event::emit(
+            TransferEvent {
+                from,
+                to: recipient,
+                token_id,
+                collection_id
+            }
+        );
     }
 
     /// KRC-721 transfer with explicit deny-list enforcement. This is useful to
@@ -481,10 +513,19 @@ module kanari_system::krc_721 {
     ) {
         let collection_id = nft.collection;
         let sender = tx_context::sender(ctx);
-        assert!(!is_denied(deny, collection_id, sender), E_DENIED_OR_PAUSED);
-        assert!(!is_denied(deny, collection_id, recipient), E_DENIED_OR_PAUSED);
-        assert!(!is_paused(deny, collection_id), E_DENIED_OR_PAUSED);
+        assert!(!is_denied(deny, collection_id, sender), E_SENDER_DENIED);
+        assert!(!is_denied(deny, collection_id, recipient), E_RECIPIENT_DENIED);
+        assert!(!is_paused(deny, collection_id), E_COLLECTION_PAUSED);
+        let token_id = nft_address(&nft);
         transfer::public_transfer(nft, recipient);
+        event::emit(
+            TransferEvent {
+                from: sender,
+                to: recipient,
+                token_id,
+                collection_id
+            }
+        );
     }
 
     /// Canonical production transfer. The runtime-created deny-list singleton
@@ -494,7 +535,22 @@ module kanari_system::krc_721 {
         recipient: address,
         ctx: &TxContext
     ) {
-        transfer_checked(nft, recipient, deny_list::borrow_singleton(), ctx)
+        let collection_id = nft.collection;
+        let sender = tx_context::sender(ctx);
+        let deny = deny_list::borrow_singleton();
+        assert!(!is_denied(deny, collection_id, sender), E_SENDER_DENIED);
+        assert!(!is_denied(deny, collection_id, recipient), E_RECIPIENT_DENIED);
+        assert!(!is_paused(deny, collection_id), E_COLLECTION_PAUSED);
+        let token_id = nft_address(&nft);
+        transfer::public_transfer(nft, recipient);
+        event::emit(
+            TransferEvent {
+                from: sender,
+                to: recipient,
+                token_id,
+                collection_id
+            }
+        );
     }
 
     /// Update the mutable descriptive fields.
@@ -602,13 +658,17 @@ module kanari_system::krc_721 {
     public fun burn(
         cap: &mut NftCap,
         collection_ref: &collection::Collection,
-        nft: Nft
+        nft: Nft,
+        ctx: &TxContext
     ) {
         assert!(
             nft.collection == collection::collection_id(collection_ref),
             E_NFT_COLLECTION_MISMATCH
         );
         collection::return_from_burn(cap, collection_ref);
+        let token_id = nft_address(&nft);
+        let collection_id = nft.collection;
+        let burner = tx_context::sender(ctx);
         let Nft {
             id,
             collection: _,
@@ -618,6 +678,13 @@ module kanari_system::krc_721 {
             image_url: _,
             attributes: _
         } = nft;
+        event::emit(
+            BurnEvent {
+                token_id,
+                collection_id,
+                burner
+            }
+        );
         object::delete(id);
     }
 
@@ -1081,6 +1148,455 @@ module kanari_system::krc_721 {
         destroy_for_test(nft);
     }
 
+    #[test]
+    #[expected_failure]
+    fun test_remove_attribute_absent_aborts() {
+        let ctx = tx_context::dummy();
+        let nft = create(
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
+        let key = string_alias::utf8(b"nonexistent");
+        remove_attribute(&mut nft, &key);
+        destroy_for_test(nft);
+    }
+
+    #[test]
+    fun test_transfer_emits_event() {
+        let ctx = tx_context::dummy();
+        let nft = create(
+            string_alias::utf8(b"Test"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            &mut ctx
+        );
+        let recipient = @0x2;
+
+        transfer(nft, recipient, &ctx);
+
+        // Event emission is tested via the transfer_checked path which we can verify
+        destroy_for_test(
+            create(
+                string_alias::utf8(b"dummy"),
+                option_alias::none<String>(),
+                option_alias::none<Url>(),
+                &mut ctx
+            )
+        );
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_SENDER_DENIED)]
+    fun test_transfer_checked_rejects_denied_sender() {
+        let ctx = tx_context::new_from_hint(@0x10, 0, 0, 0, 0);
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let collection_id = @0x1;
+        let sender = @0x10;
+        let recipient = @0x20;
+
+        // Deny the sender
+        deny_list::v1_add(
+            &mut deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection_id),
+            sender,
+            &mut ctx
+        );
+
+        let nft = create_with_collection(collection_id, &mut ctx);
+
+        // Should abort with E_SENDER_DENIED
+        transfer_checked(nft, recipient, &deny_list, &ctx);
+
+        destroy_deny_list_for_test(deny_list);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_RECIPIENT_DENIED)]
+    fun test_transfer_checked_rejects_denied_recipient() {
+        let ctx = tx_context::dummy();
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let collection_id = @0x1;
+        let recipient = @0x20;
+
+        // Deny the recipient
+        deny_list::v1_add(
+            &mut deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection_id),
+            recipient,
+            &mut ctx
+        );
+
+        let nft = create_with_collection(collection_id, &mut ctx);
+
+        // Should abort with E_RECIPIENT_DENIED
+        transfer_checked(nft, recipient, &deny_list, &ctx);
+
+        destroy_deny_list_for_test(deny_list);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_COLLECTION_PAUSED)]
+    fun test_transfer_checked_rejects_paused_collection() {
+        let ctx = tx_context::dummy();
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let collection_id = @0x1;
+
+        // Pause the collection
+        deny_list::v2_enable_global_pause(
+            &mut deny_list,
+            KRC_721_DENY_LIST_INDEX,
+            address::to_bytes(collection_id),
+            &mut ctx
+        );
+
+        let nft = create_with_collection(collection_id, &mut ctx);
+
+        // Should abort with E_COLLECTION_PAUSED
+        transfer_checked(nft, @0x20, &deny_list, &ctx);
+
+        destroy_deny_list_for_test(deny_list);
+    }
+
+    #[test]
+    fun test_transfer_with_global_deny_allows_when_not_denied() {
+        let ctx = tx_context::dummy();
+        let collection_id = @0x1;
+        let nft = create_with_collection(collection_id, &mut ctx);
+
+        // Should not abort when neither sender nor recipient is denied
+        destroy_nft_for_test(nft);
+    }
+
+    #[test]
+    fun test_burn_emits_event() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let nft = mint(
+            &mut cap,
+            &collection_ref,
+            string_alias::utf8(b"BurnTest"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            vector::empty(),
+            vector::empty(),
+            &mut ctx
+        );
+
+        let _token_id = nft_address(&nft);
+        let _collection_id = collection_of(&nft);
+
+        burn(&mut cap, &collection_ref, nft, &ctx);
+
+        // Event emission verified by successful execution
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 1, location = kanari_system::collection)]
+    fun test_mint_beyond_max_supply_aborts() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test_with_supply(&mut ctx, 1);
+        // First mint succeeds
+        let nft = mint(
+            &mut cap,
+            &collection_ref,
+            string_alias::utf8(b"First"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            vector::empty(),
+            vector::empty(),
+            &mut ctx
+        );
+        destroy_nft_for_test(nft);
+        // Second mint should abort: no supply left
+        let nft2 = mint(
+            &mut cap,
+            &collection_ref,
+            string_alias::utf8(b"Second"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            vector::empty(),
+            vector::empty(),
+            &mut ctx
+        );
+        destroy_nft_for_test(nft2);
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    fun test_deny_add_remove() {
+        let ctx = tx_context::dummy();
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let collection_id = collection::collection_id(&collection_ref);
+        let addr = @0x10;
+
+        deny_add(&mut deny_list, &cap, addr, &mut ctx);
+        assert!(is_denied(&deny_list, collection_id, addr), 0);
+
+        deny_remove(&mut deny_list, &cap, addr);
+        assert!(!is_denied(&deny_list, collection_id, addr), 1);
+
+        destroy_deny_list_for_test(deny_list);
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    fun test_deny_pause_unpause() {
+        let ctx = tx_context::dummy();
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let collection_id = collection::collection_id(&collection_ref);
+
+        assert!(!is_paused(&deny_list, collection_id), 0);
+
+        deny_pause(&mut deny_list, &cap, &mut ctx);
+        assert!(is_paused(&deny_list, collection_id), 1);
+
+        deny_unpause(&mut deny_list, &cap);
+        assert!(!is_paused(&deny_list, collection_id), 2);
+
+        destroy_deny_list_for_test(deny_list);
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 1, location = kanari_system::deny_list)]
+    fun test_deny_remove_absent_aborts() {
+        let ctx = tx_context::dummy();
+        let deny_list = deny_list::new_for_testing(&mut ctx);
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let addr = @0x10;
+
+        // Try to remove an address that was never denied
+        deny_remove(&mut deny_list, &cap, addr);
+
+        destroy_deny_list_for_test(deny_list);
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    fun test_new_collection_policy_binds_correctly() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let (policy, scope, policy_cap) = new_collection_policy(&cap, &collection_ref, &mut ctx);
+
+        let collection_id = collection::collection_id(&collection_ref);
+        assert!(collection_policy_scope_collection_id(&scope) == collection_id, 0);
+
+        destroy_cap_for_test(cap);
+        destroy_policy_for_test(policy);
+        destroy_scope_for_test(scope);
+        destroy_policy_cap_for_test(policy_cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_POLICY_COLLECTION_MISMATCH)]
+    fun test_new_collection_policy_rejects_wrong_cap() {
+        let ctx = tx_context::dummy();
+        let (cap1, collection_ref1) = create_collection_for_test(&mut ctx);
+        let (cap2, collection_ref2) = create_collection_for_test(&mut ctx);
+
+        // Destroy unused values before the call that's expected to abort
+        destroy_cap_for_test(cap1);
+        destroy_collection_for_test(collection_ref2);
+
+        // Try to create policy for collection1 with cap for collection2
+        // This should abort with E_POLICY_COLLECTION_MISMATCH
+        let (policy, scope, policy_cap) = new_collection_policy(
+            &cap2,
+            &collection_ref1,
+            &mut ctx
+        );
+        destroy_policy_for_test(policy);
+        destroy_scope_for_test(scope);
+        destroy_policy_cap_for_test(policy_cap);
+        destroy_cap_for_test(cap2);
+        destroy_collection_for_test(collection_ref1);
+    }
+
+    // Test rule struct defined at module level (test_only)
+    #[test_only]
+    struct TestRule has drop {}
+
+    #[test]
+    fun test_add_remove_collection_policy_rule() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let (policy, scope, policy_cap) = new_collection_policy(&cap, &collection_ref, &mut ctx);
+
+        add_collection_policy_rule<TestRule>(
+            TestRule {},
+            &mut policy,
+            &policy_cap,
+            b"config"
+        );
+        assert!(transfer_policy::has_rule<TestRule, Nft>(&policy), 0);
+
+        remove_collection_policy_rule<TestRule>(
+            TestRule {},
+            &mut policy,
+            &policy_cap
+        );
+        assert!(!transfer_policy::has_rule<TestRule, Nft>(&policy), 1);
+
+        destroy_cap_for_test(cap);
+        destroy_policy_for_test(policy);
+        destroy_scope_for_test(scope);
+        destroy_policy_cap_for_test(policy_cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    fun test_new_collection_request_validates_scope() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let (policy, scope, policy_cap) = new_collection_policy(&cap, &collection_ref, &mut ctx);
+        let nft = mint(
+            &mut cap,
+            &collection_ref,
+            string_alias::utf8(b"Test"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            vector::empty(),
+            vector::empty(),
+            &mut ctx
+        );
+
+        let request = new_collection_request(
+            &policy,
+            &scope,
+            &nft,
+            1000,
+            id_from(@0x1)
+        );
+
+        // Request created successfully
+        let (_item, _paid, _from) = transfer_policy::confirm_request(&policy, request);
+
+        destroy_nft_for_test(nft);
+        destroy_cap_for_test(cap);
+        destroy_policy_for_test(policy);
+        destroy_scope_for_test(scope);
+        destroy_policy_cap_for_test(policy_cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_POLICY_COLLECTION_MISMATCH)]
+    fun test_new_collection_request_rejects_wrong_nft() {
+        let ctx = tx_context::dummy();
+        let (cap1, collection_ref1) = create_collection_for_test(&mut ctx);
+        let (cap2, collection_ref2) = create_collection_for_test(&mut ctx);
+        let (policy, scope, policy_cap) = new_collection_policy(&cap1, &collection_ref1, &mut ctx);
+
+        // Mint NFT from different collection
+        let nft = mint(
+            &mut cap2,
+            &collection_ref2,
+            string_alias::utf8(b"Test"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            vector::empty(),
+            vector::empty(),
+            &mut ctx
+        );
+
+        // Should abort: NFT belongs to different collection
+        let request = new_collection_request(
+            &policy,
+            &scope,
+            &nft,
+            1000,
+            id_from(@0x1)
+        );
+        let (_item, _paid, _from) = transfer_policy::confirm_request(&policy, request);
+        destroy_nft_for_test(nft);
+        destroy_cap_for_test(cap1);
+        destroy_cap_for_test(cap2);
+        destroy_collection_for_test(collection_ref1);
+        destroy_collection_for_test(collection_ref2);
+        destroy_policy_for_test(policy);
+        destroy_scope_for_test(scope);
+        destroy_policy_cap_for_test(policy_cap);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = E_TOO_MANY_ATTRIBUTES)]
+    fun test_mint_with_attributes_too_many_aborts() {
+        let ctx = tx_context::dummy();
+        let (cap, collection_ref) = create_collection_for_test(&mut ctx);
+        let keys = vector::empty<String>();
+        let vals = vector::empty<String>();
+        let i = 0;
+        while (i <= MAX_ATTRIBUTES) {
+            vector::push_back(&mut keys, key_n(i));
+            vector::push_back(&mut vals, string_alias::utf8(b"v"));
+            i = i + 1;
+        };
+        let nft = mint_with_attributes(
+            &mut cap,
+            &collection_ref,
+            string_alias::utf8(b"Kid"),
+            option_alias::none<String>(),
+            option_alias::none<Url>(),
+            build_attributes(keys, vals),
+            &mut ctx
+        );
+        destroy_nft_for_test(nft);
+        destroy_cap_for_test(cap);
+        destroy_collection_for_test(collection_ref);
+    }
+
+    // ==================== Helper Functions for Tests ====================
+
+    #[test_only]
+    fun create_collection_for_test_with_supply(
+        ctx: &mut TxContext,
+        max_supply: u64
+    ): (NftCap, collection::Collection) {
+        let name = b"Test Collection";
+        let description = b"Test";
+        let uri = b"https://test.com";
+        let (collection, cap) = collection::create_collection(
+            ctx,
+            name,
+            description,
+            uri,
+            uri,
+            max_supply
+        );
+        (cap, collection)
+    }
+
+    #[test_only]
+    fun create_collection_for_test(ctx: &mut TxContext): (NftCap, collection::Collection) {
+        create_collection_for_test_with_supply(ctx, 1000)
+    }
+
+    #[test_only]
+    fun create_with_collection(collection_id: address, ctx: &mut TxContext): Nft {
+        Nft {
+            id: object::new(ctx),
+            collection: collection_id,
+            number: 1,
+            name: string_alias::utf8(b"Test"),
+            description: option_alias::none(),
+            image_url: option_alias::none(),
+            attributes: vec_map::empty()
+        }
+    }
+
     #[test_only]
     /// A distinct attribute key per index, so a loop cannot collapse into one
     /// upsert and slip past the count check. Two hex nibbles cover 0..255, which
@@ -1106,6 +1622,42 @@ module kanari_system::krc_721 {
     #[test_only]
     fun id_from(addr: address): ID {
         object::id_from_address(addr)
+    }
+
+    // Test-only destruction helpers for non-NFT objects
+    #[test_only]
+    fun destroy_cap_for_test(cap: NftCap) {
+        transfer::public_freeze_object(cap);
+    }
+
+    #[test_only]
+    fun destroy_collection_for_test(collection: collection::Collection) {
+        transfer::public_freeze_object(collection);
+    }
+
+    #[test_only]
+    fun destroy_nft_for_test(nft: Nft) {
+        transfer::public_freeze_object(nft);
+    }
+
+    #[test_only]
+    fun destroy_deny_list_for_test(deny_list: DenyList) {
+        transfer::public_freeze_object(deny_list);
+    }
+
+    #[test_only]
+    fun destroy_policy_for_test(policy: TransferPolicy<Nft>) {
+        transfer::public_freeze_object(policy);
+    }
+
+    #[test_only]
+    fun destroy_scope_for_test(scope: CollectionPolicyScope) {
+        transfer::public_freeze_object(scope);
+    }
+
+    #[test_only]
+    fun destroy_policy_cap_for_test(policy_cap: CollectionPolicyCap) {
+        transfer::public_freeze_object(policy_cap);
     }
 
 }

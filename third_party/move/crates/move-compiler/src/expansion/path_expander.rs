@@ -90,20 +90,12 @@ pub fn make_access_result(
     ptys_opt: Option<Spanned<Vec<P::Type>>>,
     is_macro: Option<Loc>,
 ) -> ModuleAccessResult {
-    ModuleAccessResult {
-        access,
-        ptys_opt,
-        is_macro,
-    }
+    ModuleAccessResult { access, ptys_opt, is_macro }
 }
 
 macro_rules! path_entry {
     ($name:pat, $tyargs:pat, $is_macro:pat) => {
-        PathEntry {
-            name: $name,
-            tyargs: $tyargs,
-            is_macro: $is_macro,
-        }
+        PathEntry { name: $name, tyargs: $tyargs, is_macro: $is_macro }
     };
 }
 
@@ -115,11 +107,7 @@ macro_rules! single_entry {
 
 macro_rules! access_result {
     ($access:pat, $ptys_opt:pat, $is_macro:pat) => {
-        ModuleAccessResult {
-            access: $access,
-            ptys_opt: $ptys_opt,
-            is_macro: $is_macro,
-        }
+        ModuleAccessResult { access: $access, ptys_opt: $ptys_opt, is_macro: $is_macro }
     };
 }
 
@@ -159,19 +147,13 @@ enum AccessChainFailure {
 
 macro_rules! chain_result {
     ($result:pat, $ptys_opt:pat, $is_macro:pat) => {
-        AccessChainResult {
-            result: $result,
-            ptys_opt: $ptys_opt,
-            is_macro: $is_macro,
-        }
+        AccessChainResult { result: $result, ptys_opt: $ptys_opt, is_macro: $is_macro }
     };
 }
 
 impl Move2024PathExpander {
     pub(super) fn new() -> Move2024PathExpander {
-        Move2024PathExpander {
-            aliases: AliasMap::new(),
-        }
+        Move2024PathExpander { aliases: AliasMap::new() }
     }
 
     fn resolve_root(
@@ -229,13 +211,7 @@ impl Move2024PathExpander {
                 // the alias was defined. The name represents JUST the module name, though, so we do
                 // not change location of the address as we don't have this information.
                 // TODO maybe we should also keep the alias reference (or its location)?
-                let sp!(
-                    _,
-                    ModuleIdent_ {
-                        address,
-                        module: ModuleName(sp!(_, module))
-                    }
-                ) = mident;
+                let sp!(_, ModuleIdent_ { address, module: ModuleName(sp!(_, module)) }) = mident;
                 let module = ModuleName(sp(name.loc, module));
                 NR::ModuleIdent(name.loc, sp(name.loc, E::ModuleIdent_ { address, module }))
             }
@@ -243,10 +219,9 @@ impl Move2024PathExpander {
                 NR::Address(name.loc, make_address(context, name, name.loc, address))
             }
             Some(AliasEntry::TypeParam(_)) => {
-                context.env.add_diag(ice!((
-                    name.loc,
-                    "ICE alias map misresolved name as type param"
-                )));
+                context
+                    .env
+                    .add_diag(ice!((name.loc, "ICE alias map misresolved name as type param")));
                 NR::UnresolvedName(name.loc, name)
             }
             None => {
@@ -301,10 +276,7 @@ impl Move2024PathExpander {
             {
                 let mut diag = diag!(
                     NameResolution::InvalidTypeParameter,
-                    (
-                        tyargs.loc,
-                        format!("Cannot use type parameters on {}", result.err_name())
-                    )
+                    (tyargs.loc, format!("Cannot use type parameters on {}", result.err_name()))
                 );
                 if let NR::Variant(_, sp!(_, (mident, name)), variant) = result {
                     let tys = tyargs
@@ -325,10 +297,7 @@ impl Move2024PathExpander {
             {
                 context.env.add_diag(diag!(
                     NameResolution::InvalidTypeParameter,
-                    (
-                        *loc,
-                        format!("Cannot use {} as a macro invocation", result.err_name())
-                    )
+                    (*loc, format!("Cannot use {} as a macro invocation", result.err_name()))
                 ));
             }
         }
@@ -356,11 +325,7 @@ impl Move2024PathExpander {
                 } else {
                     self.resolve_name(context, namespace, name)
                 };
-                AccessChainResult {
-                    result,
-                    ptys_opt,
-                    is_macro,
-                }
+                AccessChainResult { result, ptys_opt, is_macro }
             }
             PN::Path(path) => {
                 let NamePath { root, entries } = path;
@@ -459,20 +424,14 @@ impl Move2024PathExpander {
                             is_macro = entry.is_macro;
                         }
                         NR::UnresolvedName(_, _) => {
-                            context
-                                .env
-                                .add_diag(ice!((loc, "ICE access chain expansion failed")));
+                            context.env.add_diag(ice!((loc, "ICE access chain expansion failed")));
                             break;
                         }
                         NR::ResolutionFailure(_, _) => break,
                     }
                 }
 
-                AccessChainResult {
-                    result,
-                    ptys_opt,
-                    is_macro,
-                }
+                AccessChainResult { result, ptys_opt, is_macro }
             }
         }
     }
@@ -780,45 +739,31 @@ fn unexpected_access_error(loc: Loc, result: String, access: Access) -> Diagnost
         Access::Module => "module",
     };
     let unexpected_msg = if result.starts_with('a') | result.starts_with('e') {
-        format!(
-            "Unexpected {0} identifier. An {0} identifier is not a valid {1}",
-            result, case
-        )
+        format!("Unexpected {0} identifier. An {0} identifier is not a valid {1}", result, case)
     } else {
-        format!(
-            "Unexpected {0} identifier. A {0} identifier is not a valid {1}",
-            result, case
-        )
+        format!("Unexpected {0} identifier. A {0} identifier is not a valid {1}", result, case)
     };
     diag!(NameResolution::NamePositionMismatch, (loc, unexpected_msg),)
 }
 
 fn unbound_module_error(name: Name) -> Diagnostic {
-    diag!(
-        NameResolution::UnboundModule,
-        (name.loc, format!("Unbound module alias '{}'", name))
-    )
+    diag!(NameResolution::UnboundModule, (name.loc, format!("Unbound module alias '{}'", name)))
 }
 
 fn access_chain_resolution_error(result: AccessChainNameResult) -> Diagnostic {
     if let AccessChainNameResult::ResolutionFailure(inner, reason) = result {
         let loc = inner.loc();
         let msg = match reason {
-            AccessChainFailure::InvalidKind(kind) => format!(
-                "Expected {} in this position, not {}",
-                kind,
-                inner.err_name()
-            ),
+            AccessChainFailure::InvalidKind(kind) => {
+                format!("Expected {} in this position, not {}", kind, inner.err_name())
+            }
             AccessChainFailure::UnresolvedAlias(name) => {
                 format!("Could not resolve the name '{}'", name)
             }
         };
         diag!(NameResolution::NamePositionMismatch, (loc, msg))
     } else {
-        ice!((
-            result.loc(),
-            "ICE compiler miscalled access chain resolution error handler"
-        ))
+        ice!((result.loc(), "ICE compiler miscalled access chain resolution error handler"))
     }
 }
 
@@ -833,10 +778,7 @@ pub struct LegacyPathExpander {
 
 impl LegacyPathExpander {
     pub fn new() -> LegacyPathExpander {
-        LegacyPathExpander {
-            aliases: legacy_aliases::AliasMap::new(),
-            old_alias_maps: vec![],
-        }
+        LegacyPathExpander { aliases: legacy_aliases::AliasMap::new(), old_alias_maps: vec![] }
     }
 }
 
@@ -846,14 +788,12 @@ impl PathExpander for LegacyPathExpander {
         loc: Loc,
         new_scope: AliasMapBuilder,
     ) -> Result<Vec<UnnecessaryAlias>, Box<Diagnostic>> {
-        self.old_alias_maps
-            .push(self.aliases.add_and_shadow_all(loc, new_scope)?);
+        self.old_alias_maps.push(self.aliases.add_and_shadow_all(loc, new_scope)?);
         Ok(vec![])
     }
 
     fn push_type_parameters(&mut self, tparams: Vec<&Name>) {
-        self.old_alias_maps
-            .push(self.aliases.shadow_for_type_parameters(tparams));
+        self.old_alias_maps.push(self.aliases.shadow_for_type_parameters(tparams));
     }
 
     fn pop_alias_scope(&mut self) -> AliasSet {
@@ -942,8 +882,7 @@ impl PathExpander for LegacyPathExpander {
                     }
                 }
                 PV::ModuleAccess(ma) => EV::ModuleAccess(
-                    self.name_access_chain_to_module_access(context, Access::Type, ma)?
-                        .access,
+                    self.name_access_chain_to_module_access(context, Access::Type, ma)?.access,
                 ),
             },
         ))
@@ -1107,10 +1046,7 @@ impl PathExpander for LegacyPathExpander {
                     None => {
                         context.env.add_diag(diag!(
                             NameResolution::UnboundModule,
-                            (
-                                single.name.loc,
-                                format!("Unbound module alias '{}'", single.name)
-                            ),
+                            (single.name.loc, format!("Unbound module alias '{}'", single.name)),
                         ));
                         None
                     }
@@ -1122,17 +1058,12 @@ impl PathExpander for LegacyPathExpander {
                 ice_assert!(context.env, path.is_macro().is_none(), loc, "Found macro");
                 match (&path.root.name, &path.entries[..]) {
                     (ln, [n]) => {
-                        let pmident_ = P::ModuleIdent_ {
-                            address: *ln,
-                            module: ModuleName(n.name),
-                        };
+                        let pmident_ = P::ModuleIdent_ { address: *ln, module: ModuleName(n.name) };
                         Some(module_ident(context, sp(loc, pmident_)))
                     }
                     // Error cases
                     (_ln, []) => {
-                        context
-                            .env
-                            .add_diag(ice!((loc, "Found path with no path entries")));
+                        context.env.add_diag(ice!((loc, "Found path with no path entries")));
                         None
                     }
                     (ln, [n, m, ..]) => {
@@ -1142,10 +1073,7 @@ impl PathExpander for LegacyPathExpander {
                             n.name.loc.end() as usize,
                         );
                         // Process the module ident just for errors
-                        let pmident_ = P::ModuleIdent_ {
-                            address: *ln,
-                            module: ModuleName(n.name),
-                        };
+                        let pmident_ = P::ModuleIdent_ { address: *ln, module: ModuleName(n.name) };
                         let _ = module_ident(context, sp(ident_loc, pmident_));
                         context.env.add_diag(diag!(
                             NameResolution::NamePositionMismatch,
@@ -1170,18 +1098,13 @@ fn unexpected_address_module_error(loc: Loc, nloc: Loc, access: Access) -> Diagn
         Access::Pattern => "pattern constructor",
         Access::Module => {
             return ice!(
-                (
-                    loc,
-                    "ICE expected a module name and got one, but tried to report an error"
-                ),
+                (loc, "ICE expected a module name and got one, but tried to report an error"),
                 (nloc, "Name location")
             );
         }
     };
-    let unexpected_msg = format!(
-        "Unexpected module identifier. A module identifier is not a valid {}",
-        case
-    );
+    let unexpected_msg =
+        format!("Unexpected module identifier. A module identifier is not a valid {}", case);
     diag!(
         NameResolution::NamePositionMismatch,
         (loc, unexpected_msg),

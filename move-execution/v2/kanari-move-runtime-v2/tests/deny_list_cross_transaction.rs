@@ -98,11 +98,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &runtime,
         &module_id,
         "add",
-        vec![
-            object_arg(DENY_LIST_ID)?,
-            object_arg(&cap_id)?,
-            bcs::to_bytes(&subject)?,
-        ],
+        vec![object_arg(DENY_LIST_ID)?, object_arg(&cap_id)?, bcs::to_bytes(&subject)?],
         vec![cap_input()],
     )
     .context("deny add")?;
@@ -139,11 +135,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         &rt_read,
         &module_id,
         "remove",
-        vec![
-            object_arg(DENY_LIST_ID)?,
-            object_arg(&cap_id)?,
-            bcs::to_bytes(&subject)?,
-        ],
+        vec![object_arg(DENY_LIST_ID)?, object_arg(&cap_id)?, bcs::to_bytes(&subject)?],
         vec![cap_input()],
     )
     .context("deny remove")?;
@@ -157,11 +149,7 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
         "removed address should no longer be contained"
     );
     assert_eq!(
-        view_auto(
-            &rt_after_remove,
-            "contains_auto",
-            vec![bcs::to_bytes(&subject)?],
-        )?,
+        view_auto(&rt_after_remove, "contains_auto", vec![bcs::to_bytes(&subject)?],)?,
         JsonValue::from(0u64),
         "singleton borrow should see the removal without an object input"
     );
@@ -278,16 +266,13 @@ fn assert_fixture_does_not_compile(
     failure_message: &str,
 ) -> Result<()> {
     let sentinel = format!("{package}-compile-child");
-    let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("move_packages")
-        .join(package);
+    let package_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("move_packages").join(package);
 
     if is_child(&sentinel) {
         // Child: exit 0 only if the fixture compiles (which means it leaked).
-        let compiled = BuildConfig::default()
-            .compile_package(&package_dir, &mut Vec::new())
-            .is_ok();
+        let compiled =
+            BuildConfig::default().compile_package(&package_dir, &mut Vec::new()).is_ok();
         std::process::exit(i32::from(!compiled));
     }
 
@@ -307,10 +292,7 @@ fn assert_fixture_does_not_compile(
         "child for fixture {package} did not report a visibility rejection; \
          the negative test is not exercising what it claims. stderr:\n{stderr}"
     );
-    assert!(
-        !status.status.success(),
-        "{failure_message} (fixture: {package})"
-    );
+    assert!(!status.status.success(), "{failure_message} (fixture: {package})");
     Ok(())
 }
 
@@ -417,22 +399,15 @@ fn create_test_package() -> Result<PathBuf> {
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
-    fs::write(
-        package_dir
-            .join("sources")
-            .join(format!("{}.move", MODULE_NAME)),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join(format!("{}.move", MODULE_NAME)), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

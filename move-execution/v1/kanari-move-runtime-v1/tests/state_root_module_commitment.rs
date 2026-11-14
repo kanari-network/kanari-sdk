@@ -6,9 +6,7 @@ fn indexed_module_bytecode_changes_canonical_state_root() -> Result<()> {
     let state = StateManager::new_in_memory();
     let module_key = b"module:0x1:AuditModule";
 
-    state
-        .store
-        .save(b"module_index", &vec!["module:0x1:AuditModule".to_string()])?;
+    state.store.save(b"module_index", &vec!["module:0x1:AuditModule".to_string()])?;
     state.store.save(module_key, &vec![1u8, 2, 3])?;
     let first_root = state.compute_state_root();
 
@@ -27,9 +25,7 @@ fn orphan_module_key_does_not_enter_canonical_state_root() -> Result<()> {
     let state = StateManager::new_in_memory();
     let before = state.compute_state_root();
 
-    state
-        .store
-        .save(b"module:0x1:UnindexedLocalModule", &vec![9u8, 9, 9])?;
+    state.store.save(b"module:0x1:UnindexedLocalModule", &vec![9u8, 9, 9])?;
 
     assert_eq!(
         before,

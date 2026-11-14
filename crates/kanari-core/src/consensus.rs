@@ -89,11 +89,8 @@ impl Checkpoint {
     }
 
     pub fn hash(&self) -> Result<Vec<u8>> {
-        let tx_hashes: Vec<Vec<u8>> = self
-            .transactions
-            .iter()
-            .map(|tx| tx.transaction_hash().to_vec())
-            .collect();
+        let tx_hashes: Vec<Vec<u8>> =
+            self.transactions.iter().map(|tx| tx.transaction_hash().to_vec()).collect();
         let serialized = if self.hash_version == 0 {
             bcs::to_bytes(&(
                 self.sequence,

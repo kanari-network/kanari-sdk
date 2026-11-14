@@ -26,10 +26,7 @@ struct Block {
 
 #[derive(Copy, Clone, Debug)]
 pub enum BlockContent {
-    Basic {
-        lower: CodeOffset,
-        upper: CodeOffset,
-    },
+    Basic { lower: CodeOffset, upper: CodeOffset },
     Dummy,
 }
 
@@ -44,11 +41,7 @@ const DUMMY_EXIT: BlockId = 1;
 
 impl StacklessControlFlowGraph {
     pub fn new_forward(code: &[Bytecode]) -> Self {
-        Self {
-            entry_block_id: DUMMY_ENTRANCE,
-            blocks: Self::collect_blocks(code),
-            backward: false,
-        }
+        Self { entry_block_id: DUMMY_ENTRANCE, blocks: Self::collect_blocks(code), backward: false }
     }
 
     /// If from_all_blocks is false, perform backward analysis only from blocks that may exit.
@@ -81,10 +74,7 @@ impl StacklessControlFlowGraph {
                 .map(|(block_id, predecessors)| {
                     (
                         block_id,
-                        Block {
-                            successors: predecessors,
-                            content: blocks[&block_id].content,
-                        },
+                        Block { successors: predecessors, content: blocks[&block_id].content },
                     )
                 })
                 .collect(),
@@ -99,36 +89,14 @@ impl StacklessControlFlowGraph {
         let entry_bb = 2 as BlockId;
         successors.insert(0, entry_bb);
         successors.insert(1, DUMMY_EXIT);
-        let bb = BlockContent::Basic {
-            lower: 0,
-            upper: code.len() as u16 - 1,
-        };
-        blocks.insert(
-            entry_bb,
-            Block {
-                successors,
-                content: bb,
-            },
-        );
+        let bb = BlockContent::Basic { lower: 0, upper: code.len() as u16 - 1 };
+        blocks.insert(entry_bb, Block { successors, content: bb });
         blocks.insert(
             DUMMY_ENTRANCE,
-            Block {
-                successors: vec![entry_bb],
-                content: BlockContent::Dummy,
-            },
+            Block { successors: vec![entry_bb], content: BlockContent::Dummy },
         );
-        blocks.insert(
-            DUMMY_EXIT,
-            Block {
-                successors: Vec::new(),
-                content: BlockContent::Dummy,
-            },
-        );
-        Self {
-            entry_block_id: DUMMY_ENTRANCE,
-            blocks,
-            backward: false,
-        }
+        blocks.insert(DUMMY_EXIT, Block { successors: Vec::new(), content: BlockContent::Dummy });
+        Self { entry_block_id: DUMMY_ENTRANCE, blocks, backward: false }
     }
 
     fn collect_blocks(code: &[Bytecode]) -> Map<BlockId, Block> {
@@ -164,19 +132,10 @@ impl StacklessControlFlowGraph {
                 if code[co_pc as usize].is_exit() {
                     successors.push(DUMMY_EXIT);
                 }
-                let bb = BlockContent::Basic {
-                    lower: block_entry,
-                    upper: co_pc,
-                };
+                let bb = BlockContent::Basic { lower: block_entry, upper: co_pc };
                 let key = *offset_to_key.entry(block_entry).or_insert(bcounter);
                 bcounter = std::cmp::max(key + 1, bcounter);
-                blocks.insert(
-                    key,
-                    Block {
-                        successors,
-                        content: bb,
-                    },
-                );
+                blocks.insert(key, Block { successors, content: bb });
                 block_entry = co_pc + 1;
             }
         }
@@ -184,18 +143,9 @@ impl StacklessControlFlowGraph {
         let entry_bb = *offset_to_key.get(&0).unwrap();
         blocks.insert(
             DUMMY_ENTRANCE,
-            Block {
-                successors: vec![entry_bb],
-                content: BlockContent::Dummy,
-            },
+            Block { successors: vec![entry_bb], content: BlockContent::Dummy },
         );
-        blocks.insert(
-            DUMMY_EXIT,
-            Block {
-                successors: Vec::new(),
-                content: BlockContent::Dummy,
-            },
-        );
+        blocks.insert(DUMMY_EXIT, Block { successors: Vec::new(), content: BlockContent::Dummy });
         blocks
     }
 
@@ -239,11 +189,7 @@ impl StacklessControlFlowGraph {
     }
 
     pub fn exit_block(&self) -> BlockId {
-        if self.backward {
-            DUMMY_ENTRANCE
-        } else {
-            DUMMY_EXIT
-        }
+        if self.backward { DUMMY_ENTRANCE } else { DUMMY_EXIT }
     }
 
     pub fn instr_indexes(

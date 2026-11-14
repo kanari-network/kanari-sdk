@@ -102,11 +102,7 @@ pub struct AstWriter {
 
 impl AstWriter {
     fn new(verbose: bool) -> Self {
-        Self {
-            verbose,
-            margin: 0,
-            lines: vec![String::new()],
-        }
+        Self { verbose, margin: 0, lines: vec![String::new()] }
     }
 
     fn normal() -> Self {
@@ -249,11 +245,7 @@ pub struct DisplayWrapper<'a, T: AstDebug>(pub &'a T, /* verbose */ pub bool);
 
 impl<T: AstDebug> Display for DisplayWrapper<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut writer = if self.1 {
-            AstWriter::verbose()
-        } else {
-            AstWriter::normal()
-        };
+        let mut writer = if self.1 { AstWriter::verbose() } else { AstWriter::normal() };
         self.0.ast_debug(&mut writer);
         writer.fmt(f)
     }

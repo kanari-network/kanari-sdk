@@ -66,9 +66,8 @@ impl Fanout {
             .with_context(|| format!("Invalid --amount {:?}", self.amount))?;
         ensure!(amount_mist > 0, "--amount must be greater than 0 Mist");
 
-        let total_mist = amount_mist
-            .checked_mul(u64::from(self.count))
-            .context("fanout amount overflow")?;
+        let total_mist =
+            amount_mist.checked_mul(u64::from(self.count)).context("fanout amount overflow")?;
         let client = RpcClient::new(&rpc);
         check_node_connection(&client, &rpc).await?;
         let sender_for_tx = get_sender_for_tx(&wallet, &from_addr)?;
@@ -148,10 +147,7 @@ impl Fanout {
             )
             .await?;
             print_transaction_status("  Final: ", &committed);
-            ensure!(
-                committed.success && committed.committed,
-                "fanout did not commit successfully"
-            );
+            ensure!(committed.success && committed.committed, "fanout did not commit successfully");
         }
         Ok(())
     }

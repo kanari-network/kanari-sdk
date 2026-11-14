@@ -447,9 +447,8 @@ impl MoveRuntime {
                 Self::coin_recipient_candidate(&created.type_, created.owner)
             })
             .collect();
-        for obj in transferred
-            .iter()
-            .filter(|obj| obj.should_persist && !obj.is_frozen && !obj.is_shared)
+        for obj in
+            transferred.iter().filter(|obj| obj.should_persist && !obj.is_frozen && !obj.is_shared)
         {
             if let Some(pair) = Self::coin_recipient_candidate(&obj.object_type, obj.recipient) {
                 targets.push(pair);
@@ -472,9 +471,8 @@ impl MoveRuntime {
                 Self::deny_list_singleton_full_id(),
             );
         };
-        let (resolver, _resolver_trace) = self
-            .resolver
-            .tracing_clone_with_overlay(state_overlay.clone());
+        let (resolver, _resolver_trace) =
+            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
         let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
         let coin_module = ModuleId::new(
             kanari_types::address::Address::kanari_system_account_address(),
@@ -603,9 +601,8 @@ impl MoveRuntime {
                 Self::deny_list_singleton_full_id(),
             );
         };
-        let (resolver, _resolver_trace) = self
-            .resolver
-            .tracing_clone_with_overlay(state_overlay.clone());
+        let (resolver, _resolver_trace) =
+            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
         let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
         let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
         for (collection, recipient) in targets {

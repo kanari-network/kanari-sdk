@@ -44,10 +44,7 @@ impl<'env> Context<'env> {
                 (constant.loc, v_opt, constant.attributes.clone())
             })
         });
-        Self {
-            env: compilation_env,
-            constants,
-        }
+        Self { env: compilation_env, constants }
     }
 
     fn resolve_address(&self, addr: &Address) -> NumericalAddress {
@@ -190,11 +187,7 @@ fn build_test_info<'func>(
         Some(abort_attribute) => parse_failure_attribute(context, abort_attribute),
     };
 
-    Some(TestCase {
-        test_name: fn_name.to_string(),
-        arguments,
-        expected_failure,
-    })
+    Some(TestCase { test_name: fn_name.to_string(), arguments, expected_failure })
 }
 
 //***************************************************************************
@@ -311,13 +304,9 @@ fn parse_failure_attribute(
                 let invalid_attr_msg = format!(
                     "Invalid #[expected_failure(...)] attribute, expected 1 failure kind but found {}. Expected one of: {}",
                     expected_failure_kind_vec.len(),
-                    TestingAttribute::expected_failure_cases()
-                        .to_vec()
-                        .join(", ")
+                    TestingAttribute::expected_failure_cases().to_vec().join(", ")
                 );
-                context
-                    .env
-                    .add_diag(diag!(Attributes::InvalidValue, (*aloc, invalid_attr_msg)));
+                context.env.add_diag(diag!(Attributes::InvalidValue, (*aloc, invalid_attr_msg)));
                 return None;
             }
             let (expected_failure_kind, (attr_loc, attr)) =
@@ -440,10 +429,8 @@ fn parse_failure_attribute(
                     let Some(major_status) =
                         major_status_u64.and_then(|x| StatusCode::try_from(x).ok())
                     else {
-                        let bad_value = format!(
-                            "Invalid value for '{}'",
-                            TestingAttribute::MAJOR_STATUS_NAME,
-                        );
+                        let bad_value =
+                            format!("Invalid value for '{}'", TestingAttribute::MAJOR_STATUS_NAME,);
                         let no_code =
                             format!("No status code associated with value '{move_error_type}'");
                         context.env.add_diag(diag!(
@@ -483,13 +470,9 @@ fn parse_failure_attribute(
             };
             // warn for any remaining attrs
             for (_, (loc, _)) in attrs {
-                let msg = format!(
-                    "Unused attribute for {}",
-                    TestingAttribute::ExpectedFailure.name()
-                );
-                context
-                    .env
-                    .add_diag(diag!(UnusedItem::Attribute, (loc, msg)));
+                let msg =
+                    format!("Unused attribute for {}", TestingAttribute::ExpectedFailure.name());
+                context.env.add_diag(diag!(UnusedItem::Attribute, (loc, msg)));
             }
             Some(ExpectedFailure::ExpectedWithError(ExpectedMoveError(
                 status_code,
@@ -578,10 +561,7 @@ fn convert_constant_value_u64_constant_or_value(
 ) -> Option<(Loc, Option<ModuleId>, MoveErrorType)> {
     use E::AttributeValue_ as EAV;
     let (vloc, module, member) = match value {
-        sp!(
-            vloc,
-            EAV::ModuleAccess(sp!(_, ModuleAccess_::ModuleAccess(m, n)))
-        ) => (*vloc, m, n),
+        sp!(vloc, EAV::ModuleAccess(sp!(_, ModuleAccess_::ModuleAccess(m, n)))) => (*vloc, m, n),
         _ => {
             let (vloc, u) = convert_attribute_value_u64(context, loc, value)?;
             return Some((vloc, None, MoveErrorType::Code(u)));
@@ -594,10 +574,7 @@ fn convert_constant_value_u64_constant_or_value(
             context.env.add_diag(diag!(
                 Attributes::InvalidValue,
                 (vloc, INVALID_VALUE),
-                (
-                    module.loc,
-                    format!("Unbound constant '{member}' in module '{module}'")
-                ),
+                (module.loc, format!("Unbound constant '{member}' in module '{module}'")),
             ));
             return None;
         }
@@ -635,9 +612,7 @@ fn convert_module_id(context: &mut Context, vloc: Loc, module: &ModuleIdent) -> 
     }
     let sp!(mloc, ModuleIdent_ { address, module }) = module;
     let addr = match address {
-        Address::Numerical {
-            value: sp!(_, a), ..
-        } => a.into_inner(),
+        Address::Numerical { value: sp!(_, a), .. } => a.into_inner(),
         Address::NamedUnassigned(addr) => {
             context.env.add_diag(diag!(
                 Attributes::InvalidValue,
@@ -693,9 +668,9 @@ fn convert_attribute_value_to_move_value(
     use E::{AttributeValue_ as EAV, Value_ as EV};
     match value {
         // Only addresses are allowed
-        EAV::Value(sp!(_, EV::Address(a))) => Some(MoveValue::Address(MoveAddress::new(
-            context.resolve_address(a).into_bytes(),
-        ))),
+        EAV::Value(sp!(_, EV::Address(a))) => {
+            Some(MoveValue::Address(MoveAddress::new(context.resolve_address(a).into_bytes())))
+        }
         _ => None,
     }
 }
@@ -707,13 +682,8 @@ fn check_location<T>(
     location: Option<T>,
 ) -> Option<T> {
     if location.is_none() {
-        let msg = format!(
-            "Expected '{}' following '{attr}'",
-            TestingAttribute::ERROR_LOCATION
-        );
-        context
-            .env
-            .add_diag(diag!(Attributes::InvalidUsage, (loc, msg)));
+        let msg = format!("Expected '{}' following '{attr}'", TestingAttribute::ERROR_LOCATION);
+        context.env.add_diag(diag!(Attributes::InvalidUsage, (loc, msg)));
     }
     location
 }

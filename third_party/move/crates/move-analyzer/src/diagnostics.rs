@@ -56,10 +56,8 @@ pub fn lsp_diagnostics(
                         .collect(),
                 )
             };
-            lsp_diagnostics
-                .entry(fpath.to_path_buf())
-                .or_insert_with(Vec::new)
-                .push(Diagnostic::new(
+            lsp_diagnostics.entry(fpath.to_path_buf()).or_insert_with(Vec::new).push(
+                Diagnostic::new(
                     range,
                     Some(severity(*s)),
                     None,
@@ -67,7 +65,8 @@ pub fn lsp_diagnostics(
                     msg.to_string(),
                     related_info_opt,
                     None,
-                ));
+                ),
+            );
         }
     }
     lsp_diagnostics

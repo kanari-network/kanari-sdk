@@ -72,12 +72,8 @@ impl<'a> Context<'a> {
         datatype_declarations: &DatatypeDeclarations,
         function_declarations: &HashMap<(ModuleIdent, FunctionName), FunctionDeclaration>,
     ) -> (Vec<IR::ImportDefinition>, Vec<IR::ModuleDependency>) {
-        let Context {
-            current_module: _current_module,
-            mut seen_datatypes,
-            seen_functions,
-            ..
-        } = self;
+        let Context { current_module: _current_module, mut seen_datatypes, seen_functions, .. } =
+            self;
         let mut module_dependencies = BTreeMap::new();
         Self::function_dependencies(
             function_declarations,
@@ -101,11 +97,7 @@ impl<'a> Context<'a> {
             imports.push(IR::ImportDefinition::new(ir_ident, Some(ir_name)));
             ordered_dependencies.push((
                 dependency_order,
-                IR::ModuleDependency {
-                    name: ir_name,
-                    structs,
-                    functions,
-                },
+                IR::ModuleDependency { name: ir_name, structs, functions },
             ));
         }
         ordered_dependencies.sort_by_key(|(ordering, _)| *ordering);
@@ -121,11 +113,7 @@ impl<'a> Context<'a> {
         module: ModuleIdent,
         datatype_dep: IR::StructDependency,
     ) {
-        module_dependencies
-            .entry(module)
-            .or_insert_with(|| (vec![], vec![]))
-            .0
-            .push(datatype_dep);
+        module_dependencies.entry(module).or_insert_with(|| (vec![], vec![])).0.push(datatype_dep);
     }
 
     fn insert_function_dependency(
@@ -136,11 +124,7 @@ impl<'a> Context<'a> {
         module: ModuleIdent,
         function_dep: IR::FunctionDependency,
     ) {
-        module_dependencies
-            .entry(module)
-            .or_insert_with(|| (vec![], vec![]))
-            .1
-            .push(function_dep);
+        module_dependencies.entry(module).or_insert_with(|| (vec![], vec![])).1.push(function_dep);
     }
 
     fn datatype_dependencies(
@@ -165,11 +149,7 @@ impl<'a> Context<'a> {
         let key = (*module, sname);
         let (abilities, type_formals) = datatype_declarations.get(&key).unwrap().clone();
         let name = Self::translate_datatype_name(sname);
-        IR::StructDependency {
-            abilities,
-            name,
-            type_formals,
-        }
+        IR::StructDependency { abilities, name, type_formals }
     }
 
     fn function_dependencies(
@@ -193,23 +173,12 @@ impl<'a> Context<'a> {
         function_declarations: &HashMap<(ModuleIdent, FunctionName), FunctionDeclaration>,
         module: &ModuleIdent,
         fname: FunctionName,
-    ) -> (
-        BTreeSet<(ModuleIdent, DatatypeName)>,
-        IR::FunctionDependency,
-    ) {
+    ) -> (BTreeSet<(ModuleIdent, DatatypeName)>, IR::FunctionDependency) {
         let key = (*module, fname);
-        let FunctionDeclaration {
-            seen_datatypes,
-            signature,
-        } = function_declarations.get(&key).unwrap();
+        let FunctionDeclaration { seen_datatypes, signature } =
+            function_declarations.get(&key).unwrap();
         let name = Self::translate_function_name(fname);
-        (
-            seen_datatypes.clone(),
-            IR::FunctionDependency {
-                name,
-                signature: signature.clone(),
-            },
-        )
+        (seen_datatypes.clone(), IR::FunctionDependency { name, signature: signature.clone() })
     }
 
     //**********************************************************************************************
@@ -218,9 +187,7 @@ impl<'a> Context<'a> {
 
     fn ir_module_alias(sp!(_, ModuleIdent_ { address, module }): &ModuleIdent) -> IR::ModuleName {
         let s = match address {
-            Address::Numerical {
-                value: sp!(_, a_), ..
-            } => format!("{:X}::{}", a_, module),
+            Address::Numerical { value: sp!(_, a_), .. } => format!("{:X}::{}", a_, module),
             Address::NamedUnassigned(name) => format!("{}::{}", name, module),
         };
         IR::ModuleName(s.into())
@@ -259,10 +226,7 @@ impl<'a> Context<'a> {
     //**********************************************************************************************
 
     pub fn struct_definition_name(&self, m: &ModuleIdent, s: DatatypeName) -> IR::StructName {
-        assert!(
-            self.is_current_module(m),
-            "ICE invalid struct definition lookup"
-        );
+        assert!(self.is_current_module(m), "ICE invalid struct definition lookup");
         Self::translate_datatype_name(s)
     }
 
@@ -282,10 +246,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn function_definition_name(&self, m: &ModuleIdent, f: FunctionName) -> IR::FunctionName {
-        assert!(
-            self.current_module == Some(m),
-            "ICE invalid function definition lookup"
-        );
+        assert!(self.current_module == Some(m), "ICE invalid function definition lookup");
         Self::translate_function_name(f)
     }
 
@@ -305,10 +266,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn constant_definition_name(&self, m: &ModuleIdent, f: ConstantName) -> IR::ConstantName {
-        assert!(
-            self.current_module == Some(m),
-            "ICE invalid constant definition lookup"
-        );
+        assert!(self.current_module == Some(m), "ICE invalid constant definition lookup");
         Self::translate_constant_name(f)
     }
 

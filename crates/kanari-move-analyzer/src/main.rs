@@ -52,11 +52,7 @@ fn redirect_stderr_to_log() {
     }
 
     let path = std::env::temp_dir().join("kanari-move-analyzer.log");
-    let Ok(file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    else {
+    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
         return;
     };
     unsafe {
@@ -80,14 +76,8 @@ fn main() {
     // stdio is used to communicate Language Server Protocol requests and responses.
     // stderr is used for logging (and, when Visual Studio Code is used to communicate with this
     // server, it captures this output in a dedicated "output channel").
-    let exe = std::env::current_exe()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-    eprintln!(
-        "Starting language server '{}' communicating via stdio...",
-        exe
-    );
+    let exe = std::env::current_exe().unwrap().to_string_lossy().to_string();
+    eprintln!("Starting language server '{}' communicating via stdio...", exe);
 
     // Kanari: repair ~/.move caches before symbolication so a stale
     // index.lock does not suppress all diagnostics.
@@ -100,43 +90,29 @@ fn main() {
 
     let (connection, io_threads) = Connection::stdio();
     let symbols = Arc::new(Mutex::new(symbols::empty_symbols()));
-    let pkg_deps = Arc::new(Mutex::new(
-        BTreeMap::<PathBuf, symbols::PrecompiledPkgDeps>::new(),
-    ));
+    let pkg_deps = Arc::new(Mutex::new(BTreeMap::<PathBuf, symbols::PrecompiledPkgDeps>::new()));
     let ide_files_root: VfsPath = MemoryFS::new().into();
-    let context = Context {
-        connection,
-        symbols: symbols.clone(),
-    };
+    let context = Context { connection, symbols: symbols.clone() };
 
-    let (id, client_response) = context
-        .connection
-        .initialize_start()
-        .expect("could not start connection initialization");
+    let (id, client_response) =
+        context.connection.initialize_start().expect("could not start connection initialization");
 
     let capabilities = serde_json::to_value(lsp_types::ServerCapabilities {
         // The server receives notifications from the client as users open, close,
         // and modify documents.
-        text_document_sync: Some(TextDocumentSyncCapability::Options(
-            TextDocumentSyncOptions {
-                open_close: Some(true),
-                // TODO: We request that the language server client send us the entire text of any
-                // files that are modified. We ought to use the "incremental" sync kind, which would
-                // have clients only send us what has changed and where, thereby requiring far less
-                // data be sent "over the wire." However, to do so, our language server would need
-                // to be capable of applying deltas to its view of the client's open files. See the
-                // 'move_analyzer::vfs' module for details.
-                change: Some(TextDocumentSyncKind::FULL),
-                will_save: None,
-                will_save_wait_until: None,
-                save: Some(
-                    SaveOptions {
-                        include_text: Some(true),
-                    }
-                    .into(),
-                ),
-            },
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
+            open_close: Some(true),
+            // TODO: We request that the language server client send us the entire text of any
+            // files that are modified. We ought to use the "incremental" sync kind, which would
+            // have clients only send us what has changed and where, thereby requiring far less
+            // data be sent "over the wire." However, to do so, our language server would need
+            // to be capable of applying deltas to its view of the client's open files. See the
+            // 'move_analyzer::vfs' module for details.
+            change: Some(TextDocumentSyncKind::FULL),
+            will_save: None,
+            will_save_wait_until: None,
+            save: Some(SaveOptions { include_text: Some(true) }.into()),
+        })),
         selection_range_provider: None,
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         // The server provides completions as a user is typing.
@@ -150,9 +126,7 @@ fn main() {
             // completions in that case.)
             trigger_characters: Some(vec![":".to_string(), ".".to_string(), "{".to_string()]),
             all_commit_characters: None,
-            work_done_progress_options: WorkDoneProgressOptions {
-                work_done_progress: None,
-            },
+            work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
             completion_item: None,
         }),
         definition_provider: Some(OneOf::Left(symbols::DEFS_AND_REFS_SUPPORT)),
@@ -164,9 +138,7 @@ fn main() {
         code_action_provider: Some(lsp_types::CodeActionProviderCapability::Simple(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
         document_formatting_provider: Some(lsp_types::OneOf::Left(true)),
-        code_lens_provider: Some(lsp_types::CodeLensOptions {
-            resolve_provider: None,
-        }),
+        code_lens_provider: Some(lsp_types::CodeLensOptions { resolve_provider: None }),
         ..Default::default()
     })
     .expect("could not serialize server capabilities");
@@ -369,11 +341,7 @@ fn on_request(
             lsp_server::ErrorCode::InvalidRequest as i32,
             "a shutdown request already received by the server".to_string(),
         );
-        if let Err(err) = context
-            .connection
-            .sender
-            .send(lsp_server::Message::Response(response))
-        {
+        if let Err(err) = context.connection.sender.send(lsp_server::Message::Response(response)) {
             eprintln!("could not send shutdown response: {:?}", err);
         }
         return true;
@@ -398,10 +366,8 @@ fn on_request(
                         context: None,
                     }
                 });
-            let text = read_uri_text(
-                &ide_files_root,
-                &params.text_document_position.text_document.uri,
-            );
+            let text =
+                read_uri_text(&ide_files_root, &params.text_document_position.text_document.uri);
             let items = {
                 let file = kanari_move_analyzer::completion::uri_path(
                     &params.text_document_position.text_document.uri,
@@ -418,10 +384,7 @@ fn on_request(
                 request.id.clone(),
                 serde_json::to_value(items).unwrap_or(serde_json::Value::Null),
             );
-            let _ = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response));
+            let _ = context.connection.sender.send(lsp_server::Message::Response(response));
         }
         lsp_types::request::GotoDefinition::METHOD => {
             symbols::on_go_to_def_request(context, request, &context.symbols.lock().unwrap());
@@ -467,10 +430,7 @@ fn on_request(
                 request.id.clone(),
                 serde_json::to_value(actions).unwrap_or(serde_json::Value::Null),
             );
-            let _ = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response));
+            let _ = context.connection.sender.send(lsp_server::Message::Response(response));
         }
         lsp_types::request::InlayHintRequest::METHOD => {
             let params: lsp_types::InlayHintParams = serde_json::from_value(request.params.clone())
@@ -495,10 +455,7 @@ fn on_request(
                 request.id.clone(),
                 serde_json::to_value(hints).unwrap_or(serde_json::Value::Null),
             );
-            let _ = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response));
+            let _ = context.connection.sender.send(lsp_server::Message::Response(response));
         }
         lsp_types::request::Formatting::METHOD => {
             let params: lsp_types::DocumentFormattingParams =
@@ -524,10 +481,7 @@ fn on_request(
                 request.id.clone(),
                 serde_json::to_value(edits).unwrap_or(serde_json::Value::Null),
             );
-            let _ = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response));
+            let _ = context.connection.sender.send(lsp_server::Message::Response(response));
         }
         lsp_types::request::CodeLensRequest::METHOD => {
             let params: lsp_types::CodeLensParams = serde_json::from_value(request.params.clone())
@@ -544,18 +498,13 @@ fn on_request(
                 request.id.clone(),
                 serde_json::to_value(lenses).unwrap_or(serde_json::Value::Null),
             );
-            let _ = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response));
+            let _ = context.connection.sender.send(lsp_server::Message::Response(response));
         }
         lsp_types::request::Shutdown::METHOD => {
             let response =
                 lsp_server::Response::new_ok(request.id.clone(), serde_json::Value::Null);
-            if let Err(err) = context
-                .connection
-                .sender
-                .send(lsp_server::Message::Response(response))
+            if let Err(err) =
+                context.connection.sender.send(lsp_server::Message::Response(response))
             {
                 eprintln!("could not send shutdown response: {:?}", err);
             }

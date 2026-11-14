@@ -122,27 +122,16 @@ pub fn shortest_cycle<'a, T: Ord + Hash>(
     dependency_graph: &DiGraphMap<&'a T, ()>,
     start: &'a T,
 ) -> Vec<&'a T> {
-    let shortest_path = dependency_graph
-        .neighbors(start)
-        .fold(None, |shortest_path, neighbor| {
-            let path_opt = petgraph_astar(
-                dependency_graph,
-                neighbor,
-                |finish| finish == start,
-                |_e| 1,
-                |_| 0,
-            );
-            match (shortest_path, path_opt) {
-                (p, None) | (None, p) => p,
-                (Some((acc_len, acc_path)), Some((cur_len, cur_path))) => {
-                    Some(if cur_len < acc_len {
-                        (cur_len, cur_path)
-                    } else {
-                        (acc_len, acc_path)
-                    })
-                }
+    let shortest_path = dependency_graph.neighbors(start).fold(None, |shortest_path, neighbor| {
+        let path_opt =
+            petgraph_astar(dependency_graph, neighbor, |finish| finish == start, |_e| 1, |_| 0);
+        match (shortest_path, path_opt) {
+            (p, None) | (None, p) => p,
+            (Some((acc_len, acc_path)), Some((cur_len, cur_path))) => {
+                Some(if cur_len < acc_len { (cur_len, cur_path) } else { (acc_len, acc_path) })
             }
-        });
+        }
+    });
     let (_, mut path) = shortest_path.unwrap();
     path.insert(0, start);
     path
@@ -264,10 +253,7 @@ impl CompilationEnv {
             sui_mode::typing::SuiTypeChecks.visitor(),
         ]);
         let known_filters_: BTreeMap<FilterName, BTreeSet<WarningFilter>> = BTreeMap::from([
-            (
-                FILTER_ALL.into(),
-                BTreeSet::from([WarningFilter::All(None)]),
-            ),
+            (FILTER_ALL.into(), BTreeSet::from([WarningFilter::All(None)])),
             (
                 FILTER_UNUSED.into(),
                 BTreeSet::from([WarningFilter::Category {
@@ -317,13 +303,7 @@ impl CompilationEnv {
             .flat_map(|(attr, all_filters)| {
                 all_filters.iter().flat_map(|(name, filters)| {
                     filters.iter().filter_map(|v| {
-                        if let WarningFilter::Code {
-                            prefix,
-                            category,
-                            code,
-                            ..
-                        } = v
-                        {
+                        if let WarningFilter::Code { prefix, category, code, .. } = v {
                             Some(((*prefix, *category, *code), (*attr, *name)))
                         } else {
                             None
@@ -369,9 +349,7 @@ impl CompilationEnv {
 
     pub fn add_diag(&mut self, mut diag: Diagnostic) {
         if diag.info().severity() <= Severity::NonblockingError
-            && self
-                .diags
-                .any_syntax_error_with_primary_loc(diag.primary_loc())
+            && self.diags.any_syntax_error_with_primary_loc(diag.primary_loc())
         {
             // do not report multiple diags for the same location (unless they are blocking) to
             // avoid noise that is likely to confuse the developer trying to localize the problem
@@ -454,12 +432,7 @@ impl CompilationEnv {
     /// Should only be called after compilation is finished
     pub fn take_final_warning_diags(&mut self) -> Diagnostics {
         let final_diags = self.take_final_diags();
-        debug_assert!(
-            final_diags
-                .max_severity()
-                .map(|s| s == Severity::Warning)
-                .unwrap_or(true)
-        );
+        debug_assert!(final_diags.max_severity().map(|s| s == Severity::Warning).unwrap_or(true));
         final_diags
     }
 
@@ -473,17 +446,11 @@ impl CompilationEnv {
     }
 
     fn is_filtered(&self, diag: &Diagnostic) -> bool {
-        self.warning_filter
-            .iter()
-            .rev()
-            .any(|filter| filter.is_filtered(diag))
+        self.warning_filter.iter().rev().any(|filter| filter.is_filtered(diag))
     }
 
     fn filter_for_dependency(&self) -> bool {
-        self.warning_filter
-            .iter()
-            .rev()
-            .any(|filter| filter.for_dependency())
+        self.warning_filter.iter().rev().any(|filter| filter.for_dependency())
     }
 
     pub fn known_filter_names(&self) -> impl IntoIterator<Item = FilterPrefix> + '_ {
@@ -516,18 +483,12 @@ impl CompilationEnv {
                     };
                     (prefix, Symbol::from(n))
                 }
-                WarningFilter::Code {
-                    prefix,
-                    category,
-                    code,
-                    name,
-                } => {
+                WarningFilter::Code { prefix, category, code, name } => {
                     let Some(n) = name else {
                         anyhow::bail!("A known Code warning filter must have a name specified");
                     };
                     let n = Symbol::from(n);
-                    self.known_filter_names
-                        .insert((prefix, category, code), (attr_name, n));
+                    self.known_filter_names.insert((prefix, category, code), (attr_name, n));
                     (prefix, n)
                 }
             };
@@ -578,9 +539,7 @@ impl CompilationEnv {
     }
 
     pub fn package_config(&self, package: Option<Symbol>) -> &PackageConfig {
-        package
-            .and_then(|p| self.package_configs.get(&p))
-            .unwrap_or(&self.default_config)
+        package.and_then(|p| self.package_configs.get(&p)).unwrap_or(&self.default_config)
     }
 
     pub fn set_primitive_type_definers(
@@ -622,11 +581,7 @@ impl Counter {
 //**************************************************************************************************
 
 pub fn format_delim<T: fmt::Display, I: IntoIterator<Item = T>>(items: I, delim: &str) -> String {
-    items
-        .into_iter()
-        .map(|item| format!("{}", item))
-        .collect::<Vec<_>>()
-        .join(delim)
+    items.into_iter().map(|item| format!("{}", item)).collect::<Vec<_>>().join(delim)
 }
 
 pub fn format_comma<T: fmt::Display, I: IntoIterator<Item = T>>(items: I) -> String {
@@ -704,31 +659,19 @@ impl Flags {
     }
 
     pub fn set_keep_testing_functions(self, value: bool) -> Self {
-        Self {
-            keep_testing_functions: value,
-            ..self
-        }
+        Self { keep_testing_functions: value, ..self }
     }
 
     pub fn set_sources_shadow_deps(self, sources_shadow_deps: bool) -> Self {
-        Self {
-            shadow: sources_shadow_deps,
-            ..self
-        }
+        Self { shadow: sources_shadow_deps, ..self }
     }
 
     pub fn set_warnings_are_errors(self, value: bool) -> Self {
-        Self {
-            warnings_are_errors: value,
-            ..self
-        }
+        Self { warnings_are_errors: value, ..self }
     }
 
     pub fn set_silence_warnings(self, value: bool) -> Self {
-        Self {
-            silence_warnings: value,
-            ..self
-        }
+        Self { silence_warnings: value, ..self }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -795,10 +738,7 @@ pub struct Visitors {
 impl Visitors {
     pub fn new(passes: Vec<cli::compiler::Visitor>) -> Self {
         use cli::compiler::Visitor;
-        let mut vs = Visitors {
-            typing: vec![],
-            abs_int: vec![],
-        };
+        let mut vs = Visitors { typing: vec![], abs_int: vec![] };
         for pass in passes {
             match pass {
                 Visitor::AbsIntVisitor(f) => vs.abs_int.push(RefCell::new(f)),
@@ -939,11 +879,7 @@ pub fn vfs_path_from_str(path: String, vfs_path: &VfsPath) -> Result<VfsPath, Vf
 
 impl IndexedPhysicalPackagePath {
     pub fn to_vfs_path(self, vfs_root: &VfsPath) -> Result<IndexedVfsPackagePath, VfsError> {
-        let IndexedPhysicalPackagePath {
-            package,
-            path,
-            named_address_map,
-        } = self;
+        let IndexedPhysicalPackagePath { package, path, named_address_map } = self;
 
         Ok(IndexedVfsPackagePath {
             package,
@@ -970,10 +906,8 @@ macro_rules! format_oxford_list {
                 format!($format_str, entries[1])
             ),
             _ => {
-                let entries = entries
-                    .iter()
-                    .map(|entry| format!($format_str, entry))
-                    .collect::<Vec<_>>();
+                let entries =
+                    entries.iter().map(|entry| format!($format_str, entry)).collect::<Vec<_>>();
                 if let Some((last, init)) = entries.split_last() {
                     let mut result = init.join(", ");
                     result.push_str(&format!(", {} {}", $sep, last));

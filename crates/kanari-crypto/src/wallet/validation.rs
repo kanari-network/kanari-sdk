@@ -14,9 +14,7 @@ pub(super) fn validate_wallet_secret_inputs(
     validate_storage_password(password)?;
 
     if private_key.is_empty() {
-        return Err(WalletError::EncryptionError(
-            "Empty private key not allowed".to_string(),
-        ));
+        return Err(WalletError::EncryptionError("Empty private key not allowed".to_string()));
     }
 
     Ok(())
@@ -24,9 +22,7 @@ pub(super) fn validate_wallet_secret_inputs(
 
 pub(super) fn validate_storage_password(password: &str) -> Result<(), WalletError> {
     if password.is_empty() {
-        return Err(WalletError::EncryptionError(
-            "Empty password not allowed".to_string(),
-        ));
+        return Err(WalletError::EncryptionError("Empty password not allowed".to_string()));
     }
 
     if password.len() < crate::MIN_RECOMMENDED_PASSWORD_LENGTH {

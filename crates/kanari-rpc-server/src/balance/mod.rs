@@ -29,11 +29,7 @@ fn get_token_decimals(state_guard: &StateManager, token_type: &str) -> Option<u8
 }
 
 fn extract_symbol(token_type: &str) -> String {
-    let inner = token_type
-        .split('<')
-        .next_back()
-        .unwrap_or(token_type)
-        .trim_end_matches('>');
+    let inner = token_type.split('<').next_back().unwrap_or(token_type).trim_end_matches('>');
 
     inner.split("::").last().unwrap_or(inner).to_string()
 }
@@ -46,14 +42,10 @@ fn build_balance_json(
     let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
     let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
 
-    let name = state_guard
-        .get_token_name(&token_type)
-        .unwrap_or(None)
-        .unwrap_or_else(|| symbol.clone());
+    let name =
+        state_guard.get_token_name(&token_type).unwrap_or(None).unwrap_or_else(|| symbol.clone());
 
-    let description = state_guard
-        .get_token_description(&token_type)
-        .unwrap_or(None);
+    let description = state_guard.get_token_description(&token_type).unwrap_or(None);
     let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
     serde_json::json!({
@@ -96,10 +88,7 @@ fn collect_fungible_asset_holders(
     // when the index hasn't been built yet (same results, slower).
     let candidates: Vec<AccountAddress> = if state_guard.token_holder_index_ready().unwrap_or(false)
     {
-        state_guard
-            .token_holder_set(&token_type)?
-            .into_iter()
-            .collect()
+        state_guard.token_holder_set(&token_type)?.into_iter().collect()
     } else {
         state_guard.owner_addresses()?
     };
@@ -131,10 +120,7 @@ fn collect_fungible_asset_holders(
         Some(limit) if balances.len() > limit => {
             let (owner, balance) = balances[limit - 1];
             balances.truncate(limit);
-            Some(FungibleAssetHolderCursor {
-                balance,
-                owner: owner.to_hex_literal(),
-            })
+            Some(FungibleAssetHolderCursor { balance, owner: owner.to_hex_literal() })
         }
         _ => None,
     };
@@ -261,10 +247,8 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
     }
     // Global cache keys are normalized on write, but normalize defensively
     // so legacy raw-spelling entries can't produce duplicate rows.
-    let token_types: BTreeSet<String> = token_types
-        .into_iter()
-        .map(|t| CoinModule::normalize_token_type(&t))
-        .collect();
+    let token_types: BTreeSet<String> =
+        token_types.into_iter().map(|t| CoinModule::normalize_token_type(&t)).collect();
 
     // Batch: one object pass for all tokens instead of one full scan each.
     let ordered_types: Vec<String> = token_types.into_iter().collect();
@@ -287,9 +271,7 @@ pub async fn handle_list_tokens(state: &RpcServerState, request: &RpcRequest) ->
                 .unwrap_or(None)
                 .unwrap_or_else(|| symbol.clone());
 
-            let description = state_guard
-                .get_token_description(&token_type)
-                .unwrap_or(None);
+            let description = state_guard.get_token_description(&token_type).unwrap_or(None);
 
             let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
@@ -338,13 +320,9 @@ pub async fn handle_get_fungible_asset(
 
     let db_symbol = state_guard.get_token_symbol(&token_type).unwrap_or(None);
     let symbol = db_symbol.unwrap_or_else(|| extract_symbol(&token_type));
-    let name = state_guard
-        .get_token_name(&token_type)
-        .unwrap_or(None)
-        .unwrap_or_else(|| symbol.clone());
-    let description = state_guard
-        .get_token_description(&token_type)
-        .unwrap_or(None);
+    let name =
+        state_guard.get_token_name(&token_type).unwrap_or(None).unwrap_or_else(|| symbol.clone());
+    let description = state_guard.get_token_description(&token_type).unwrap_or(None);
     let icon_url = state_guard.get_token_icon_url(&token_type).unwrap_or(None);
 
     respond_with_serialize(
@@ -393,11 +371,7 @@ pub async fn handle_get_fungible_asset_holders(
 
     respond_with_serialize(
         request.id,
-        FungibleAssetHoldersResponse {
-            token_type,
-            holders,
-            next_cursor,
-        },
+        FungibleAssetHoldersResponse { token_type, holders, next_cursor },
     )
 }
 
@@ -421,10 +395,7 @@ mod tests {
     }
 
     fn holder_cursor(balance: u64, owner: &str) -> FungibleAssetHolderCursor {
-        FungibleAssetHolderCursor {
-            balance,
-            owner: owner.to_string(),
-        }
+        FungibleAssetHolderCursor { balance, owner: owner.to_string() }
     }
 
     #[test]

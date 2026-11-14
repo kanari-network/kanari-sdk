@@ -51,8 +51,7 @@ pub struct CompilationDependencies<'a> {
 
 impl<'a> CompilationDependencies<'a> {
     pub fn remove_deps(&mut self, names: BTreeSet<Symbol>) {
-        self.transitive_dependencies
-            .retain(|d| !names.contains(&d.name));
+        self.transitive_dependencies.retain(|d| !names.contains(&d.name));
     }
 
     pub fn make_deps_for_compiler(&self) -> Result<Vec<(PackagePaths, ModuleFormat)>> {
@@ -80,11 +79,7 @@ impl BuildPlan {
     }
 
     pub fn root_crate_edition_defined(&self) -> bool {
-        self.resolution_graph.package_table[&self.root]
-            .source_package
-            .package
-            .edition
-            .is_some()
+        self.resolution_graph.package_table[&self.root].source_package.package.edition.is_some()
     }
 
     /// Compilation results in the process exit upon warning/failure
@@ -94,11 +89,8 @@ impl BuildPlan {
 
     /// Compilation results in the process exit upon warning/failure
     pub fn migrate<W: Write>(&self, writer: &mut W) -> Result<Option<Migration>> {
-        let CompilationDependencies {
-            root_package,
-            project_root,
-            transitive_dependencies,
-        } = self.compute_dependencies();
+        let CompilationDependencies { root_package, project_root, transitive_dependencies } =
+            self.compute_dependencies();
 
         let (files, res) = CompiledPackage::build_for_result(
             writer,
@@ -167,14 +159,9 @@ impl BuildPlan {
             .into_iter()
             .filter(|package_name| *package_name != self.root)
             .map(|package_name| {
-                let dep_package = self
-                    .resolution_graph
-                    .package_table
-                    .get(&package_name)
-                    .unwrap();
-                let mut dep_source_paths = dep_package
-                    .get_sources(&self.resolution_graph.build_options)
-                    .unwrap();
+                let dep_package = self.resolution_graph.package_table.get(&package_name).unwrap();
+                let mut dep_source_paths =
+                    dep_package.get_sources(&self.resolution_graph.build_options).unwrap();
                 let mut source_available = true;
                 // If source is empty, search bytecode(mv) files
                 if dep_source_paths.is_empty() {
@@ -227,11 +214,8 @@ impl BuildPlan {
         )
             -> anyhow::Result<(FilesSourceText, Vec<AnnotatedCompiledUnit>)>,
     ) -> Result<CompiledPackage> {
-        let CompilationDependencies {
-            root_package,
-            project_root,
-            transitive_dependencies,
-        } = dependencies;
+        let CompilationDependencies { root_package, project_root, transitive_dependencies } =
+            dependencies;
 
         let compiled = CompiledPackage::build_all(
             writer,
@@ -267,9 +251,7 @@ impl BuildPlan {
     }
 
     pub fn root_package_path(&self) -> PathBuf {
-        self.resolution_graph.package_table[&self.root]
-            .package_path
-            .clone()
+        self.resolution_graph.package_table[&self.root].package_path.clone()
     }
 
     pub fn record_package_edition(&self, edition: Edition) -> anyhow::Result<()> {

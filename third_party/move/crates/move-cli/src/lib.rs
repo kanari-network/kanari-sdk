@@ -104,13 +104,9 @@ pub fn run_cli(
             natives,
             Some(cost_table.clone()),
         ),
-        Command::Sandbox { storage_dir, cmd } => cmd.handle_command(
-            natives,
-            cost_table,
-            error_descriptions,
-            &move_args,
-            &storage_dir,
-        ),
+        Command::Sandbox { storage_dir, cmd } => {
+            cmd.handle_command(natives, cost_table, error_descriptions, &move_args, &storage_dir)
+        }
     }
 }
 
@@ -120,11 +116,5 @@ pub fn move_cli(
     error_descriptions: &ErrorMapping,
 ) -> Result<()> {
     let args = MoveCLI::parse();
-    run_cli(
-        natives,
-        cost_table,
-        error_descriptions,
-        args.move_args,
-        args.cmd,
-    )
+    run_cli(natives, cost_table, error_descriptions, args.move_args, args.cmd)
 }

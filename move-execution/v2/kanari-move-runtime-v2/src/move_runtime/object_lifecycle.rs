@@ -144,14 +144,9 @@ impl MoveRuntime {
         &self,
         loaded_mutable_objects: &[LoadedMutableObject],
         object_id: &str,
-    ) -> anyhow::Result<(
-        AccountAddress,
-        kanari_types::transaction::ObjectOwnerKind,
-        u64,
-    )> {
-        if let Some((_, _, owner, owner_kind, _, version)) = loaded_mutable_objects
-            .iter()
-            .find(|(_, id, _, _, _, _)| id == object_id)
+    ) -> anyhow::Result<(AccountAddress, kanari_types::transaction::ObjectOwnerKind, u64)> {
+        if let Some((_, _, owner, owner_kind, _, version)) =
+            loaded_mutable_objects.iter().find(|(_, id, _, _, _, _)| id == object_id)
         {
             return Ok((*owner, owner_kind.clone(), *version + 1));
         }
@@ -201,8 +196,7 @@ impl MoveRuntime {
         let updated_obj =
             Self::build_created_object(owner, owner_kind, object_id, type_name, data, version);
         cs.created_objects.retain(|(k, _)| k != object_id);
-        cs.created_objects
-            .push((object_id.to_string(), updated_obj));
+        cs.created_objects.push((object_id.to_string(), updated_obj));
     }
 
     /// Persist created objects from a changeset to the object store.
@@ -216,9 +210,7 @@ impl MoveRuntime {
                 data: created.data.clone(),
                 version: created.version,
             };
-            self.object_storage
-                .store_object(stored)
-                .map_err(anyhow::Error::new)?;
+            self.object_storage.store_object(stored).map_err(anyhow::Error::new)?;
         }
         Ok(())
     }
@@ -226,9 +218,7 @@ impl MoveRuntime {
     /// Persist deleted objects from a changeset to the object store.
     pub fn persist_deleted_objects(&self, cs: &ChangeSet) -> Result<()> {
         for obj_id in &cs.deleted_objects {
-            self.object_storage
-                .delete_object(obj_id)
-                .map_err(anyhow::Error::new)?;
+            self.object_storage.delete_object(obj_id).map_err(anyhow::Error::new)?;
         }
         Ok(())
     }
@@ -279,9 +269,7 @@ impl MoveRuntime {
             data,
             version,
         };
-        self.object_storage
-            .store_object(stored)
-            .require("Object storage operation failed")
+        self.object_storage.store_object(stored).require("Object storage operation failed")
     }
 
     /// Deterministic address of a host-created genesis sub-object.
@@ -345,10 +333,7 @@ impl MoveRuntime {
 
     fn ensure_system_clock_native(&self, state: &mut StateManager) -> Result<AccountAddress> {
         let addr = Self::derive_genesis_object_id(b"KANARI::GENESIS::CLOCK")?;
-        let clock = Clock {
-            id: UIDRecord::new(addr),
-            timestamp_ms: 0,
-        };
+        let clock = Clock { id: UIDRecord::new(addr), timestamp_ms: 0 };
         let clock_type = {
             let module_id = ClockModule::get_module_id()?;
             format!(
@@ -460,9 +445,7 @@ impl MoveRuntime {
             data,
             version: 1,
         };
-        self.object_storage
-            .store_object(stored)
-            .map_err(anyhow::Error::new)?;
+        self.object_storage.store_object(stored).map_err(anyhow::Error::new)?;
         Ok(())
     }
 
@@ -486,10 +469,7 @@ impl MoveRuntime {
             current_clock.timestamp_ms
         );
 
-        let clock = Clock {
-            id: UIDRecord::new(clock_id),
-            timestamp_ms,
-        };
+        let clock = Clock { id: UIDRecord::new(clock_id), timestamp_ms };
         let data = bcs::to_bytes(&clock).context("Failed to encode native clock prologue")?;
         let version = if data == existing.data {
             existing.version

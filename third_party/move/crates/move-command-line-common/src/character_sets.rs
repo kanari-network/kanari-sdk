@@ -107,10 +107,7 @@ mod tests {
         let mut good_chars = (0x20..=0x7Eu8).map(|u| u as char).collect::<Vec<char>>();
         good_chars.push('\r');
 
-        assert!(!super::is_permitted_chars(
-            &good_chars,
-            good_chars.len() - 1
-        ));
+        assert!(!super::is_permitted_chars(&good_chars, good_chars.len() - 1));
     }
 
     #[test]

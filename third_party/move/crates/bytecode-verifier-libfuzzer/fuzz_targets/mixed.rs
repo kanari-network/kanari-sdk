@@ -53,12 +53,8 @@ fuzz_target!(|mix: Mixed| {
 
     module.signatures.pop();
     module.signatures.push(Signature(mix.param_types));
-    module.signatures.push(Signature(
-        mix.return_type.map(|s| vec![s]).unwrap_or_default(),
-    ));
-    module
-        .signatures
-        .push(Signature(vec![Address, Bool, Address]));
+    module.signatures.push(Signature(mix.return_type.map(|s| vec![s]).unwrap_or_default()));
+    module.signatures.push(Signature(vec![Address, Bool, Address]));
 
     module.identifiers.extend(
         vec![
@@ -72,10 +68,9 @@ fuzz_target!(|mix: Mixed| {
     );
     module.address_identifiers.push(AccountAddress::random());
 
-    module.constant_pool.push(Constant {
-        type_: Address,
-        data: AccountAddress::ZERO.into_bytes().to_vec(),
-    });
+    module
+        .constant_pool
+        .push(Constant { type_: Address, data: AccountAddress::ZERO.into_bytes().to_vec() });
 
     module.struct_defs.push(StructDefinition {
         struct_handle: StructHandleIndex(0),
@@ -85,10 +80,7 @@ fuzz_target!(|mix: Mixed| {
         }]),
     });
 
-    let code_unit = CodeUnit {
-        code: mix.code,
-        locals: SignatureIndex(0),
-    };
+    let code_unit = CodeUnit { code: mix.code, locals: SignatureIndex(0) };
 
     let fun_def = FunctionDefinition {
         code: Some(code_unit),

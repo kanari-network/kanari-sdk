@@ -21,10 +21,7 @@ impl Permutation {
         let inverse: Vec<_> = (0..permutation.len() as u16)
             .map(|i| permutation.iter().position(|p| *p == i).unwrap() as u16)
             .collect();
-        Self {
-            permutation,
-            inverse,
-        }
+        Self { permutation, inverse }
     }
 
     pub fn pool<T: Clone>(&self, pool: Vec<T>) -> Vec<T> {
@@ -58,10 +55,7 @@ fn mk_module_entry(vis: u8, is_entry: bool) -> normalized::Module {
         version: crate::file_format_common::VERSION_4,
         module_handles: vec![
             // only self module
-            ModuleHandle {
-                address: AddressIdentifierIndex(0),
-                name: IdentifierIndex(0),
-            },
+            ModuleHandle { address: AddressIdentifierIndex(0), name: IdentifierIndex(0) },
         ],
         self_module_handle_idx: ModuleHandleIndex(0),
         identifiers: vec![
@@ -106,18 +100,9 @@ fn mk_module_entry(vis: u8, is_entry: bool) -> normalized::Module {
         struct_defs: vec![],
         struct_handles: vec![],
         constant_pool: vec![
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![0],
-            },
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![1],
-            },
-            Constant {
-                type_: SignatureToken::Bool,
-                data: vec![1],
-            },
+            Constant { type_: SignatureToken::U8, data: vec![0] },
+            Constant { type_: SignatureToken::U8, data: vec![1] },
+            Constant { type_: SignatureToken::Bool, data: vec![1] },
         ],
         metadata: vec![],
         field_handles: vec![],
@@ -181,10 +166,7 @@ fn mk_module_plus_code_perm(vis: u8, code: Vec<Bytecode>, p: Permutation) -> nor
                 visibility,
                 is_entry,
                 acquires_global_resources: vec![],
-                code: Some(CodeUnit {
-                    locals: SignatureIndex(p.permute(0)),
-                    code,
-                }),
+                code: Some(CodeUnit { locals: SignatureIndex(p.permute(0)), code }),
             },
             // public(script) fun fn() { return; }
             FunctionDefinition {
@@ -210,18 +192,9 @@ fn mk_module_plus_code_perm(vis: u8, code: Vec<Bytecode>, p: Permutation) -> nor
         struct_defs: vec![],
         struct_handles: vec![],
         constant_pool: p.pool(vec![
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![0],
-            },
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![1],
-            },
-            Constant {
-                type_: SignatureToken::Bool,
-                data: vec![1],
-            },
+            Constant { type_: SignatureToken::U8, data: vec![0] },
+            Constant { type_: SignatureToken::U8, data: vec![1] },
+            Constant { type_: SignatureToken::Bool, data: vec![1] },
         ]),
         metadata: vec![],
         field_handles: vec![],
@@ -386,10 +359,7 @@ fn make_complex_module_perm(p: Permutation) -> normalized::Module {
                 visibility: Visibility::Private,
                 is_entry: false,
                 acquires_global_resources: vec![],
-                code: Some(CodeUnit {
-                    locals: SignatureIndex(p.permute(0)),
-                    code: vec![],
-                }),
+                code: Some(CodeUnit { locals: SignatureIndex(p.permute(0)), code: vec![] }),
             },
         ]),
         signatures: p.pool(vec![
@@ -398,23 +368,11 @@ fn make_complex_module_perm(p: Permutation) -> normalized::Module {
             Signature(vec![SignatureToken::U64]),     // u64
         ]),
         constant_pool: p.pool(vec![
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![0],
-            },
-            Constant {
-                type_: SignatureToken::U8,
-                data: vec![1],
-            },
-            Constant {
-                type_: SignatureToken::Bool,
-                data: vec![1],
-            },
+            Constant { type_: SignatureToken::U8, data: vec![0] },
+            Constant { type_: SignatureToken::U8, data: vec![1] },
+            Constant { type_: SignatureToken::Bool, data: vec![1] },
             // an address
-            Constant {
-                type_: SignatureToken::Address,
-                data: AccountAddress::random().to_vec(),
-            },
+            Constant { type_: SignatureToken::Address, data: AccountAddress::random().to_vec() },
         ]),
         metadata: vec![],
         field_handles: vec![],
@@ -429,11 +387,7 @@ fn make_complex_module_perm(p: Permutation) -> normalized::Module {
 #[test]
 fn deprecated_unchanged_script_visibility() {
     let script_module = mk_module(Visibility::DEPRECATED_SCRIPT);
-    assert!(
-        Compatibility::full_check()
-            .check(&script_module, &script_module)
-            .is_ok(),
-    );
+    assert!(Compatibility::full_check().check(&script_module, &script_module).is_ok(),);
 }
 
 #[test]
@@ -441,25 +395,13 @@ fn deprecated_remove_script_visibility() {
     let script_module = mk_module(Visibility::DEPRECATED_SCRIPT);
     // script -> private, not allowed
     let private_module = mk_module(Visibility::Private as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&script_module, &private_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&script_module, &private_module).is_err());
     // script -> public, not allowed
     let public_module = mk_module(Visibility::Public as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&script_module, &public_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&script_module, &public_module).is_err());
     // script -> friend, not allowed
     let friend_module = mk_module(Visibility::Friend as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&script_module, &friend_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&script_module, &friend_module).is_err());
 }
 
 #[test]
@@ -467,59 +409,31 @@ fn deprecated_add_script_visibility() {
     let script_module = mk_module(Visibility::DEPRECATED_SCRIPT);
     // private -> script, allowed
     let private_module = mk_module(Visibility::Private as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&private_module, &script_module)
-            .is_ok()
-    );
+    assert!(Compatibility::full_check().check(&private_module, &script_module).is_ok());
     // public -> script, not allowed
     let public_module = mk_module(Visibility::Public as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&public_module, &script_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&public_module, &script_module).is_err());
     // friend -> script, not allowed
     let friend_module = mk_module(Visibility::Friend as u8);
-    assert!(
-        Compatibility::full_check()
-            .check(&friend_module, &script_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&friend_module, &script_module).is_err());
 }
 
 #[test]
 fn private_entry_to_public_entry_allowed() {
     let private_module = max_version(mk_module_entry(Visibility::Private as u8, true));
     let public_module = max_version(mk_module_entry(Visibility::Public as u8, true));
-    assert!(
-        Compatibility::full_check()
-            .check(&private_module, &public_module)
-            .is_ok()
-    );
+    assert!(Compatibility::full_check().check(&private_module, &public_module).is_ok());
 
-    assert!(
-        Compatibility::full_check()
-            .check(&public_module, &private_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&public_module, &private_module).is_err());
 }
 
 #[test]
 fn public_loses_entry() {
     let public_entry = max_version(mk_module_entry(Visibility::Public as u8, true));
     let public = max_version(mk_module_entry(Visibility::Public as u8, false));
-    assert!(
-        Compatibility::full_check()
-            .check(&public, &public_entry)
-            .is_ok()
-    );
+    assert!(Compatibility::full_check().check(&public, &public_entry).is_ok());
 
-    assert!(
-        Compatibility::full_check()
-            .check(&public_entry, &public)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&public_entry, &public).is_err());
 }
 
 #[test]
@@ -528,11 +442,7 @@ fn private_entry_signature_change_allowed() {
     let module = max_version(mk_module_entry(Visibility::Private as u8, true));
     let mut updated_module = module.clone();
     // Update the signature of the entry fun to now take a u64 argument.
-    updated_module
-        .functions
-        .get_mut(ident_str!("fn"))
-        .unwrap()
-        .parameters = vec![Type::U64];
+    updated_module.functions.get_mut(ident_str!("fn")).unwrap().parameters = vec![Type::U64];
 
     // allow updating signatures of private entry functions
     assert!(
@@ -563,11 +473,7 @@ fn private_entry_signature_change_allowed() {
     );
 
     // disallow updating signatures of private entry functions
-    assert!(
-        Compatibility::full_check()
-            .check(&module, &updated_module)
-            .is_err()
-    );
+    assert!(Compatibility::full_check().check(&module, &updated_module).is_err());
 }
 
 #[test]
@@ -711,11 +617,7 @@ fn public_entry_signature_change_disallowed() {
     let module = max_version(mk_module_entry(Visibility::Public as u8, true));
     let mut updated_module = module.clone();
     // Update the signature of the entry fun to now take a u64 argument.
-    updated_module
-        .functions
-        .get_mut(ident_str!("fn"))
-        .unwrap()
-        .parameters = vec![Type::U64];
+    updated_module.functions.get_mut(ident_str!("fn")).unwrap().parameters = vec![Type::U64];
 
     assert!(
         Compatibility {
@@ -762,11 +664,7 @@ fn friend_entry_signature_change_allowed() {
     let module = max_version(mk_module_entry(Visibility::Friend as u8, true));
     let mut updated_module = module.clone();
     // Update the signature of the entry fun to now take a u64 argument.
-    updated_module
-        .functions
-        .get_mut(ident_str!("fn"))
-        .unwrap()
-        .parameters = vec![Type::U64];
+    updated_module.functions.get_mut(ident_str!("fn")).unwrap().parameters = vec![Type::U64];
 
     assert!(
         Compatibility {
@@ -852,10 +750,8 @@ fn check_exact_and_unchange_same_module() {
 fn check_exact_and_unchange_same_module_permutations() {
     let m1 = max_version(mk_module(Visibility::Private as u8));
     let m2 = max_version(mk_module_plus(Visibility::Private as u8));
-    let m3 = max_version(mk_module_plus_perm(
-        Visibility::Private as u8,
-        Permutation::new(vec![1, 0]),
-    ));
+    let m3 =
+        max_version(mk_module_plus_perm(Visibility::Private as u8, Permutation::new(vec![1, 0])));
     assert_ne!(m2, m3);
     assert!(InclusionCheck::Equal.check(&m2, &m3).is_ok());
     assert!(InclusionCheck::Equal.check(&m3, &m2).is_ok());

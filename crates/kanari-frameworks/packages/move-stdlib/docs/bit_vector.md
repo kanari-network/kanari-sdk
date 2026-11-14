@@ -92,6 +92,7 @@ The maximum allowed bitvector size
 
 ## Function `new`
 
+Creates a new <code><a href="bit_vector.md#0x1_bit_vector_BitVector">BitVector</a></code> of <code>length</code> bits, all initialized to <code><b>false</b></code>.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="bit_vector.md#0x1_bit_vector_new">new</a>(length: u64): <a href="bit_vector.md#0x1_bit_vector_BitVector">bit_vector::BitVector</a>

@@ -14,10 +14,7 @@ async fn move_full_cluster_lifecycle() {
     let height = client.get_block_height().await.expect("height");
     let stats = client.get_stats().await.expect("stats");
 
-    assert_eq!(
-        height, stats.height,
-        "cluster lifecycle must expose a consistent RPC view"
-    );
+    assert_eq!(height, stats.height, "cluster lifecycle must expose a consistent RPC view");
     assert_eq!(
         stats.total_supply,
         cluster.engine().get_stats().total_supply,
@@ -30,10 +27,7 @@ async fn move_full_rpc_endpoints_coverage() {
     let cluster = TestCluster::spawn().await.expect("cluster");
     let client = cluster.client();
 
-    let height = client
-        .get_block_height()
-        .await
-        .expect("get_block_height must succeed");
+    let height = client.get_block_height().await.expect("get_block_height must succeed");
     let stats = client.get_stats().await.expect("get_stats must succeed");
 
     assert_eq!(height, stats.height);

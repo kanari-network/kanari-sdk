@@ -247,10 +247,7 @@ impl AuditEntry {
 
                         let padding_valid = chars.iter().rev().take_while(|&&c| c == '=').count()
                             <= 2
-                            && chars
-                                .iter()
-                                .take(chars.len().saturating_sub(2))
-                                .all(|&c| c != '=');
+                            && chars.iter().take(chars.len().saturating_sub(2)).all(|&c| c != '=');
 
                         let has_b64_chars = v.contains('+') || v.contains('/') || v.contains('=');
 

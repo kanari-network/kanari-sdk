@@ -20,11 +20,7 @@ impl LoadWallet {
         // Check if wallet exists without loading (decrypting) it
         let wallets = list_wallet_files().context("Failed to list wallets")?;
         let exists = wallets.iter().any(|(addr, _)| {
-            if let Ok(norm) = normalize_addr(addr) {
-                norm == address_normalized
-            } else {
-                false
-            }
+            if let Ok(norm) = normalize_addr(addr) { norm == address_normalized } else { false }
         });
 
         if !exists {

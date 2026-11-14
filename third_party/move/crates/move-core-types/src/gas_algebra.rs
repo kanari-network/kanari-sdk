@@ -90,10 +90,7 @@ pub const ENUM_BASE_ABSTRACT_SIZE: AbstractMemorySize = AbstractMemorySize::new(
  **************************************************************************************************/
 impl<U> GasQuantity<U> {
     pub const fn new(val: u64) -> Self {
-        Self {
-            val,
-            phantom: PhantomData,
-        }
+        Self { val, phantom: PhantomData }
     }
 
     pub const fn zero() -> Self {
@@ -248,11 +245,7 @@ fn apply_ratio_round_down(val: u64, nominator: u64, denominator: u64) -> u64 {
     assert_ne!(denominator, 0);
 
     let res = val as u128 * nominator as u128 / denominator as u128;
-    if res > u64::MAX as u128 {
-        u64::MAX
-    } else {
-        res as u64
-    }
+    if res > u64::MAX as u128 { u64::MAX } else { res as u64 }
 }
 
 fn apply_ratio_round_up(val: u64, nominator: u64, denominator: u64) -> u64 {
@@ -263,11 +256,7 @@ fn apply_ratio_round_up(val: u64, nominator: u64, denominator: u64) -> u64 {
     let d = denominator as u128;
 
     let res = n / d + if n.is_multiple_of(d) { 0 } else { 1 };
-    if res > u64::MAX as u128 {
-        u64::MAX
-    } else {
-        res as u64
-    }
+    if res > u64::MAX as u128 { u64::MAX } else { res as u64 }
 }
 
 /// Trait that defines a conversion from one unit to another, with a statically-determined
@@ -301,11 +290,7 @@ impl<U> GasQuantity<U> {
     where
         U: ToUnitFractional<T>,
     {
-        GasQuantity::new(apply_ratio_round_down(
-            self.val,
-            U::NOMINATOR,
-            U::DENOMINATOR,
-        ))
+        GasQuantity::new(apply_ratio_round_down(self.val, U::NOMINATOR, U::DENOMINATOR))
     }
 
     /// Convert the quantity to another unit, with the resulting scalar value being rounded up.

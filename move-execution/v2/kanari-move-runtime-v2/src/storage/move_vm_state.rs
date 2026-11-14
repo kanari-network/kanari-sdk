@@ -30,10 +30,7 @@ impl MoveVMState {
 
     /// Use an already-open persistent store shared with the chain state.
     pub(crate) fn new(store: Arc<PersistentStore>) -> Self {
-        MoveVMState {
-            store,
-            overlay: None,
-        }
+        MoveVMState { store, overlay: None }
     }
 
     /// Return the shared backing store so callers can create isolated runtime caches
@@ -45,10 +42,7 @@ impl MoveVMState {
     /// Create an in-memory MoveVMState for testing or Miri (no filesystem ops).
     pub(crate) fn new_in_memory() -> Result<Self> {
         let store = PersistentStore::open_in_memory()?;
-        Ok(MoveVMState {
-            store: Arc::new(store),
-            overlay: None,
-        })
+        Ok(MoveVMState { store: Arc::new(store), overlay: None })
     }
 
     /// Open default store for Move VM state.
@@ -56,17 +50,11 @@ impl MoveVMState {
         // Honor legacy env var for Move VM DB path
         let db_path = std::env::var("KANARI_MOVE_VM_DB").ok().map(PathBuf::from);
         let store = PersistentStore::open_with_path(db_path)?;
-        Ok(MoveVMState {
-            store: Arc::new(store),
-            overlay: None,
-        })
+        Ok(MoveVMState { store: Arc::new(store), overlay: None })
     }
 
     pub(crate) fn with_overlay(&self, overlay: Option<crate::StateOverlay>) -> Self {
-        Self {
-            store: self.store.clone(),
-            overlay,
-        }
+        Self { store: self.store.clone(), overlay }
     }
 
     fn load_with_overlay<T: serde::de::DeserializeOwned>(&self, key: &[u8]) -> Result<Option<T>> {
@@ -101,10 +89,7 @@ impl MoveVMState {
     }
 
     fn object_key(object_id: &AccountAddress) -> String {
-        format!(
-            "object:{}",
-            kanari_types::object::object_id_for_address(object_id)
-        )
+        format!("object:{}", kanari_types::object::object_id_for_address(object_id))
     }
 
     fn load_string_index(&self, key: &[u8]) -> Result<Vec<String>> {
@@ -168,8 +153,7 @@ impl MoveVMState {
         let manifest_key = Self::framework_manifest_key(name);
         let hash_key = Self::framework_hash_key(name);
         self.store.save(manifest_key.as_bytes(), manifest)?;
-        self.store
-            .save(hash_key.as_bytes(), &hash_hex.to_string())?;
+        self.store.save(hash_key.as_bytes(), &hash_hex.to_string())?;
         Ok(())
     }
 
@@ -208,9 +192,7 @@ impl MoveVMState {
         let key = Self::resource_key(address, tag);
 
         // Persist the resource blob in Move VM storage.
-        self.store
-            .save(key.as_bytes(), blob)
-            .require("Failed to persist Move VM resource")?;
+        self.store.save(key.as_bytes(), blob).require("Failed to persist Move VM resource")?;
 
         // Keep coin objects in sync with the latest resource bytes.
         if tag.module.as_str() == CoinModule::COIN_MODULE
@@ -250,9 +232,7 @@ impl MoveVMState {
 
     /// Load object payload bytes from the stored `CreatedObject` wrapper.
     pub(crate) fn try_get_object(&self, object_id: &AccountAddress) -> Result<Option<Vec<u8>>> {
-        Ok(self
-            .try_get_stored_object(object_id)?
-            .map(|object| object.data))
+        Ok(self.try_get_stored_object(object_id)?.map(|object| object.data))
     }
 
     /// Load the full stored object metadata and payload for object-native execution.
@@ -272,9 +252,7 @@ impl MoveVMState {
         tag: &move_core_types::language_storage::StructTag,
     ) -> Result<()> {
         let key = Self::resource_key(address, tag);
-        self.store
-            .delete(key.as_bytes())
-            .require("Failed to delete Move VM resource")
+        self.store.delete(key.as_bytes()).require("Failed to delete Move VM resource")
     }
 }
 

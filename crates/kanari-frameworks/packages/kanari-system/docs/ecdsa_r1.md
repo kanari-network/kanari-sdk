@@ -137,6 +137,7 @@ The message will be hashed with SHA256 before verification.
 
 ## Function `public_key_length`
 
+Returns the public key length for P-256 ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_r1.md#0x2_ecdsa_r1_public_key_length">public_key_length</a>(): u64
@@ -161,6 +162,7 @@ The message will be hashed with SHA256 before verification.
 
 ## Function `raw_signature_length`
 
+Returns the raw signature length for P-256 ECDSA.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="ecdsa_r1.md#0x2_ecdsa_r1_raw_signature_length">raw_signature_length</a>(): u64

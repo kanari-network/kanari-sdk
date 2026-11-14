@@ -82,20 +82,8 @@ mod tests {
     fn generated_spec_contains_core_methods() {
         let spec = build_kanari_rpc_spec();
         assert_eq!(spec.openrpc, OPENRPC_VERSION);
-        assert!(
-            spec.methods
-                .iter()
-                .any(|method| method.name == methods::GET_OWNER)
-        );
-        assert!(
-            spec.methods
-                .iter()
-                .any(|method| method.name == methods::HEALTH)
-        );
-        assert!(
-            spec.methods
-                .iter()
-                .any(|method| method.name == methods::GET_OBJECT)
-        );
+        assert!(spec.methods.iter().any(|method| method.name == methods::GET_OWNER));
+        assert!(spec.methods.iter().any(|method| method.name == methods::HEALTH));
+        assert!(spec.methods.iter().any(|method| method.name == methods::GET_OBJECT));
     }
 }

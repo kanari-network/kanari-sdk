@@ -49,34 +49,13 @@ impl GasParameters {
         Self {
             sqrt_u128: math::SqrtU128GasParameters { base: 0.into() },
             sqrt_u64: math::SqrtU64GasParameters { base: 0.into() },
-            sqrt_u256: math::SqrtU256GasParameters {
-                base: 0.into(),
-                per_bit: 0.into(),
-            },
-            pow_u64: math::PowU64GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
-            pow_u128: math::PowU128GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
-            pow_u256: math::PowU256GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
-            try_pow_u64: math::TryPowU64GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
-            try_pow_u128: math::TryPowU128GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
-            try_pow_u256: math::TryPowU256GasParameters {
-                base: 0.into(),
-                per_exponent: 0.into(),
-            },
+            sqrt_u256: math::SqrtU256GasParameters { base: 0.into(), per_bit: 0.into() },
+            pow_u64: math::PowU64GasParameters { base: 0.into(), per_exponent: 0.into() },
+            pow_u128: math::PowU128GasParameters { base: 0.into(), per_exponent: 0.into() },
+            pow_u256: math::PowU256GasParameters { base: 0.into(), per_exponent: 0.into() },
+            try_pow_u64: math::TryPowU64GasParameters { base: 0.into(), per_exponent: 0.into() },
+            try_pow_u128: math::TryPowU128GasParameters { base: 0.into(), per_exponent: 0.into() },
+            try_pow_u256: math::TryPowU256GasParameters { base: 0.into(), per_exponent: 0.into() },
             mul_div_u128: math::MulDivU128GasParameters { base: 0.into() },
             mul_div_round_u128: math::MulDivRoundU128GasParameters { base: 0.into() },
             try_mul_div_u128: math::TryMulDivU128GasParameters { base: 0.into() },
@@ -123,26 +102,12 @@ impl GasParameters {
     pub fn production() -> Self {
         use move_core_types::gas_algebra::InternalGas as G;
         Self {
-            sqrt_u128: math::SqrtU128GasParameters {
-                base: G::new(2_000),
-            },
+            sqrt_u128: math::SqrtU128GasParameters { base: G::new(2_000) },
             sqrt_u64: math::SqrtU64GasParameters { base: G::new(250) },
-            sqrt_u256: math::SqrtU256GasParameters {
-                base: G::new(3_000),
-                per_bit: G::new(5_000),
-            },
-            pow_u64: math::PowU64GasParameters {
-                base: G::new(150),
-                per_exponent: G::new(10),
-            },
-            pow_u128: math::PowU128GasParameters {
-                base: G::new(900),
-                per_exponent: G::new(10),
-            },
-            pow_u256: math::PowU256GasParameters {
-                base: G::new(2_000),
-                per_exponent: G::new(50),
-            },
+            sqrt_u256: math::SqrtU256GasParameters { base: G::new(3_000), per_bit: G::new(5_000) },
+            pow_u64: math::PowU64GasParameters { base: G::new(150), per_exponent: G::new(10) },
+            pow_u128: math::PowU128GasParameters { base: G::new(900), per_exponent: G::new(10) },
+            pow_u256: math::PowU256GasParameters { base: G::new(2_000), per_exponent: G::new(50) },
             try_pow_u64: math::TryPowU64GasParameters {
                 base: G::new(150),
                 per_exponent: G::new(10),
@@ -155,42 +120,24 @@ impl GasParameters {
                 base: G::new(2_000),
                 per_exponent: G::new(50),
             },
-            mul_div_u128: math::MulDivU128GasParameters {
-                base: G::new(4_000),
-            },
-            mul_div_round_u128: math::MulDivRoundU128GasParameters {
-                base: G::new(4_000),
-            },
-            try_mul_div_u128: math::TryMulDivU128GasParameters {
-                base: G::new(4_000),
-            },
+            mul_div_u128: math::MulDivU128GasParameters { base: G::new(4_000) },
+            mul_div_round_u128: math::MulDivRoundU128GasParameters { base: G::new(4_000) },
+            try_mul_div_u128: math::TryMulDivU128GasParameters { base: G::new(4_000) },
             mul_add_u128: math::MulAddU128GasParameters { base: G::new(200) },
-            mul_div_u256: math::MulDivU256GasParameters {
-                base: G::new(10_000),
-            },
-            mul_div_round_u256: math::MulDivRoundU256GasParameters {
-                base: G::new(10_000),
-            },
-            try_mul_div_u256: math::TryMulDivU256GasParameters {
-                base: G::new(10_000),
-            },
-            mul_add_u256: math::MulAddU256GasParameters {
-                base: G::new(4_500),
-            },
+            mul_div_u256: math::MulDivU256GasParameters { base: G::new(10_000) },
+            mul_div_round_u256: math::MulDivRoundU256GasParameters { base: G::new(10_000) },
+            try_mul_div_u256: math::TryMulDivU256GasParameters { base: G::new(10_000) },
+            mul_add_u256: math::MulAddU256GasParameters { base: G::new(4_500) },
             min_u128: math::MinU128GasParameters { base: G::new(100) },
             max_u128: math::MaxU128GasParameters { base: G::new(100) },
             min_u256: math::MinU256GasParameters { base: G::new(700) },
             max_u256: math::MaxU256GasParameters { base: G::new(700) },
             average_u64: math::AverageU64GasParameters { base: G::new(100) },
             average_u128: math::AverageU128GasParameters { base: G::new(100) },
-            average_u256: math::AverageU256GasParameters {
-                base: G::new(2_500),
-            },
+            average_u256: math::AverageU256GasParameters { base: G::new(2_500) },
             clamp_u64: math::ClampU64GasParameters { base: G::new(100) },
             clamp_u128: math::ClampU128GasParameters { base: G::new(100) },
-            clamp_u256: math::ClampU256GasParameters {
-                base: G::new(1_000),
-            },
+            clamp_u256: math::ClampU256GasParameters { base: G::new(1_000) },
             log2_u64: math::Log2U64GasParameters { base: G::new(100) },
             log2_u128: math::Log2U128GasParameters { base: G::new(100) },
             log2_u256: math::Log2U256GasParameters { base: G::new(500) },

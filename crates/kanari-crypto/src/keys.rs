@@ -191,10 +191,7 @@ impl CurveType {
 
     /// Returns true if this is a hybrid scheme
     pub fn is_hybrid(&self) -> bool {
-        matches!(
-            self,
-            CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3
-        )
+        matches!(self, CurveType::Ed25519Dilithium3 | CurveType::K256Dilithium3)
     }
 
     /// Get security level (1-5, where 5 is highest)

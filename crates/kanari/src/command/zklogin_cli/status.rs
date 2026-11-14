@@ -40,21 +40,11 @@ impl Status {
         eprintln!("provider:   {}", session.provider);
         eprintln!("sub:        {}", session.sub);
         eprintln!("max_epoch:  {}", session.max_epoch);
-        eprintln!(
-            "id_token:   {}",
-            if live {
-                "valid"
-            } else {
-                "EXPIRED (log in again)"
-            }
-        );
+        eprintln!("id_token:   {}", if live { "valid" } else { "EXPIRED (log in again)" });
         if let Some(exp) = session.id_token_expires_at_unix {
             eprintln!("expires_at: {exp} (unix secs)");
         }
-        eprintln!(
-            "nonce bound: {}",
-            claims.nonce.as_deref().unwrap_or("<missing>")
-        );
+        eprintln!("nonce bound: {}", claims.nonce.as_deref().unwrap_or("<missing>"));
         Ok(())
     }
 }
@@ -70,9 +60,9 @@ impl Logout {
     pub fn execute(&self) -> Result<()> {
         let address = match &self.address {
             Some(addr) => addr.clone(),
-            None => session::latest_session()?
-                .map(|s| s.address)
-                .context("no zkLogin session found")?,
+            None => {
+                session::latest_session()?.map(|s| s.address).context("no zkLogin session found")?
+            }
         };
         if session::delete_session(&address)? {
             eprintln!("deleted session {address}");

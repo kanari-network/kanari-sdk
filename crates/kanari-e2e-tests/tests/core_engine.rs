@@ -27,10 +27,7 @@ fn engine_in_memory_initialization_and_health() {
     );
 
     let guards = engine.runtime_guard_config();
-    assert!(
-        !guards.persistent_storage_available,
-        "in-memory mode ต้องไม่มี persistent storage"
-    );
+    assert!(!guards.persistent_storage_available, "in-memory mode ต้องไม่มี persistent storage");
 }
 
 #[test]

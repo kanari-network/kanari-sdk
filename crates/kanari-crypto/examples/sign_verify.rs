@@ -230,25 +230,19 @@ fn main() {
 
     // Sign a message
     let message_ed25519 = b"Hello, Mona with Ed25519!";
-    let ed25519_signature = match sign_message(
-        &ed25519_keypair.private_key,
-        message_ed25519,
-        CurveType::Ed25519,
-    ) {
-        Ok(sig) => {
-            println!("\nSigned message successfully!");
-            println!(
-                "  Message: \"{}\"",
-                String::from_utf8_lossy(message_ed25519)
-            );
-            println!("  Signature (hex): {}", hex::encode(&sig));
-            sig
-        }
-        Err(e) => {
-            println!("Error signing message: {}", e);
-            Vec::new()
-        }
-    };
+    let ed25519_signature =
+        match sign_message(&ed25519_keypair.private_key, message_ed25519, CurveType::Ed25519) {
+            Ok(sig) => {
+                println!("\nSigned message successfully!");
+                println!("  Message: \"{}\"", String::from_utf8_lossy(message_ed25519));
+                println!("  Signature (hex): {}", hex::encode(&sig));
+                sig
+            }
+            Err(e) => {
+                println!("Error signing message: {}", e);
+                Vec::new()
+            }
+        };
 
     // Verify the signature using tagged address (security best practice)
     if !ed25519_signature.is_empty() {
@@ -280,11 +274,7 @@ fn main() {
             }
 
             // Sign the message with imported key
-            match sign_message(
-                &imported_keypair.private_key,
-                message_ed25519,
-                CurveType::Ed25519,
-            ) {
+            match sign_message(&imported_keypair.private_key, message_ed25519, CurveType::Ed25519) {
                 Ok(sig) => {
                     println!("\nSigned message with imported Ed25519 key:");
                     println!("  Signature (hex): {}", hex::encode(&sig));
@@ -338,17 +328,10 @@ fn main() {
 
             // Sign a message with the mnemonic-derived key
             let message_mnemonic = b"Hello from mnemonic!";
-            match sign_message(
-                &mnemonic_keypair.private_key,
-                message_mnemonic,
-                CurveType::K256,
-            ) {
+            match sign_message(&mnemonic_keypair.private_key, message_mnemonic, CurveType::K256) {
                 Ok(sig) => {
                     println!("\nSigned message with mnemonic-derived key:");
-                    println!(
-                        "  Message: \"{}\"",
-                        String::from_utf8_lossy(message_mnemonic)
-                    );
+                    println!("  Message: \"{}\"", String::from_utf8_lossy(message_mnemonic));
                     println!("  Signature (hex): {}", hex::encode(&sig));
 
                     // Verify the signature using tagged address

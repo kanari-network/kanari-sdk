@@ -276,11 +276,5 @@ fn cfg_compile_if_else_with_two_aborts() {
 
 fn compile_module_with_single_function(text: &str) -> Vec<Bytecode> {
     let mut compiled_module = compile_module_string(text).unwrap();
-    compiled_module
-        .function_defs
-        .pop()
-        .unwrap()
-        .code
-        .unwrap()
-        .code
+    compiled_module.function_defs.pop().unwrap().code.unwrap().code
 }

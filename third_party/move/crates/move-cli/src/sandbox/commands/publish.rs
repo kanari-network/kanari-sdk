@@ -65,19 +65,12 @@ pub fn publish(
         .iter()
         .filter_map(|unit| {
             let id = unit.unit.module.self_id();
-            if state.has_module(&id) {
-                Some(format!("{}", id))
-            } else {
-                None
-            }
+            if state.has_module(&id) { Some(format!("{}", id)) } else { None }
         })
         .collect::<Vec<_>>();
 
     if !republished.is_empty() {
-        eprintln!(
-            "Tried to republish the following modules: {}",
-            republished.join(", ")
-        );
+        eprintln!("Tried to republish the following modules: {}", republished.join(", "));
         return Ok(());
     }
 

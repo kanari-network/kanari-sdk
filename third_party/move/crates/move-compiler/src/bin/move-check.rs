@@ -58,13 +58,7 @@ pub struct Options {
 }
 
 pub fn main() -> anyhow::Result<()> {
-    let Options {
-        source_files,
-        dependencies,
-        out_dir,
-        flags,
-        named_addresses,
-    } = Options::parse();
+    let Options { source_files, dependencies, out_dir, flags, named_addresses } = Options::parse();
     let named_addr_map = verify_and_create_named_address_mapping(named_addresses)?;
     let _files =
         move_compiler::Compiler::from_files(None, source_files, dependencies, named_addr_map)

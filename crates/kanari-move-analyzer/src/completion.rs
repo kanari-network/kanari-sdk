@@ -39,10 +39,7 @@ const SNIPPETS: [(&str, &str); 5] = [
     ("public fun", "public fun ${1:name}(${2}) {\n\t$0\n}"),
     ("struct", "struct ${1:Name} has ${2:drop} {\n\t$0\n}"),
     ("const", "const ${1:NAME}: ${2:u64} = ${3:0};"),
-    (
-        "init",
-        "init(witness: ${1:WITNESS}, ctx: &mut TxContext) {\n\t$0\n}",
-    ),
+    ("init", "init(witness: ${1:WITNESS}, ctx: &mut TxContext) {\n\t$0\n}"),
 ];
 
 /// A completion candidate.
@@ -137,10 +134,8 @@ impl CompletionContext {
             .rev()
             .collect();
 
-        let head: String = before
-            .chars()
-            .take(before.chars().count() - prefix.chars().count())
-            .collect();
+        let head: String =
+            before.chars().take(before.chars().count() - prefix.chars().count()).collect();
         let head_trimmed = head.trim_end();
 
         // `mod::` — path completion.
@@ -189,13 +184,7 @@ impl CompletionContext {
             .rev()
             .find_map(|l| parse_module_header(l));
 
-        CompletionContext {
-            prefix,
-            qualifier,
-            dot_target,
-            in_use,
-            module,
-        }
+        CompletionContext { prefix, qualifier, dot_target, in_use, module }
     }
 }
 
@@ -204,11 +193,7 @@ pub fn parse_module_header(line: &str) -> Option<String> {
     let trimmed = line.trim();
     let rest = trimmed.strip_prefix("module ")?;
     let path = rest.split('{').next()?.trim();
-    if path.is_empty() {
-        None
-    } else {
-        Some(path.to_string())
-    }
+    if path.is_empty() { None } else { Some(path.to_string()) }
 }
 
 /// Relevance of a candidate for the prefix the user typed.
@@ -236,11 +221,8 @@ fn matches_prefix(name: &str, prefix: &str) -> Option<u8> {
 
 /// Everything the file refers to: its own members and the names it imports.
 fn file_scope(text: &str, file: &Path, symbols: &Symbols) -> Vec<ScopeEntry> {
-    let file_fhash = symbols
-        .file_mods()
-        .get(file)
-        .and_then(|mods| mods.iter().next())
-        .map(|m| m.fhash());
+    let file_fhash =
+        symbols.file_mods().get(file).and_then(|mods| mods.iter().next()).map(|m| m.fhash());
     let mut out = Vec::new();
     for (line, l) in text.lines().enumerate() {
         for u in symbols.line_uses(file, line as u32) {
@@ -282,11 +264,8 @@ fn entry_name(entry: &ScopeEntry) -> String {
 
 /// The members of the module declared in `file`.
 fn module_members(symbols: &Symbols, file: &Path) -> Vec<(String, DefInfo)> {
-    let Some(fhash) = symbols
-        .file_mods()
-        .get(file)
-        .and_then(|mods| mods.iter().next())
-        .map(|m| m.fhash())
+    let Some(fhash) =
+        symbols.file_mods().get(file).and_then(|mods| mods.iter().next()).map(|m| m.fhash())
     else {
         return Vec::new();
     };
@@ -429,17 +408,13 @@ pub fn completion_items(
         // Inside `use ...` — the modules (and their items) that can be
         // imported.
         let typed = typed_use_path(text, position);
-        let (members, modules) = package_root(file)
-            .map(|root| scan_all_members_and_modules(&root))
-            .unwrap_or_default();
+        let (members, modules) =
+            package_root(file).map(|root| scan_all_members_and_modules(&root)).unwrap_or_default();
         let mut paths: Vec<(&String, &(String, String))> = modules.iter().collect();
         paths.sort();
         for (module, (addr, _)) in paths {
-            let full = if addr.is_empty() {
-                (*module).clone()
-            } else {
-                format!("{addr}::{module}")
-            };
+            let full =
+                if addr.is_empty() { (*module).clone() } else { format!("{addr}::{module}") };
             if !typed.is_empty() && !full.starts_with(&typed) && !module.starts_with(&typed) {
                 continue;
             }
@@ -473,9 +448,7 @@ pub fn completion_items(
             .iter()
             .find(|e| entry_name(e) == *qualifier && matches!(e.info, DefInfo::Module(_)))
         {
-            let DefInfo::Module(path) = &entry.info else {
-                unreachable!()
-            };
+            let DefInfo::Module(path) = &entry.info else { unreachable!() };
             let target_fhash = entry.def_loc.fhash();
             let target_file = symbols
                 .file_mods()
@@ -503,11 +476,7 @@ pub fn completion_items(
             .unwrap_or_default();
         let base = {
             let base = base_type_name(&ty);
-            if base.is_empty() {
-                target.clone()
-            } else {
-                base
-            }
+            if base.is_empty() { target.clone() } else { base }
         };
         for entry in &scope {
             let DefInfo::Struct(_, name, ..) = &entry.info else {
@@ -519,9 +488,7 @@ pub fn completion_items(
             for (field, field_ty) in struct_fields(&entry.info) {
                 let mut c = Candidate::new(field.clone(), CompletionItemKind::FIELD);
                 c.detail = Some(
-                    field_ty
-                        .map(|t| format!("{field}: {t}"))
-                        .unwrap_or_else(|| field.clone()),
+                    field_ty.map(|t| format!("{field}: {t}")).unwrap_or_else(|| field.clone()),
                 );
                 candidates.push(c);
             }
@@ -657,9 +624,7 @@ pub fn completion_items(
         ));
     }
     items.sort_by(|a, b| {
-        a.0.cmp(&b.0)
-            .then_with(|| a.1.cmp(&b.1))
-            .then_with(|| a.2.label.cmp(&b.2.label))
+        a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.label.cmp(&b.2.label))
     });
     items.into_iter().map(|(_, _, item)| item).collect()
 }
@@ -765,10 +730,7 @@ mod tests {
     fn base_type_name_normalizes_qualified_types() {
         // The analyzer renders local types fully qualified but parameter
         // types short — both have to end up as the same name.
-        assert_eq!(
-            base_type_name("&kanari_system::deny_list::DenyList"),
-            "DenyList"
-        );
+        assert_eq!(base_type_name("&kanari_system::deny_list::DenyList"), "DenyList");
         assert_eq!(base_type_name("&mut Coin<JAMES>"), "Coin");
         assert_eq!(base_type_name("u64"), "u64");
         assert_eq!(base_type_name("&mut vector<u8>"), "vector");

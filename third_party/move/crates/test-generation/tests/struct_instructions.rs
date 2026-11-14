@@ -28,9 +28,7 @@ fn generate_module_with_struct(resource: bool) -> CompiledModule {
 
     let mut fields = vec![];
     for i in 0..num_fields {
-        module
-            .identifiers
-            .push(Identifier::new(format!("string{}", i)).unwrap());
+        module.identifiers.push(Identifier::new(format!("string{}", i)).unwrap());
         let str_pool_idx = IdentifierIndex::new(i + 1);
         fields.push(FieldDefinition {
             name: str_pool_idx,
@@ -57,12 +55,8 @@ fn generate_module_with_struct(resource: bool) -> CompiledModule {
 
 fn create_struct_value(module: &CompiledModule) -> (AbstractValue, Vec<SignatureToken>) {
     let struct_def = module.struct_def_at(StructDefinitionIndex::new(0));
-    let tokens: Vec<SignatureToken> = struct_def
-        .fields()
-        .into_iter()
-        .flatten()
-        .map(|field| field.signature.0.clone())
-        .collect();
+    let tokens: Vec<SignatureToken> =
+        struct_def.fields().into_iter().flatten().map(|field| field.signature.0.clone()).collect();
     let shandle = module.struct_handle_at(struct_def.struct_handle);
     let struct_abilities = shandle.abilities;
 
@@ -74,10 +68,7 @@ fn create_struct_value(module: &CompiledModule) -> (AbstractValue, Vec<Signature
         type_argument_abilities,
     )
     .unwrap();
-    (
-        AbstractValue::new_struct(SignatureToken::Struct(struct_def.struct_handle), abilities),
-        tokens,
-    )
+    (AbstractValue::new_struct(SignatureToken::Struct(struct_def.struct_handle), abilities), tokens)
 }
 
 fn get_field_signature<'a>(module: &'a CompiledModule, handle: &FieldHandle) -> &'a SignatureToken {
@@ -113,10 +104,7 @@ fn bytecode_pack() {
     let (state2, _) =
         common::run_instruction(Bytecode::Pack(StructDefinitionIndex::new(0)), state1);
     let struct_value2 = state2.stack_peek(0).expect("struct not added to stack");
-    assert_eq!(
-        struct_value1, struct_value2,
-        "stack type postcondition not met"
-    );
+    assert_eq!(struct_value1, struct_value2, "stack type postcondition not met");
 }
 
 #[test]
@@ -137,21 +125,14 @@ fn bytecode_unpack() {
     state1.stack_push(struct_value);
     let (state2, _) =
         common::run_instruction(Bytecode::Unpack(StructDefinitionIndex::new(0)), state1);
-    assert_eq!(
-        state2.stack_len(),
-        tokens.len(),
-        "stack type postcondition not met"
-    );
+    assert_eq!(state2.stack_len(), tokens.len(), "stack type postcondition not met");
 }
 
 #[test]
 fn bytecode_mutborrowfield() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
     let field_signature =
         get_field_signature(&module, &module.field_handles[field_handle_idx.0 as usize]).clone();
@@ -180,10 +161,7 @@ fn bytecode_mutborrowfield() {
 fn bytecode_mutborrowfield_stack_has_no_reference() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
 
     let state1 =
@@ -196,10 +174,7 @@ fn bytecode_mutborrowfield_stack_has_no_reference() {
 fn bytecode_mutborrowfield_ref_is_immutable() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
 
     let mut state1 =
@@ -216,10 +191,7 @@ fn bytecode_mutborrowfield_ref_is_immutable() {
 fn bytecode_immborrowfield() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
     let field_signature =
         get_field_signature(&module, &module.field_handles[field_handle_idx.0 as usize]).clone();
@@ -248,10 +220,7 @@ fn bytecode_immborrowfield() {
 fn bytecode_immborrowfield_stack_has_no_reference() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
 
     let state1 =
@@ -264,10 +233,7 @@ fn bytecode_immborrowfield_stack_has_no_reference() {
 fn bytecode_immborrowfield_ref_is_mutable() {
     let mut module: CompiledModule = generate_module_with_struct(false);
     let struct_def_idx = StructDefinitionIndex((module.struct_defs.len() - 1) as u16);
-    module.field_handles.push(FieldHandle {
-        owner: struct_def_idx,
-        field: 0,
-    });
+    module.field_handles.push(FieldHandle { owner: struct_def_idx, field: 0 });
     let field_handle_idx = FieldHandleIndex((module.field_handles.len() - 1) as u16);
 
     let mut state1 =

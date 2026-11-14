@@ -45,11 +45,7 @@ type FunctionInstantiableInstruction = dyn Fn(FunctionInstantiationIndex) -> Byt
 
 pub enum Effects {
     NoTyParams(Vec<Box<NonInstantiableEffect>>),
-    TyParams(
-        Box<Instantiation>,
-        Box<InstantiableEffect>,
-        Box<InstantiableInstruction>,
-    ),
+    TyParams(Box<Instantiation>, Box<InstantiableEffect>, Box<InstantiableInstruction>),
     TyParamsCall(
         Box<FunctionInstantiation>,
         Box<FunctionInstantiableEffect>,
@@ -465,10 +461,7 @@ pub fn instruction_summary(instruction: Bytecode, exact: bool) -> Summary {
             ],
             effects: Effects::NoTyParams(vec![state_stack_pop!()]),
         },
-        Bytecode::Nop => Summary {
-            preconditions: vec![],
-            effects: Effects::NoTyParams(vec![]),
-        },
+        Bytecode::Nop => Summary { preconditions: vec![], effects: Effects::NoTyParams(vec![]) },
         // Deprecated bytecodes
         Bytecode::ExistsDeprecated(_)
         | Bytecode::ExistsGenericDeprecated(_)

@@ -30,21 +30,12 @@ pub struct Disassemble {
 impl Disassemble {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
         let rerooted_path = reroot_path(path)?;
-        let Self {
-            interactive,
-            package_name,
-            module_or_script_name,
-            debug,
-        } = self;
+        let Self { interactive, package_name, module_or_script_name, debug } = self;
         // Make sure the package is built
         let package = config.compile_package(&rerooted_path, &mut Vec::new())?;
-        let needle_package = package_name
-            .as_deref()
-            .unwrap_or(package.compiled_package_info.package_name.as_str());
-        match package
-            .get_module_by_name(needle_package, &module_or_script_name)
-            .ok()
-        {
+        let needle_package =
+            package_name.as_deref().unwrap_or(package.compiled_package_info.package_name.as_str());
+        match package.get_module_by_name(needle_package, &module_or_script_name).ok() {
             None => anyhow::bail!(
                 "Unable to find module or script with name '{}' in package '{}'",
                 module_or_script_name,
@@ -55,10 +46,7 @@ impl Disassemble {
                 // viewer, run the disassembler, or display the debug output, depending on args.
                 if interactive {
                     let CompiledUnitWithSource {
-                        unit:
-                            NamedCompiledModule {
-                                module, source_map, ..
-                            },
+                        unit: NamedCompiledModule { module, source_map, .. },
                         source_path,
                     } = unit;
                     move_bytecode_viewer::start_viewer_in_memory(

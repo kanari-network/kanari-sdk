@@ -44,12 +44,7 @@ pub(crate) fn parse_program(
     let mut source_comments = CommentMap::new();
     let mut lib_definitions = Vec::new();
 
-    for IndexedVfsPackagePath {
-        package,
-        path,
-        named_address_map,
-    } in targets
-    {
+    for IndexedVfsPackagePath { package, path, named_address_map } in targets {
         let (defs, comments, file_hash) = parse_file(&path, compilation_env, &mut files, package)?;
         source_definitions.extend(defs.into_iter().map(|def| PackageDefinition {
             package,
@@ -59,12 +54,7 @@ pub(crate) fn parse_program(
         source_comments.insert(file_hash, comments);
     }
 
-    for IndexedVfsPackagePath {
-        package,
-        path,
-        named_address_map,
-    } in deps
-    {
+    for IndexedVfsPackagePath { package, path, named_address_map } in deps {
         let (defs, dep_comment_map, fhash) =
             parse_file(&path, compilation_env, &mut files, package)?;
         lib_definitions.extend(defs.into_iter().map(|def| PackageDefinition {
@@ -75,11 +65,7 @@ pub(crate) fn parse_program(
         source_comments.insert(fhash, dep_comment_map);
     }
 
-    let pprog = parser::ast::Program {
-        named_address_maps,
-        source_definitions,
-        lib_definitions,
-    };
+    let pprog = parser::ast::Program { named_address_maps, source_definitions, lib_definitions };
     Ok((files, pprog, source_comments))
 }
 
@@ -88,14 +74,8 @@ fn ensure_targets_deps_dont_intersect(
     targets: &[IndexedVfsPackagePath],
     deps: &mut Vec<IndexedVfsPackagePath>,
 ) -> anyhow::Result<()> {
-    let target_set = targets
-        .iter()
-        .map(|p| p.path.as_str().to_owned())
-        .collect::<BTreeSet<_>>();
-    let dep_set = deps
-        .iter()
-        .map(|p| p.path.as_str().to_owned())
-        .collect::<BTreeSet<_>>();
+    let target_set = targets.iter().map(|p| p.path.as_str().to_owned()).collect::<BTreeSet<_>>();
+    let dep_set = deps.iter().map(|p| p.path.as_str().to_owned()).collect::<BTreeSet<_>>();
     let intersection = target_set.intersection(&dep_set).collect::<Vec<_>>();
     if intersection.is_empty() {
         return Ok(());
@@ -104,15 +84,9 @@ fn ensure_targets_deps_dont_intersect(
         deps.retain(|p| !intersection.contains(&&p.path.as_str().to_owned()));
         return Ok(());
     }
-    let all_files = intersection
-        .into_iter()
-        .map(|s| format!("    {}", s))
-        .collect::<Vec<_>>()
-        .join("\n");
-    Err(anyhow!(
-        "The following files were marked as both targets and dependencies:\n{}",
-        all_files
-    ))
+    let all_files =
+        intersection.into_iter().map(|s| format!("    {}", s)).collect::<Vec<_>>().join("\n");
+    Err(anyhow!("The following files were marked as both targets and dependencies:\n{}", all_files))
 }
 
 fn parse_file(
@@ -120,11 +94,7 @@ fn parse_file(
     compilation_env: &mut CompilationEnv,
     files: &mut FilesSourceText,
     package: Option<Symbol>,
-) -> anyhow::Result<(
-    Vec<parser::ast::Definition>,
-    MatchedFileCommentMap,
-    FileHash,
-)> {
+) -> anyhow::Result<(Vec<parser::ast::Definition>, MatchedFileCommentMap, FileHash)> {
     let mut source_buffer = String::new();
     path.open_file()?.read_to_string(&mut source_buffer)?;
     source_buffer = source_buffer.replace("\r\n", "\n");

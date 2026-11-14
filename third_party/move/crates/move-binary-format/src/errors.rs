@@ -102,36 +102,14 @@ impl VMError {
         Vec<(IndexKind, TableIndex)>,
         Vec<(FunctionDefinitionIndex, CodeOffset)>,
     ) {
-        let VMError_ {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            location,
-            indices,
-            offsets,
-        } = *self.0;
-        (
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            location,
-            indices,
-            offsets,
-        )
+        let VMError_ { major_status, sub_status, message, exec_state, location, indices, offsets } =
+            *self.0;
+        (major_status, sub_status, message, exec_state, location, indices, offsets)
     }
 
     pub fn to_partial(self) -> PartialVMError {
-        let VMError_ {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            indices,
-            offsets,
-            ..
-        } = *self.0;
+        let VMError_ { major_status, sub_status, message, exec_state, indices, offsets, .. } =
+            *self.0;
         PartialVMError(Box::new(PartialVMError_ {
             major_status,
             sub_status,
@@ -151,15 +129,8 @@ impl fmt::Debug for VMError {
 
 impl fmt::Debug for VMError_ {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            location,
-            indices,
-            offsets,
-        } = self;
+        let Self { major_status, sub_status, message, exec_state, location, indices, offsets } =
+            self;
         f.debug_struct("VMError")
             .field("major_status", major_status)
             .field("sub_status", sub_status)
@@ -198,33 +169,14 @@ impl PartialVMError {
         Vec<(IndexKind, TableIndex)>,
         Vec<(FunctionDefinitionIndex, CodeOffset)>,
     ) {
-        let PartialVMError_ {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            indices,
-            offsets,
-        } = *self.0;
-        (
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            indices,
-            offsets,
-        )
+        let PartialVMError_ { major_status, sub_status, message, exec_state, indices, offsets } =
+            *self.0;
+        (major_status, sub_status, message, exec_state, indices, offsets)
     }
 
     pub fn finish(self, location: Location) -> VMError {
-        let PartialVMError_ {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            indices,
-            offsets,
-        } = *self.0;
+        let PartialVMError_ { major_status, sub_status, message, exec_state, indices, offsets } =
+            *self.0;
         VMError(Box::new(VMError_ {
             major_status,
             sub_status,
@@ -390,9 +342,7 @@ pub fn offset_out_of_bounds(
         "Index {} out of bounds for {} at bytecode offset {} in function {} while indexing {}",
         target_offset, target_pool_len, cur_bytecode_offset, cur_function, kind
     );
-    PartialVMError::new(status)
-        .with_message(msg)
-        .at_code_offset(cur_function, cur_bytecode_offset)
+    PartialVMError::new(status).with_message(msg).at_code_offset(cur_function, cur_bytecode_offset)
 }
 
 pub fn bounds_error(
@@ -401,13 +351,8 @@ pub fn bounds_error(
     idx: TableIndex,
     len: usize,
 ) -> PartialVMError {
-    let msg = format!(
-        "Index {} out of bounds for {} while indexing {}",
-        idx, len, kind
-    );
-    PartialVMError::new(status)
-        .at_index(kind, idx)
-        .with_message(msg)
+    let msg = format!("Index {} out of bounds for {} while indexing {}", idx, len, kind);
+    PartialVMError::new(status).at_index(kind, idx).with_message(msg)
 }
 
 pub fn verification_error(status: StatusCode, kind: IndexKind, idx: TableIndex) -> PartialVMError {
@@ -422,14 +367,7 @@ impl fmt::Debug for PartialVMError {
 
 impl fmt::Debug for PartialVMError_ {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self {
-            major_status,
-            sub_status,
-            message,
-            exec_state,
-            indices,
-            offsets,
-        } = self;
+        let Self { major_status, sub_status, message, exec_state, indices, offsets } = self;
         f.debug_struct("PartialVMError")
             .field("major_status", major_status)
             .field("sub_status", sub_status)

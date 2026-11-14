@@ -10,10 +10,7 @@ async fn cluster_serves_height_and_stats_consistently() -> anyhow::Result<()> {
     let height = client.get_block_height().await?;
     let stats = client.get_stats().await?;
 
-    assert_eq!(
-        height, stats.height,
-        "get_block_height ต้องตรงกับ stats.height"
-    );
+    assert_eq!(height, stats.height, "get_block_height ต้องตรงกับ stats.height");
 
     Ok(())
 }
@@ -25,10 +22,7 @@ async fn engine_and_rpc_agree_on_stats() -> anyhow::Result<()> {
     let engine_stats = cluster.engine().get_stats();
 
     assert_eq!(rpc_stats.height, engine_stats.height);
-    assert_eq!(
-        rpc_stats.total_transactions,
-        engine_stats.total_transactions
-    );
+    assert_eq!(rpc_stats.total_transactions, engine_stats.total_transactions);
     assert_eq!(rpc_stats.total_supply, engine_stats.total_supply);
     Ok(())
 }

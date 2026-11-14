@@ -36,10 +36,7 @@ const RATE_LIMIT_RETRY_DELAY_MS: u64 = 1_000;
 fn native_coin_object_count(owner: &kanari_rpc_api::OwnerInfo) -> usize {
     let native_coin_type = CoinModule::coin_type(GAS_COIN);
     owner.owned_objects.as_ref().map_or(0, |objects| {
-        objects
-            .iter()
-            .filter(|object| object.type_ == native_coin_type)
-            .count()
+        objects.iter().filter(|object| object.type_ == native_coin_type).count()
     })
 }
 
@@ -94,9 +91,7 @@ fn is_rpc_transport_failure(error: &anyhow::Error) -> bool {
 /// hash, nonce, object refs, and signature do not change.
 fn is_commit_unobservable(error: &anyhow::Error) -> bool {
     is_rpc_transport_failure(error)
-        || format!("{:#}", error)
-            .to_ascii_lowercase()
-            .contains("transaction not found")
+        || format!("{:#}", error).to_ascii_lowercase().contains("transaction not found")
 }
 
 /// A retry may reach a replica that has already seen the exact payload through
@@ -236,10 +231,7 @@ impl StressTest {
         eprintln!("  To:       {}", to_addr);
         eprintln!("  Per-tx:   {} KANARI ({} Mist)", self.amount, amount_mist);
         eprintln!("  Count:    {} transactions", self.count);
-        eprintln!(
-            "  Gas:      limit={} price={} Mist/gas",
-            gas_limit, gas_price
-        );
+        eprintln!("  Gas:      limit={} price={} Mist/gas", gas_limit, gas_price);
 
         let mut client = RpcClient::new(&rpc);
         let mut last_connect_error = None;
@@ -299,10 +291,8 @@ impl StressTest {
             }
         }
 
-        let owner = client
-            .get_owner(&from_addr)
-            .await
-            .context("Failed to get sender owner state")?;
+        let owner =
+            client.get_owner(&from_addr).await.context("Failed to get sender owner state")?;
 
         let native_balance = owner.balances.get(GAS_COIN).copied().unwrap_or(0);
         let total_needed = amount_mist.saturating_mul(self.count);
@@ -328,10 +318,7 @@ impl StressTest {
             "  Required:       {} KANARI",
             kanari_types::gas_coin::GasModule::format_mist_to_kanari(total_required)
         );
-        eprintln!(
-            "  Native coins:   {} object(s)",
-            native_coin_object_count(&owner)
-        );
+        eprintln!("  Native coins:   {} object(s)", native_coin_object_count(&owner));
         let native_coin_count = native_coin_object_count(&owner);
         let approximate_inflight_pairs = native_coin_count / 2;
         if self.count > 1 && approximate_inflight_pairs <= 1 {
@@ -482,10 +469,8 @@ impl StressTest {
                             && lane_retry_count < MAX_LANE_SATURATION_RETRIES =>
                     {
                         lane_retry_count += 1;
-                        let current_height = client
-                            .get_block_height()
-                            .await
-                            .unwrap_or(last_observed_height);
+                        let current_height =
+                            client.get_block_height().await.unwrap_or(last_observed_height);
                         let height_advanced = current_height > last_observed_height;
                         last_observed_height = current_height;
 
@@ -739,10 +724,7 @@ impl StressTest {
         eprintln!("  Failed:   {}", fail_count);
         eprintln!("  Duration: {:.2?}", total_elapsed);
         if total_elapsed.as_secs_f64() > 0.0 {
-            eprintln!(
-                "  TPS:      {:.1}",
-                success_count as f64 / total_elapsed.as_secs_f64()
-            );
+            eprintln!("  TPS:      {:.1}", success_count as f64 / total_elapsed.as_secs_f64());
         }
 
         if fail_count > 0 {
@@ -800,9 +782,7 @@ mod tests {
     fn retries_rpc_rate_limit_responses_only() {
         let error = anyhow::anyhow!("RPC error: Rate limit exceeded; retry later (code -32005)");
         assert!(is_rate_limited(&error));
-        assert!(!is_rate_limited(&anyhow::anyhow!(
-            "RPC error: invalid signature"
-        )));
+        assert!(!is_rate_limited(&anyhow::anyhow!("RPC error: invalid signature")));
     }
 
     #[test]
@@ -810,9 +790,7 @@ mod tests {
         assert!(is_rpc_transport_failure(&anyhow::anyhow!(
             "Failed to submit transaction: error sending request for url: connection refused"
         )));
-        assert!(!is_rpc_transport_failure(&anyhow::anyhow!(
-            "RPC error: invalid signature"
-        )));
+        assert!(!is_rpc_transport_failure(&anyhow::anyhow!("RPC error: invalid signature")));
     }
 
     #[test]
@@ -820,9 +798,7 @@ mod tests {
         assert!(is_commit_unobservable(&anyhow::anyhow!(
             "Failed to fetch transaction abc: RPC error: Transaction not found (code: -32603)"
         )));
-        assert!(!is_commit_unobservable(&anyhow::anyhow!(
-            "RPC error: invalid signature"
-        )));
+        assert!(!is_commit_unobservable(&anyhow::anyhow!("RPC error: invalid signature")));
     }
 
     #[test]

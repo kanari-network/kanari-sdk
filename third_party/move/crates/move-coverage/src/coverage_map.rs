@@ -91,9 +91,7 @@ impl CoverageMap {
 
     /// Takes in a file containing a raw VM trace, and returns a coverage map.
     pub fn from_trace_file<P: AsRef<Path> + std::fmt::Debug>(filename: P) -> Self {
-        let empty_module_map = CoverageMap {
-            exec_maps: BTreeMap::new(),
-        };
+        let empty_module_map = CoverageMap { exec_maps: BTreeMap::new() };
         empty_module_map.update_coverage_from_trace_file(filename)
     }
 
@@ -147,11 +145,7 @@ impl CoverageMap {
 
 impl ModuleCoverageMap {
     pub fn new(module_addr: AccountAddress, module_name: Identifier) -> Self {
-        ModuleCoverageMap {
-            module_addr,
-            module_name,
-            function_maps: BTreeMap::new(),
-        }
+        ModuleCoverageMap { module_addr, module_name, function_maps: BTreeMap::new() }
     }
 
     pub fn insert_multi(&mut self, func_name: Identifier, pc: u64, count: u64) {
@@ -177,10 +171,7 @@ impl ModuleCoverageMap {
 
 impl ExecCoverageMap {
     pub fn new(exec_id: String) -> Self {
-        ExecCoverageMap {
-            exec_id,
-            module_maps: BTreeMap::new(),
-        }
+        ExecCoverageMap { exec_id, module_maps: BTreeMap::new() }
     }
 
     pub fn insert_multi(
@@ -233,19 +224,13 @@ impl ExecCoverageMap {
             })
             .collect();
 
-        ExecCoverageMapWithModules {
-            module_maps: retained,
-            compiled_modules,
-        }
+        ExecCoverageMapWithModules { module_maps: retained, compiled_modules }
     }
 }
 
 impl ExecCoverageMapWithModules {
     pub fn empty() -> Self {
-        Self {
-            module_maps: BTreeMap::new(),
-            compiled_modules: BTreeMap::new(),
-        }
+        Self { module_maps: BTreeMap::new(), compiled_modules: BTreeMap::new() }
     }
 
     pub fn merge(&mut self, another: ExecCoverageMapWithModules) {
@@ -257,9 +242,7 @@ impl ExecCoverageMapWithModules {
         }
 
         for (module_path, compiled_module) in another.compiled_modules {
-            self.compiled_modules
-                .entry(module_path)
-                .or_insert(compiled_module);
+            self.compiled_modules.entry(module_path).or_insert(compiled_module);
         }
     }
 }
@@ -294,9 +277,7 @@ impl TraceMap {
 
     // Takes in a file containing a raw VM trace, and returns a parsed trace.
     pub fn from_trace_file<P: AsRef<Path>>(filename: P) -> Self {
-        let trace_map = TraceMap {
-            exec_maps: BTreeMap::new(),
-        };
+        let trace_map = TraceMap { exec_maps: BTreeMap::new() };
         trace_map.update_from_trace_file(filename)
     }
 

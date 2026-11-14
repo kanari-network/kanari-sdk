@@ -1,0 +1,11 @@
+# rustfmt configuration for kanari-sdk
+
+
+# Standard formatting options
+style_edition = "2024"
+use_small_heuristics = "Max"
+merge_derives = false
+
+imports_granularity = "Module"
+use_field_init_shorthand = true
+

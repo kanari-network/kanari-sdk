@@ -61,18 +61,11 @@ impl<'a> EliminateImmRefs<'a> {
     }
 
     fn transform_type(&self, ty: Type) -> Type {
-        if let Type::Reference(false, y) = ty {
-            *y
-        } else {
-            ty
-        }
+        if let Type::Reference(false, y) = ty { *y } else { ty }
     }
 
     fn is_imm_ref(&self, idx: TempIndex) -> bool {
-        self.builder
-            .get_target()
-            .get_local_type(idx)
-            .is_immutable_reference()
+        self.builder.get_target().get_local_type(idx).is_immutable_reference()
     }
 
     fn transform_bytecode(&mut self, bytecode: Bytecode) {
@@ -81,13 +74,11 @@ impl<'a> EliminateImmRefs<'a> {
         match bytecode {
             Call(attr_id, dests, op, srcs, aa) => match op {
                 ReadRef if self.is_imm_ref(srcs[0]) => {
-                    self.builder
-                        .emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Move));
+                    self.builder.emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Move));
                 }
                 FreezeRef => self.builder.emit(Call(attr_id, dests, ReadRef, srcs, None)),
                 BorrowLoc if self.is_imm_ref(dests[0]) => {
-                    self.builder
-                        .emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Copy));
+                    self.builder.emit(Assign(attr_id, dests[0], srcs[0], AssignKind::Copy));
                 }
                 BorrowField(mid, sid, type_actuals, offset) if self.is_imm_ref(dests[0]) => {
                     self.builder.emit(Call(

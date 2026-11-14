@@ -5,15 +5,10 @@ use crate::p2p::P2PMessage;
 
 #[test]
 fn encrypted_p2p_identity_is_stable_across_restart() {
-    let _guard = super::TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _guard = super::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     unsafe {
-        std::env::set_var(
-            "KANARI_NODE_IDENTITY_PASSWORD",
-            "correct horse battery staple",
-        );
+        std::env::set_var("KANARI_NODE_IDENTITY_PASSWORD", "correct horse battery staple");
     }
 
     let first = load_or_create_p2p_identity(temp.path(), "devnet").unwrap();
@@ -29,9 +24,7 @@ fn encrypted_p2p_identity_is_stable_across_restart() {
 
 #[test]
 fn mainnet_requires_identity_encryption_password() {
-    let _guard = super::TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _guard = super::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     unsafe {
         std::env::remove_var("KANARI_NODE_IDENTITY_PASSWORD");
@@ -45,9 +38,7 @@ fn mainnet_requires_identity_encryption_password() {
 
 #[test]
 fn mainnet_rejects_plaintext_consensus_key_file() {
-    let _guard = super::TEST_ENV_LOCK
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let _guard = super::TEST_ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
     let temp = tempfile::tempdir().unwrap();
     let private_key = temp.path().join("private.key");
     std::fs::write(&private_key, "11".repeat(32)).unwrap();
@@ -72,14 +63,6 @@ fn mainnet_rejects_plaintext_consensus_key_file() {
 #[test]
 fn bounded_outgoing_queue_applies_backpressure() {
     let (sender, _receiver) = tokio::sync::mpsc::channel(1);
-    assert!(queue_network_message(
-        &sender,
-        P2PMessage::CheckpointRequest(1, 1),
-        "first"
-    ));
-    assert!(!queue_network_message(
-        &sender,
-        P2PMessage::CheckpointRequest(2, 2),
-        "full"
-    ));
+    assert!(queue_network_message(&sender, P2PMessage::CheckpointRequest(1, 1), "first"));
+    assert!(!queue_network_message(&sender, P2PMessage::CheckpointRequest(2, 2), "full"));
 }

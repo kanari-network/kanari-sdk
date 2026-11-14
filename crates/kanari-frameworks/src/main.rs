@@ -126,10 +126,7 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
 
     let framework_dir = framework_dir.unwrap_or_else(|| {
         // Fallback to packages_dir parent (best-effort)
-        packages_dir
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| packages_dir.to_path_buf())
+        packages_dir.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| packages_dir.to_path_buf())
     });
 
     let output_dir = framework_dir.join("released");

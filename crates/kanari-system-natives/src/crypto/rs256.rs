@@ -58,10 +58,7 @@ pub fn make_verify_native(gas_cost: InternalGas) -> NativeFunction {
 
         // Validate inputs
         if msg_bytes.len() > MAX_MSG_BYTES {
-            return Ok(NativeResult::err(
-                context.gas_used(),
-                E_INVALID_MESSAGE_LENGTH,
-            ));
+            return Ok(NativeResult::err(context.gas_used(), E_INVALID_MESSAGE_LENGTH));
         }
 
         // Check modulus length (support normal 2048/3072/4096-bit keys while
@@ -90,10 +87,7 @@ pub fn make_verify_native(gas_cost: InternalGas) -> NativeFunction {
         // Verify RS256 signature
         let result = verify_rs256_prehash_native(&n_bytes, &e_bytes, &hashed_msg, &sig_bytes);
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::bool(result)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::bool(result)]))
     })
 }
 
@@ -121,10 +115,7 @@ pub fn make_verify_prehash_native(gas_cost: InternalGas) -> NativeFunction {
 
         // Validate message length (must be 32 bytes for SHA256)
         if msg_bytes.len() != SHA256_MESSAGE_LENGTH as usize {
-            return Ok(NativeResult::err(
-                context.gas_used(),
-                E_INVALID_MESSAGE_LENGTH,
-            ));
+            return Ok(NativeResult::err(context.gas_used(), E_INVALID_MESSAGE_LENGTH));
         }
 
         // Check modulus length (support normal 2048/3072/4096-bit keys while
@@ -150,10 +141,7 @@ pub fn make_verify_prehash_native(gas_cost: InternalGas) -> NativeFunction {
         // Verify signature with pre-hashed message
         let result = verify_rs256_prehash_native(&n_bytes, &e_bytes, &msg_bytes, &sig_bytes);
 
-        Ok(NativeResult::ok(
-            context.gas_used(),
-            smallvec![Value::bool(result)],
-        ))
+        Ok(NativeResult::ok(context.gas_used(), smallvec![Value::bool(result)]))
     })
 }
 
@@ -161,10 +149,7 @@ pub fn make_verify_prehash_native(gas_cost: InternalGas) -> NativeFunction {
 pub fn make_rs256_natives(gas_cost: InternalGas) -> impl Iterator<Item = (String, NativeFunction)> {
     let natives = vec![
         ("native_verify".to_string(), make_verify_native(gas_cost)),
-        (
-            "native_verify_prehash".to_string(),
-            make_verify_prehash_native(gas_cost),
-        ),
+        ("native_verify_prehash".to_string(), make_verify_prehash_native(gas_cost)),
     ];
 
     crate::helpers::make_module_natives(natives)
@@ -246,9 +231,6 @@ mod tests {
             signature_bytes.as_ref(),
         );
 
-        assert!(
-            !result,
-            "RS256 verification should fail for invalid public key"
-        );
+        assert!(!result, "RS256 verification should fail for invalid public key");
     }
 }

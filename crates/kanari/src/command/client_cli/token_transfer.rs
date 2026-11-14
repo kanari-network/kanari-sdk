@@ -39,10 +39,7 @@ impl TokenTransfer {
         let wallet = load_wallet_for(&from_addr, Some(self.password.clone()))?;
         let (gas_limit, gas_price) = resolve_transaction_gas(None, None);
 
-        eprintln!(
-            "Transferring {} units of {} token...",
-            self.amount, self.token
-        );
+        eprintln!("Transferring {} units of {} token...", self.amount, self.token);
         eprintln!("  From: {}", from_addr);
         eprintln!("  To: {}", to_addr);
 

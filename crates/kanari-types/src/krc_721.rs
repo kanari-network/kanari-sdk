@@ -139,10 +139,7 @@ mod tests {
         let collection = AccountAddress::from_hex_literal("0xcafe").unwrap();
         let mut bytes = vec![0u8; Krc721Module::COLLECTION_END];
         bytes[Krc721Module::COLLECTION_OFFSET..].copy_from_slice(collection.as_ref());
-        assert_eq!(
-            Krc721Module::collection_from_nft_bcs(&bytes),
-            Some(collection)
-        );
+        assert_eq!(Krc721Module::collection_from_nft_bcs(&bytes), Some(collection));
         assert_eq!(Krc721Module::collection_from_nft_bcs(&bytes[..63]), None);
     }
 }

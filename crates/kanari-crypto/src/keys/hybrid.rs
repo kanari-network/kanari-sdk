@@ -83,9 +83,7 @@ pub(super) fn keypair_from_hybrid_private_key(
         return Err(KeyError::InvalidPrivateKey);
     }
 
-    let hybrid = raw_private_key
-        .strip_prefix(KANAHYBRID_PREFIX)
-        .unwrap_or(raw_private_key);
+    let hybrid = raw_private_key.strip_prefix(KANAHYBRID_PREFIX).unwrap_or(raw_private_key);
     let Some((classical_raw, pqc_raw)) = hybrid.split_once(':') else {
         return Err(KeyError::InvalidPrivateKey);
     };
@@ -136,12 +134,8 @@ fn build_hybrid_keypair(
     curve_type: CurveType,
 ) -> Result<KeyPair, KeyError> {
     let combined_public = format!("{}:{}", classical_public_key, pqc_pair.public_key);
-    let combined_private = format!(
-        "{}{}:{}",
-        KANAHYBRID_PREFIX,
-        classical_private_key,
-        pqc_pair.private_key.as_str()
-    );
+    let combined_private =
+        format!("{}{}:{}", KANAHYBRID_PREFIX, classical_private_key, pqc_pair.private_key.as_str());
 
     Ok(KeyPair {
         private_key: Zeroizing::new(combined_private),

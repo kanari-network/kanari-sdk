@@ -42,10 +42,8 @@ impl FunctionTargetProcessor for MemoryInstrumentationProcessor {
         if func_env.is_native() {
             return data;
         }
-        let borrow_annotation = data
-            .annotations
-            .remove::<BorrowAnnotation>()
-            .expect("borrow annotation");
+        let borrow_annotation =
+            data.annotations.remove::<BorrowAnnotation>().expect("borrow annotation");
         let mut builder = FunctionDataBuilder::new(func_env, data);
         let code = std::mem::take(&mut builder.data.code);
         let mut instrumenter = Instrumenter::new(builder, &borrow_annotation);
@@ -67,10 +65,7 @@ struct Instrumenter<'a> {
 
 impl<'a> Instrumenter<'a> {
     fn new(builder: FunctionDataBuilder<'a>, borrow_annotation: &'a BorrowAnnotation) -> Self {
-        Self {
-            builder,
-            borrow_annotation,
-        }
+        Self { builder, borrow_annotation }
     }
 
     fn instrument(&mut self, code_offset: CodeOffset, bytecode: Bytecode) {
@@ -111,9 +106,7 @@ impl<'a> Instrumenter<'a> {
     /// Determines whether the struct needs a pack ref.
     fn is_pack_ref_struct(&self, struct_env: &StructEnv<'_>) -> bool {
         // If any of the fields has it, it inherits to the struct.
-        struct_env
-            .get_fields()
-            .any(|fe| self.is_pack_ref_ty(&fe.get_type()))
+        struct_env.get_fields().any(|fe| self.is_pack_ref_ty(&fe.get_type()))
     }
 
     /// Calculate the differentiating factor for a particular write-back chain (among the tree)
@@ -137,11 +130,7 @@ impl<'a> Instrumenter<'a> {
             .iter()
             .enumerate()
             .filter_map(|(i, chain)| {
-                if i == index {
-                    None
-                } else {
-                    Some(index_of_first_different_action(base, chain))
-                }
+                if i == index { None } else { Some(index_of_first_different_action(base, chain)) }
             })
             .collect();
 
@@ -152,10 +141,7 @@ impl<'a> Instrumenter<'a> {
     fn memory_instrumentation(&mut self, code_offset: CodeOffset, bytecode: &Bytecode) {
         let param_count = self.builder.get_target().get_parameter_count();
 
-        let borrow_annotation_at = self
-            .borrow_annotation
-            .get_borrow_info_at(code_offset)
-            .unwrap();
+        let borrow_annotation_at = self.borrow_annotation.get_borrow_info_at(code_offset).unwrap();
         let before = &borrow_annotation_at.before;
         let after = &borrow_annotation_at.after;
 
@@ -164,11 +150,7 @@ impl<'a> Instrumenter<'a> {
             use Operation::*;
             match op {
                 BorrowLoc | BorrowField(..) | BorrowGlobal(..) => {
-                    let ty = &self
-                        .builder
-                        .get_target()
-                        .get_local_type(dests[0])
-                        .to_owned();
+                    let ty = &self.builder.get_target().get_local_type(dests[0]).to_owned();
                     let node = BorrowNode::Reference(dests[0]);
                     if self.is_pack_ref_ty(ty) && after.is_in_use(&node) {
                         self.builder.set_loc_from_attr(*attr_id);
@@ -221,10 +203,7 @@ impl<'a> Instrumenter<'a> {
             for (chain_index, chain) in ancestors.iter().enumerate() {
                 // sanity check: the src node of the first action must be the node itself
                 assert_eq!(
-                    chain
-                        .first()
-                        .expect("The write-back chain should contain at action")
-                        .src,
+                    chain.first().expect("The write-back chain should contain at action").src,
                     node_idx
                 );
 
@@ -276,8 +255,7 @@ impl<'a> Instrumenter<'a> {
                                 .expect("There should be at least one IsParent call for a conditional write-back"),
                         )
                     });
-                    self.builder
-                        .emit_with(|id| Bytecode::Label(id, update_label));
+                    self.builder.emit_with(|id| Bytecode::Label(id, update_label));
                     Some(skip_label)
                 } else {
                     None
@@ -291,11 +269,7 @@ impl<'a> Instrumenter<'a> {
                             // On write-back to a root, "pack" the reference, i.e. validate all its invariants.
                             let target = self.builder.get_target();
                             let ty = target.get_local_type(action.src);
-                            if self.is_pack_ref_ty(ty) {
-                                Some(action.src)
-                            } else {
-                                None
-                            }
+                            if self.is_pack_ref_ty(ty) { Some(action.src) } else { None }
                         }
                         BorrowNode::Reference(..) => None,
                         BorrowNode::ReturnPlaceholder(..) => unreachable!("invalid placeholder"),

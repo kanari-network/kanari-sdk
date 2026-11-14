@@ -24,11 +24,7 @@ pub struct KanariMoveResolver {
 
 impl KanariMoveResolver {
     pub(crate) fn without_trace(state: MoveVMState, object_storage: Arc<dyn ObjectStore>) -> Self {
-        Self {
-            state,
-            object_storage,
-            read_trace: None,
-        }
+        Self { state, object_storage, read_trace: None }
     }
 
     pub(crate) fn tracing_clone_with_overlay(
@@ -90,11 +86,7 @@ impl ResourceResolver for KanariMoveResolver {
         }
 
         self.record_read(
-            format!(
-                "object:{}",
-                crate::common::ids::object_id_for_address(address)
-            )
-            .into_bytes(),
+            format!("object:{}", crate::common::ids::object_id_for_address(address)).into_bytes(),
         );
         if let Some(data) = self.state.try_get_object(address)? {
             log::debug!("[RESOLVER] Loaded Sui-style object at {}", address);

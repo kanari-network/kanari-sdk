@@ -83,15 +83,8 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
         &runtime,
         &module_id,
         "add_denied",
-        vec![
-            object_arg(DENY_LIST_ID)?,
-            object_arg(&deny_cap_id)?,
-            bcs::to_bytes(&denied)?,
-        ],
-        vec![
-            shared_input(DENY_LIST_ID, true),
-            owned_input(&deny_cap_id, &sender_hex),
-        ],
+        vec![object_arg(DENY_LIST_ID)?, object_arg(&deny_cap_id)?, bcs::to_bytes(&denied)?],
+        vec![shared_input(DENY_LIST_ID, true), owned_input(&deny_cap_id, &sender_hex)],
     )
     .context("deny-list add for the recipient")?;
     state.apply_changeset(&deny_changes)?;
@@ -112,10 +105,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     .err()
     .context("denied recipient transfer should be rejected")?;
     let message = format!("{error:#}");
-    assert!(
-        message.contains("is denied for regulated coin"),
-        "unexpected rejection: {message}"
-    );
+    assert!(message.contains("is denied for regulated coin"), "unexpected rejection: {message}");
 
     // The failed transaction must not have landed: the coin still holds all
     // 10_000 with the sender.
@@ -140,9 +130,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     state.commit()?;
     let piece_id = delivered_piece(&ok_transfer, &allowed_hex)
         .context("the transferred piece should land at the allowed recipient")?;
-    let piece = state
-        .get_object(&piece_id)?
-        .context("piece should persist")?;
+    let piece = state.get_object(&piece_id)?.context("piece should persist")?;
     assert_eq!(
         piece.owner.to_hex_literal(),
         allowed_hex,
@@ -155,10 +143,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
         &module_id,
         "pause",
         vec![object_arg(DENY_LIST_ID)?, object_arg(&deny_cap_id)?],
-        vec![
-            shared_input(DENY_LIST_ID, true),
-            owned_input(&deny_cap_id, &sender_hex),
-        ],
+        vec![shared_input(DENY_LIST_ID, true), owned_input(&deny_cap_id, &sender_hex)],
     )?;
     state.apply_changeset(&pause_changes)?;
     state.commit()?;
@@ -175,10 +160,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     .err()
     .context("globally paused coin type must reject every transfer")?;
     let message = format!("{error:#}");
-    assert!(
-        message.contains("globally paused"),
-        "unexpected rejection: {message}"
-    );
+    assert!(message.contains("globally paused"), "unexpected rejection: {message}");
 
     // --- unpausing restores the allowed recipient ----------------------------
     let unpause_changes = execute(
@@ -186,10 +168,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
         &module_id,
         "unpause",
         vec![object_arg(DENY_LIST_ID)?, object_arg(&deny_cap_id)?],
-        vec![
-            shared_input(DENY_LIST_ID, true),
-            owned_input(&deny_cap_id, &sender_hex),
-        ],
+        vec![shared_input(DENY_LIST_ID, true), owned_input(&deny_cap_id, &sender_hex)],
     )?;
     state.apply_changeset(&unpause_changes)?;
     state.commit()?;
@@ -208,9 +187,7 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     state.commit()?;
     let piece_id = delivered_piece(&restored, &allowed_hex)
         .context("restored transfer should deliver a piece")?;
-    let piece = state
-        .get_object(&piece_id)?
-        .context("piece should persist")?;
+    let piece = state.get_object(&piece_id)?.context("piece should persist")?;
     assert_eq!(
         piece.owner.to_hex_literal(),
         allowed_hex,
@@ -236,11 +213,7 @@ fn attempt_transfer(
         runtime,
         module_id,
         function,
-        vec![
-            object_arg(coin_id)?,
-            bcs::to_bytes(&amount)?,
-            bcs::to_bytes(recipient)?,
-        ],
+        vec![object_arg(coin_id)?, bcs::to_bytes(&amount)?, bcs::to_bytes(recipient)?],
         vec![owned_input(coin_id, &module_id.address().to_hex_literal())],
     )
 }
@@ -321,22 +294,15 @@ fn create_test_package() -> Result<PathBuf> {
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
-    fs::write(
-        package_dir
-            .join("sources")
-            .join(format!("{}.move", MODULE_NAME)),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join(format!("{}.move", MODULE_NAME)), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

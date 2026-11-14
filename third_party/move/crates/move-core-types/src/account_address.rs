@@ -78,19 +78,12 @@ impl AccountAddress {
                 }
             }
         }
-        HexDisplay {
-            data: &self.0,
-            with_prefix,
-        }
+        HexDisplay { data: &self.0, with_prefix }
     }
 
     pub fn short_str_lossless(&self) -> String {
         let hex_str = hex::encode(self.0).trim_start_matches('0').to_string();
-        if hex_str.is_empty() {
-            "0".to_string()
-        } else {
-            hex_str
-        }
+        if hex_str.is_empty() { "0".to_string() } else { hex_str }
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
@@ -126,9 +119,7 @@ impl AccountAddress {
     }
 
     pub fn from_hex<T: AsRef<[u8]>>(hex: T) -> Result<Self, AccountAddressParseError> {
-        <[u8; Self::LENGTH]>::from_hex(hex)
-            .map_err(|_| AccountAddressParseError)
-            .map(Self)
+        <[u8; Self::LENGTH]>::from_hex(hex).map_err(|_| AccountAddressParseError).map(Self)
     }
 
     pub fn to_hex(&self) -> String {

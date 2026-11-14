@@ -37,11 +37,7 @@ pub fn sign_call_function_request(
     wallet: &Wallet,
 ) -> Result<CallFunctionRequest> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing call-function signature"
     );
     let transaction = Transaction::ExecuteFunction {
@@ -61,9 +57,7 @@ pub fn sign_call_function_request(
     let signing_curve = wallet
         .validated_signing_curve()
         .context("Wallet private key does not match its stored curve/address")?;
-    signed_tx
-        .sign(&wallet.private_key, signing_curve)
-        .context("Failed to sign transaction")?;
+    signed_tx.sign(&wallet.private_key, signing_curve).context("Failed to sign transaction")?;
     request.signature = Some(signed_tx.signature);
     Ok(request)
 }
@@ -73,11 +67,7 @@ pub fn sign_publish_module_request(
     wallet: &Wallet,
 ) -> Result<PublishModuleRequest> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing publish-module signature"
     );
     let transaction = Transaction::PublishModule {
@@ -114,11 +104,7 @@ pub fn sign_publish_package_request_as(
     upgrade: bool,
 ) -> Result<PublishPackageRequest> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing publish/upgrade-package signature"
     );
     let modules = request
@@ -166,11 +152,7 @@ pub fn sign_object_transfer_request(
     wallet: &Wallet,
 ) -> Result<ObjectTransferData> {
     ensure!(
-        request
-            .signature
-            .as_ref()
-            .map(|sig| sig.is_empty())
-            .unwrap_or(true),
+        request.signature.as_ref().map(|sig| sig.is_empty()).unwrap_or(true),
         "Refusing to overwrite existing object-transfer signature"
     );
     let coin_object_ref = request
@@ -210,12 +192,8 @@ pub fn submit_blocking_rpc(
     method: &str,
     params: serde_json::Value,
 ) -> Result<RpcResponse> {
-    let rpc_request = RpcRequest {
-        jsonrpc: "2.0".to_string(),
-        method: method.to_string(),
-        params,
-        id: 1,
-    };
+    let rpc_request =
+        RpcRequest { jsonrpc: "2.0".to_string(), method: method.to_string(), params, id: 1 };
 
     client
         .post(rpc_endpoint)
@@ -263,10 +241,7 @@ pub fn render_transaction_submission(
         if fail_on_transaction_failure {
             bail!(
                 "Transaction failed: {}",
-                tx_result
-                    .error_message
-                    .clone()
-                    .unwrap_or_else(|| tx_result.status.clone())
+                tx_result.error_message.clone().unwrap_or_else(|| tx_result.status.clone())
             );
         }
         print_json_value(prefix, "RPC result", &result);
@@ -296,10 +271,7 @@ pub fn render_transaction_submission(
             committed.committed
         );
         if fail_on_transaction_failure && !committed.success {
-            bail!(
-                "Committed transaction failed with status {}",
-                committed.status
-            );
+            bail!("Committed transaction failed with status {}", committed.status);
         }
     }
 
@@ -313,10 +285,8 @@ pub async fn sign_and_call_function(
     request: CallFunctionRequest,
 ) -> Result<TransactionStatus> {
     let signed_request = sign_call_function_request(request, wallet)?;
-    let status = client
-        .call_function(signed_request)
-        .await
-        .context("Failed to submit transaction")?;
+    let status =
+        client.call_function(signed_request).await.context("Failed to submit transaction")?;
 
     if !status.success || (!status.submitted && !status.committed) {
         bail!(
@@ -339,12 +309,10 @@ pub fn object_input_from_info(
     let owner = match &object.owner_kind {
         ObjectOwnerKind::AddressOwner(address) => {
             if let Some(sender) = expected_sender {
-                let object_owner = normalize_addr(address)
-                    .unwrap_or_else(|_| address.clone())
-                    .to_lowercase();
-                let sender = normalize_addr(sender)
-                    .unwrap_or_else(|_| sender.to_string())
-                    .to_lowercase();
+                let object_owner =
+                    normalize_addr(address).unwrap_or_else(|_| address.clone()).to_lowercase();
+                let sender =
+                    normalize_addr(sender).unwrap_or_else(|_| sender.to_string()).to_lowercase();
                 if object_owner != sender {
                     bail!(
                         "Object input {} is owned by {}, not sender {}",
@@ -361,11 +329,7 @@ pub fn object_input_from_info(
     };
 
     Ok(ObjectInput {
-        object_ref: ObjectRef::new(
-            object.id.clone(),
-            Some(object.version),
-            object.digest.clone(),
-        ),
+        object_ref: ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
         owner,
         mutable: !matches!(object.owner_kind, ObjectOwnerKind::Immutable),
     })
@@ -480,9 +444,8 @@ pub fn wait_for_transaction_commit_blocking(
             .json(&req)
             .send()
             .with_context(|| format!("Failed to query transaction {}", tx_hash))?;
-        let rpc_resp: RpcResponse = resp
-            .json()
-            .context("Failed to parse getTransaction RPC response")?;
+        let rpc_resp: RpcResponse =
+            resp.json().context("Failed to parse getTransaction RPC response")?;
 
         if let Some(error) = rpc_resp.error {
             if error.code == RPC_ERROR_CODE_RATE_LIMIT {
@@ -501,9 +464,7 @@ pub fn wait_for_transaction_commit_blocking(
         }
 
         let details: TransactionDetails = serde_json::from_value(
-            rpc_resp
-                .result
-                .context("RPC did not return transaction info for hash")?,
+            rpc_resp.result.context("RPC did not return transaction info for hash")?,
         )
         .context("Failed to decode transaction details from RPC")?;
         let status = status_from_details(details);
@@ -552,9 +513,7 @@ pub fn get_owner_info(
         bail!("RPC did not return owner info for sender");
     }
 
-    let result = rpc_resp
-        .result
-        .context("RPC did not return owner info for sender")?;
+    let result = rpc_resp.result.context("RPC did not return owner info for sender")?;
     serde_json::from_value(result).context("Failed to decode owner info from RPC")
 }
 
@@ -562,10 +521,8 @@ pub fn get_object_info(client: &Client, rpc_endpoint: &str, object_id: &str) -> 
     let object_req = RpcRequest {
         jsonrpc: "2.0".to_string(),
         method: methods::GET_OBJECT.to_string(),
-        params: serde_json::to_value(GetObjectRequest {
-            object_id: object_id.to_string(),
-        })
-        .context("Failed to serialize object id for RPC")?,
+        params: serde_json::to_value(GetObjectRequest { object_id: object_id.to_string() })
+            .context("Failed to serialize object id for RPC")?,
         id: 1,
     };
 

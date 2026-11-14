@@ -25,10 +25,7 @@ impl<'a> Modules<'a> {
     pub fn new(modules: impl IntoIterator<Item = &'a CompiledModule>) -> Self {
         let mut map = BTreeMap::new();
         for m in modules {
-            assert!(
-                map.insert(m.self_id(), m).is_none(),
-                "Duplicate module found"
-            );
+            assert!(map.insert(m.self_id(), m).is_none(), "Duplicate module found");
         }
         Modules(map)
     }
@@ -55,10 +52,7 @@ impl<'a> Modules<'a> {
 
     /// Return the bytecode for the module bound to `module_id`
     pub fn get_module(&self, module_id: &ModuleId) -> Result<&CompiledModule> {
-        self.0
-            .get(module_id)
-            .copied()
-            .ok_or_else(|| anyhow!("Can't find module {:?}", module_id))
+        self.0.get(module_id).copied().ok_or_else(|| anyhow!("Can't find module {:?}", module_id))
     }
 
     /// Return the immediate dependencies for `module_id`

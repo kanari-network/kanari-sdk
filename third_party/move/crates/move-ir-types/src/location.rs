@@ -36,19 +36,11 @@ pub struct Loc {
 
 impl Loc {
     pub fn new(file_hash: FileHash, start: ByteIndex, end: ByteIndex) -> Loc {
-        Loc {
-            file_hash,
-            start,
-            end,
-        }
+        Loc { file_hash, start, end }
     }
 
     pub const fn invalid() -> Loc {
-        Loc {
-            file_hash: FileHash::empty(),
-            start: 0,
-            end: 0,
-        }
+        Loc { file_hash: FileHash::empty(), start: 0, end: 0 }
     }
 
     pub fn file_hash(self) -> FileHash {
@@ -64,10 +56,7 @@ impl Loc {
     }
 
     pub fn usize_range(self) -> Range<usize> {
-        Range {
-            start: self.start as usize,
-            end: self.end as usize,
-        }
+        Range { start: self.start as usize, end: self.end as usize }
     }
 }
 
@@ -109,10 +98,7 @@ impl<T> Spanned<T> {
     }
 
     pub fn unsafe_no_loc(value: T) -> Spanned<T> {
-        Spanned {
-            value,
-            loc: Loc::new(FileHash::empty(), 0, 0),
-        }
+        Spanned { value, loc: Loc::new(FileHash::empty(), 0, 0) }
     }
 }
 
@@ -169,9 +155,6 @@ macro_rules! sp {
         $crate::location::Spanned { loc: $loc, .. }
     };
     ($loc:pat, $value:pat) => {
-        $crate::location::Spanned {
-            loc: $loc,
-            value: $value,
-        }
+        $crate::location::Spanned { loc: $loc, value: $value }
     };
 }

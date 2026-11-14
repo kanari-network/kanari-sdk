@@ -83,14 +83,7 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
     let allowed = AccountAddress::from_hex_literal(ALLOWED_ADDR)?;
 
     // --- regulated currency + initial supply -------------------------------
-    let currency_changes = execute(
-        &runtime,
-        &module_id,
-        "create_currency",
-        vec![],
-        vec![],
-        None,
-    )?;
+    let currency_changes = execute(&runtime, &module_id, "create_currency", vec![], vec![], None)?;
     let treasury_id = object_of_type(&currency_changes, "TreasuryCap<")
         .context("treasury cap should be created")?;
     let deny_cap_id =
@@ -141,10 +134,7 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
                 object_arg(&deny_cap_id)?,
                 bcs::to_bytes(&chunk_addrs)?,
             ],
-            vec![
-                shared_input(DENY_LIST_ID, true),
-                owned_input(&deny_cap_id, &sender_hex),
-            ],
+            vec![shared_input(DENY_LIST_ID, true), owned_input(&deny_cap_id, &sender_hex)],
             None,
         )
         .with_context(|| format!("batch add chunk {start} failed"))?;
@@ -171,10 +161,7 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
     .err()
     .context("denied recipient transfer should be rejected against a populated list")?;
     let message = format!("{error:#}");
-    assert!(
-        message.contains("is denied for regulated coin"),
-        "unexpected rejection: {message}"
-    );
+    assert!(message.contains("is denied for regulated coin"), "unexpected rejection: {message}");
 
     // Starving the transaction's gas did not silently bypass enforcement:
     // the rejected transfer must still not have landed.
@@ -205,9 +192,7 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
     state.commit()?;
     let piece_id = delivered_piece(&ok_transfer, &allowed.to_hex_literal())
         .context("the transferred piece should land at the allowed recipient")?;
-    let piece = state
-        .get_object(&piece_id)?
-        .context("piece should persist")?;
+    let piece = state.get_object(&piece_id)?.context("piece should persist")?;
     assert_eq!(
         piece.owner.to_hex_literal(),
         allowed.to_hex_literal(),
@@ -235,11 +220,7 @@ fn attempt_transfer(
         runtime,
         module_id,
         function,
-        vec![
-            object_arg(coin_id)?,
-            bcs::to_bytes(&amount)?,
-            bcs::to_bytes(recipient)?,
-        ],
+        vec![object_arg(coin_id)?, bcs::to_bytes(&amount)?, bcs::to_bytes(recipient)?],
         vec![owned_input(coin_id, &module_id.address().to_hex_literal())],
         gas_info,
     )
@@ -322,22 +303,15 @@ fn create_test_package() -> Result<PathBuf> {
     );
     fs::write(package_dir.join("Move.toml"), manifest)?;
 
-    fs::write(
-        package_dir
-            .join("sources")
-            .join(format!("{}.move", MODULE_NAME)),
-        MOVE_SOURCE,
-    )?;
+    fs::write(package_dir.join("sources").join(format!("{}.move", MODULE_NAME)), MOVE_SOURCE)?;
 
     Ok(package_dir)
 }
 
 fn compile_test_module(package_dir: &Path) -> Result<(ModuleId, Vec<u8>)> {
     let package = BuildConfig::default().compile_package(package_dir, &mut Vec::new())?;
-    let unit = package
-        .root_modules()
-        .next()
-        .context("compiled package should contain a root module")?;
+    let unit =
+        package.root_modules().next().context("compiled package should contain a root module")?;
     let module = &unit.unit;
     let module_id = ModuleId::new(
         AccountAddress::new(module.address.into_bytes()),

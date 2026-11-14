@@ -100,10 +100,7 @@ where
     T: Eq + Clone + Hash,
 {
     fn new() -> Self {
-        InstantiationState {
-            instantiations: vec![],
-            instantiation_map: HashMap::new(),
-        }
+        InstantiationState { instantiations: vec![], instantiation_map: HashMap::new() }
     }
 
     #[allow(unused)]
@@ -186,15 +183,13 @@ impl FunctionHandleGen {
             SignatureGen::strategy(return_count),
             vec(AbilitySetGen::strategy(), type_parameter_count),
         )
-            .prop_map(
-                |(module, name, parameters, return_, type_parameters)| Self {
-                    module,
-                    name,
-                    parameters,
-                    return_,
-                    type_parameters,
-                },
-            )
+            .prop_map(|(module, name, parameters, return_, type_parameters)| Self {
+                module,
+                name,
+                parameters,
+                return_,
+                type_parameters,
+            })
     }
 
     pub fn materialize(self, state: &mut FnHandleMaterializeState) -> Option<FunctionHandle> {
@@ -213,11 +208,8 @@ impl FunctionHandleGen {
         let params_idx = state.add_signature(parameters);
         let return_ = self.return_.materialize(state.struct_handles);
         let return_idx = state.add_signature(return_);
-        let type_parameters = self
-            .type_parameters
-            .into_iter()
-            .map(|abilities| abilities.materialize())
-            .collect();
+        let type_parameters =
+            self.type_parameters.into_iter().map(|abilities| abilities.materialize()).collect();
         Some(FunctionHandle {
             module: mod_idx,
             name: iden_idx,
@@ -396,15 +388,10 @@ impl FunctionDefinitionGen {
         // This precondition should never fail because the table size cannot be greater
         // than TableSize::max_value()
         let iden_idx = IdentifierIndex(self.name.index(state.identifiers_len) as TableIndex);
-        if state
-            .def_function_handles
-            .contains(&(state.self_module_handle_idx, iden_idx))
-        {
+        if state.def_function_handles.contains(&(state.self_module_handle_idx, iden_idx)) {
             return None;
         }
-        state
-            .def_function_handles
-            .insert((state.self_module_handle_idx, iden_idx));
+        state.def_function_handles.insert((state.self_module_handle_idx, iden_idx));
 
         let parameters = self.parameters.materialize(state.struct_handles);
         let params_idx = state.add_signature(parameters);
@@ -421,7 +408,7 @@ impl FunctionDefinitionGen {
         let mut acquires_set = BTreeSet::new();
         for acquire in self.acquires {
             acquires_set.insert(StructDefinitionIndex(
-                acquire.index(state.struct_defs.len()) as TableIndex,
+                acquire.index(state.struct_defs.len()) as TableIndex
             ));
         }
         let acquires_global_resources = acquires_set.into_iter().collect();
@@ -451,10 +438,7 @@ impl CodeUnitGen {
             vec(SignatureTokenGen::strategy(), arg_count),
             vec(BytecodeGen::garbage_strategy(), code_len),
         )
-            .prop_map(|(locals_signature, code)| Self {
-                locals_signature,
-                code,
-            })
+            .prop_map(|(locals_signature, code)| Self { locals_signature, code })
     }
 
     fn materialize(self, state: &mut FnDefnMaterializeState) -> CodeUnit {
@@ -472,10 +456,7 @@ impl CodeUnitGen {
             }
         }
 
-        CodeUnit {
-            locals: state.add_signature(locals_signature),
-            code,
-        }
+        CodeUnit { locals: state.add_signature(locals_signature), code }
     }
 }
 
@@ -579,12 +560,10 @@ impl BytecodeGen {
                 } else {
                     let sig_idx = state
                         .add_signature_from_type_params(struct_handle.type_param_constraints());
-                    let fi_idx = state
-                        .field_instantiations
-                        .add_instantiation(FieldInstantiation {
-                            handle: fh_idx,
-                            type_parameters: sig_idx,
-                        });
+                    let fi_idx = state.field_instantiations.add_instantiation(FieldInstantiation {
+                        handle: fh_idx,
+                        type_parameters: sig_idx,
+                    });
                     Bytecode::MutBorrowFieldGeneric(FieldInstantiationIndex(fi_idx))
                 }
             }
@@ -606,12 +585,10 @@ impl BytecodeGen {
                 } else {
                     let sig_idx = state
                         .add_signature_from_type_params(struct_handle.type_param_constraints());
-                    let fi_idx = state
-                        .field_instantiations
-                        .add_instantiation(FieldInstantiation {
-                            handle: fh_idx,
-                            type_parameters: sig_idx,
-                        });
+                    let fi_idx = state.field_instantiations.add_instantiation(FieldInstantiation {
+                        handle: fh_idx,
+                        type_parameters: sig_idx,
+                    });
                     Bytecode::ImmBorrowFieldGeneric(FieldInstantiationIndex(fi_idx))
                 }
             }
@@ -630,10 +607,7 @@ impl BytecodeGen {
                 let sd_idx = idx.index(struct_defs_len);
 
                 let sd = &state.struct_defs[sd_idx];
-                if state.struct_handles[sd.struct_handle.0 as usize]
-                    .type_parameters
-                    .is_empty()
-                {
+                if state.struct_handles[sd.struct_handle.0 as usize].type_parameters.is_empty() {
                     Bytecode::Pack(StructDefinitionIndex(sd_idx as TableIndex))
                 } else {
                     Bytecode::PackGeneric(state.get_type_instantiation(sd_idx))
@@ -644,10 +618,7 @@ impl BytecodeGen {
                 let sd_idx = idx.index(struct_defs_len);
 
                 let sd = &state.struct_defs[sd_idx];
-                if state.struct_handles[sd.struct_handle.0 as usize]
-                    .type_parameters
-                    .is_empty()
-                {
+                if state.struct_handles[sd.struct_handle.0 as usize].type_parameters.is_empty() {
                     Bytecode::Unpack(StructDefinitionIndex(sd_idx as TableIndex))
                 } else {
                     Bytecode::UnpackGeneric(state.get_type_instantiation(sd_idx))
@@ -818,9 +789,7 @@ impl BytecodeGen {
             Vector(element_token) => BytecodeGen::check_signature_token(element_token),
             StructInstantiation(struct_inst) => {
                 let (_, type_arguments) = &**struct_inst;
-                type_arguments
-                    .iter()
-                    .all(BytecodeGen::check_signature_token)
+                type_arguments.iter().all(BytecodeGen::check_signature_token)
             }
             Reference(_) | MutableReference(_) => false,
         }

@@ -69,12 +69,7 @@ fn import_rejects_mldsa_keys_with_invalid_seed_or_public_lengths() {
         Err(KeyError::InvalidPrivateKey)
     ));
 
-    let wrong_public = format!(
-        "{}{}:{}",
-        KANAMLDSA_PREFIX,
-        "aa".repeat(32),
-        "bb".repeat(32)
-    );
+    let wrong_public = format!("{}{}:{}", KANAMLDSA_PREFIX, "aa".repeat(32), "bb".repeat(32));
     assert!(matches!(
         keypair_from_private_key(&wrong_public, CurveType::Dilithium3),
         Err(KeyError::InvalidPrivateKey)
@@ -100,13 +95,8 @@ fn import_rejects_hybrid_keys_with_invalid_mldsa_component_lengths() {
         Err(KeyError::InvalidPrivateKey)
     ));
 
-    let expanded_pqc = format!(
-        "{}{}:{}:{}",
-        KANAHYBRID_PREFIX,
-        classical,
-        "aa".repeat(4032),
-        pqc_public
-    );
+    let expanded_pqc =
+        format!("{}{}:{}:{}", KANAHYBRID_PREFIX, classical, "aa".repeat(4032), pqc_public);
     assert!(matches!(
         keypair_from_private_key(&expanded_pqc, CurveType::Ed25519Dilithium3),
         Err(KeyError::InvalidPrivateKey)

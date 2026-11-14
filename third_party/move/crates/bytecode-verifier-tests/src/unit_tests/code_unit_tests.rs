@@ -13,20 +13,14 @@ use move_vm_config::verifier::VerifierConfig;
 fn invalid_fallthrough_br_true() {
     let module = dummy_procedure_module(vec![Bytecode::LdFalse, Bytecode::BrTrue(1)]);
     let result = CodeUnitVerifier::verify_module(&Default::default(), &module, &mut DummyMeter);
-    assert_eq!(
-        result.unwrap_err().major_status(),
-        StatusCode::INVALID_FALL_THROUGH
-    );
+    assert_eq!(result.unwrap_err().major_status(), StatusCode::INVALID_FALL_THROUGH);
 }
 
 #[test]
 fn invalid_fallthrough_br_false() {
     let module = dummy_procedure_module(vec![Bytecode::LdTrue, Bytecode::BrFalse(1)]);
     let result = CodeUnitVerifier::verify_module(&Default::default(), &module, &mut DummyMeter);
-    assert_eq!(
-        result.unwrap_err().major_status(),
-        StatusCode::INVALID_FALL_THROUGH
-    );
+    assert_eq!(result.unwrap_err().major_status(), StatusCode::INVALID_FALL_THROUGH);
 }
 
 // all non-branch instructions should trigger invalid fallthrough; just check one of them
@@ -34,10 +28,7 @@ fn invalid_fallthrough_br_false() {
 fn invalid_fallthrough_non_branch() {
     let module = dummy_procedure_module(vec![Bytecode::LdTrue, Bytecode::Pop]);
     let result = CodeUnitVerifier::verify_module(&Default::default(), &module, &mut DummyMeter);
-    assert_eq!(
-        result.unwrap_err().major_status(),
-        StatusCode::INVALID_FALL_THROUGH
-    );
+    assert_eq!(result.unwrap_err().major_status(), StatusCode::INVALID_FALL_THROUGH);
 }
 
 #[test]
@@ -77,22 +68,14 @@ fn test_max_number_of_bytecode() {
 
 #[test]
 fn test_max_basic_blocks() {
-    let mut code = (0..17)
-        .map(|idx| Bytecode::Branch(idx + 1))
-        .collect::<Vec<_>>();
+    let mut code = (0..17).map(|idx| Bytecode::Branch(idx + 1)).collect::<Vec<_>>();
     code.push(Bytecode::Ret);
     let module = dummy_procedure_module(code);
 
     let result = CodeUnitVerifier::verify_module(
-        &VerifierConfig {
-            max_basic_blocks: Some(16),
-            ..Default::default()
-        },
+        &VerifierConfig { max_basic_blocks: Some(16), ..Default::default() },
         &module,
         &mut DummyMeter,
     );
-    assert_eq!(
-        result.unwrap_err().major_status(),
-        StatusCode::TOO_MANY_BASIC_BLOCKS
-    );
+    assert_eq!(result.unwrap_err().major_status(), StatusCode::TOO_MANY_BASIC_BLOCKS);
 }

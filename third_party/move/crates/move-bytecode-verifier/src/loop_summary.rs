@@ -60,15 +60,8 @@ impl LoopSummary {
         }
 
         enum Frontier {
-            Visit {
-                from_node: NodeId,
-                to_block: BlockId,
-            },
-            Finish {
-                block: BlockId,
-                node_id: NodeId,
-                parent: NodeId,
-            },
+            Visit { from_node: NodeId, to_block: BlockId },
+            Finish { block: BlockId, node_id: NodeId, parent: NodeId },
         }
 
         let num_blocks = cfg.num_blocks() as usize;
@@ -91,27 +84,17 @@ impl LoopSummary {
         let mut stack: Vec<Frontier> = cfg
             .successors(root_block)
             .iter()
-            .map(|succ| Visit {
-                from_node: root_node,
-                to_block: *succ,
-            })
+            .map(|succ| Visit { from_node: root_node, to_block: *succ })
             .collect();
 
         while let Some(action) = stack.pop() {
             match action {
-                Finish {
-                    block,
-                    node_id,
-                    parent,
-                } => {
+                Finish { block, node_id, parent } => {
                     descs[usize::from(parent)] += 1 + descs[usize::from(node_id)];
                     *exploration.get_mut(&block).unwrap() = Done(node_id);
                 }
 
-                Visit {
-                    from_node,
-                    to_block,
-                } => match exploration.entry(to_block) {
+                Visit { from_node, to_block } => match exploration.entry(to_block) {
                     Entry::Occupied(entry) => match entry.get() {
                         // Cyclic back edge detected by re-visiting `to` while still processing its
                         // children.
@@ -130,27 +113,19 @@ impl LoopSummary {
                         blocks[usize::from(to_node)] = to_block;
                         preds[usize::from(to_node)].push(from_node);
 
-                        stack.push(Finish {
-                            block: to_block,
-                            node_id: to_node,
-                            parent: from_node,
-                        });
+                        stack.push(Finish { block: to_block, node_id: to_node, parent: from_node });
 
-                        stack.extend(cfg.successors(to_block).iter().map(|succ| Visit {
-                            from_node: to_node,
-                            to_block: *succ,
-                        }));
+                        stack.extend(
+                            cfg.successors(to_block)
+                                .iter()
+                                .map(|succ| Visit { from_node: to_node, to_block: *succ }),
+                        );
                     }
                 },
             }
         }
 
-        LoopSummary {
-            blocks,
-            descs,
-            backs,
-            preds,
-        }
+        LoopSummary { blocks, descs, backs, preds }
     }
 
     /// Decides whether `descendant` is a descendant of `ancestor` in the depth-first spanning

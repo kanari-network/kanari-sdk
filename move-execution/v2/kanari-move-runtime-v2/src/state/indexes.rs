@@ -108,10 +108,9 @@ impl StateManager {
 
     /// Retrieve NFT IDs for the specified collection.
     pub fn get_collection_nft_ids(&self, collection_id: &str) -> Vec<String> {
-        self.try_get_collection_nft_ids(collection_id)
-            .unwrap_or_else(|error| {
-                Self::log_index_fallback(&format!("collection_members:{collection_id}"), error)
-            })
+        self.try_get_collection_nft_ids(collection_id).unwrap_or_else(|error| {
+            Self::log_index_fallback(&format!("collection_members:{collection_id}"), error)
+        })
     }
 
     pub(crate) fn log_index_fallback(index_name: &str, error: anyhow::Error) -> Vec<String> {
@@ -149,10 +148,7 @@ impl StateManager {
             .collect::<BTreeSet<_>>();
 
         for owner in indexed_owners {
-            let expected_ids = expected_owned_objects
-                .get(&owner)
-                .cloned()
-                .unwrap_or_default();
+            let expected_ids = expected_owned_objects.get(&owner).cloned().unwrap_or_default();
             let key = owned_objects_key(&owner);
             let current_ids = self.load_index_list(&key)?;
             if current_ids != expected_ids {

@@ -68,26 +68,16 @@ impl<BytecodeViewer: LeftScreen, SourceViewer: RightScreen<BytecodeViewer>> TUII
         };
 
         TUIOutput {
-            left_screen: self
-                .bytecode_text
-                .iter()
-                .map(|x| Spans::from(x.clone()))
-                .collect(),
+            left_screen: self.bytecode_text.iter().map(|x| Spans::from(x.clone())).collect(),
             right_screen: report,
         }
     }
 
     fn bound_line(&self, line_number: u16) -> u16 {
-        std::cmp::min(
-            line_number,
-            self.bytecode_text.len().checked_sub(1).unwrap() as u16,
-        )
+        std::cmp::min(line_number, self.bytecode_text.len().checked_sub(1).unwrap() as u16)
     }
 
     fn bound_column(&self, line_number: u16, column_number: u16) -> u16 {
-        std::cmp::min(
-            column_number,
-            self.bytecode_text[line_number as usize].len() as u16,
-        )
+        std::cmp::min(column_number, self.bytecode_text[line_number as usize].len() as u16)
     }
 }

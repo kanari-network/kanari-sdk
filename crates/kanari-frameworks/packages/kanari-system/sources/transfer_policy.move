@@ -48,6 +48,7 @@ module kanari_system::transfer_policy {
     use kanari_system::tx_context::TxContext;
     use kanari_system::vec_map::{Self, VecMap};
     use kanari_system::vec_set::{Self, VecSet};
+    use kanari_system::event;
 
     // === Policy errors ===
     /// Not every registered rule reported before confirmation.
@@ -74,10 +75,17 @@ module kanari_system::transfer_policy {
     /// immutable collection binding.
     const E_COLLECTION_BINDING_MISMATCH: u64 = 16;
 
+    /// Overflow when recording payout (owed + amount > u64::MAX).
+    const E_OWED_OVERFLOW: u64 = 20;
+
+    /// Maximum value of u64 (2^64 - 1).
+    const U64_MAX: u64 = 18446744073709551615;
+
     /// Type-erased state for one rule. `config` holds BCS bytes the rule module
     /// encoded; this module cannot interpret them, which is the point.
     struct AnyRule has drop, store {
-        /// Receipt names collected so far.
+        /// Receipt names collected so far. Using `VecSet` because we only need
+        /// to track which rules have reported (set semantics), not key-value pairs.
         receipts: VecSet<vector<u8>>,
         /// BCS-encoded rule config, written by the rule's own module.
         config: vector<u8>
@@ -125,6 +133,58 @@ module kanari_system::transfer_policy {
         policy_id: ID,
         /// Receipt names collected so far.
         receipts: VecSet<vector<u8>>
+    }
+
+    // === Events ===
+
+    /// Emitted when a new rule is registered.
+    struct RuleAdded has copy, drop, store {
+        policy_id: address,
+        rule_name: vector<u8>
+    }
+
+    /// Emitted when a rule's config is updated.
+    struct RuleUpdated has copy, drop, store {
+        policy_id: address,
+        rule_name: vector<u8>
+    }
+
+    /// Emitted when a rule is removed.
+    struct RuleRemoved has copy, drop, store {
+        policy_id: address,
+        rule_name: vector<u8>
+    }
+
+    /// Emitted when a rule reports its receipt.
+    struct ReceiptReported has copy, drop, store {
+        policy_id: address,
+        rule_name: vector<u8>,
+        request_item: address
+    }
+
+    /// Emitted when a rule collects payment.
+    struct CollectionRecorded has copy, drop, store {
+        policy_id: address,
+        rule_name: vector<u8>,
+        amount: u64
+    }
+
+    /// Emitted when the owner withdraws owed amounts.
+    struct PayoutWithdrawn has copy, drop, store {
+        policy_id: address,
+        amount: u64,
+        recipient: address
+    }
+
+    /// Emitted when a policy is destroyed.
+    struct PolicyDestroyed has copy, drop, store {
+        policy_id: address
+    }
+
+    /// Emitted when the owner cap is transferred.
+    struct CapTransferred has copy, drop, store {
+        cap_id: address,
+        new_owner: address
     }
 
     // ==================== Policy lifecycle ====================
@@ -202,11 +262,22 @@ module kanari_system::transfer_policy {
         let _ = owed;
         let _ = collection_scoped;
         let _ = collection_id;
+        event::emit(
+            PolicyDestroyed {
+                policy_id: object::id_to_address(&object::uid_to_inner(&id))
+            }
+        );
         object::delete(id);
     }
 
     /// Transfer the owner cap, handing over full control of `T`'s rules.
     public fun transfer_cap<T: key + store>(cap: TransferPolicyCap<T>, recipient: address) {
+        event::emit(
+            CapTransferred {
+                cap_id: object::id_to_address(&object::uid_to_inner(&cap.id)),
+                new_owner: recipient
+            }
+        );
         transfer::public_transfer(cap, recipient);
     }
 
@@ -291,16 +362,7 @@ module kanari_system::transfer_policy {
         policy: &TransferPolicy<T>,
         request: &TransferRequest<T>
     ): bool {
-        let keys = vec_map::keys(&policy.rules);
-        let i = 0;
-        while (i < vector::length(&keys)) {
-            let k = *vector::borrow(&keys, i);
-            if (!vec_set::contains(&request.receipts, &k)) {
-                return false
-            };
-            i = i + 1;
-        };
-        true
+        receipts_count(policy, request) == vec_map::size(&policy.rules)
     }
 
     /// Abort unless `request` was created by `policy`.
@@ -343,6 +405,12 @@ module kanari_system::transfer_policy {
         let key = rule_key<Rule>();
         assert!(!vec_map::contains(&policy.rules, &key), E_RULE_ALREADY_PRESENT);
         vec_map::insert(&mut policy.rules, key, new_rule_config(config));
+        event::emit(
+            RuleAdded {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                rule_name: rule_key<Rule>()
+            }
+        );
     }
 
     /// Replace the config of an already-registered rule.
@@ -360,6 +428,12 @@ module kanari_system::transfer_policy {
         let _ = removed_key;
         let _ = removed;
         vec_map::insert(&mut policy.rules, key, new_rule_config(config));
+        event::emit(
+            RuleUpdated {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                rule_name: rule_key<Rule>()
+            }
+        );
     }
 
     /// Remove `R`. Receipts on past requests are unaffected because those were
@@ -374,6 +448,12 @@ module kanari_system::transfer_policy {
         let (removed_key, removed) = vec_map::remove(&mut policy.rules, &key);
         let _ = removed_key;
         let _ = removed;
+        event::emit(
+            RuleRemoved {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                rule_name: rule_key<Rule>()
+            }
+        );
     }
 
     /// True iff `R` is registered.
@@ -423,6 +503,13 @@ module kanari_system::transfer_policy {
         assert!(vec_map::contains(&policy.rules, &key), E_NO_SUCH_RULE);
         vec_set::insert(&mut vec_map::get_mut(&mut policy.rules, &key).receipts, key);
         vec_set::insert(&mut request.receipts, key);
+        event::emit(
+            ReceiptReported {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                rule_name: rule_key<Rule>(),
+                request_item: object::id_to_address(&request.item)
+            }
+        );
     }
 
     /// Number of rules that have reported on `request`.
@@ -472,6 +559,13 @@ module kanari_system::transfer_policy {
         assert!(vec_map::contains(&policy.rules, &key), E_NO_SUCH_RULE);
         let already = amount_of(policy, &key);
         set_amount(policy, &key, already + amount);
+        event::emit(
+            CollectionRecorded {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                rule_name: rule_key<Rule>(),
+                amount
+            }
+        );
     }
 
     /// Take back what `R` collected. Owner-only via `TransferPolicyCap<T>`.
@@ -499,12 +593,34 @@ module kanari_system::transfer_policy {
         policy: &mut TransferPolicy<T>,
         amount: u64
     ) {
+        assert!(policy.owed <= U64_MAX - amount, E_OWED_OVERFLOW);
         policy.owed = policy.owed + amount;
     }
 
     /// Total the owner has been paid across the policy's lifetime.
     public fun owed<T: key + store>(policy: &TransferPolicy<T>): u64 {
         policy.owed
+    }
+
+    /// Withdraw the owed amount, resetting the accounting counter.
+    ///
+    /// The caller is responsible for transferring `Coin<T>` to `recipient`
+    /// after receiving the amount. This keeps custody separate from accounting.
+    public fun withdraw_owed<T: key + store>(
+        policy: &mut TransferPolicy<T>,
+        _cap: &TransferPolicyCap<T>,
+        recipient: address
+    ): u64 {
+        let amount = policy.owed;
+        policy.owed = 0;
+        event::emit(
+            PayoutWithdrawn {
+                policy_id: object::id_to_address(&object::uid_to_inner(&policy.id)),
+                amount,
+                recipient
+            }
+        );
+        amount
     }
 
     /// Canonical registry key for rule type `R`: its type-name bytes.
@@ -522,15 +638,14 @@ module kanari_system::transfer_policy {
         }
     }
 
-    /// Write a ledger entry. `vec_map::insert` aborts on a duplicate key, so an
-    /// existing entry is removed first.
+    /// Write a ledger entry. Updates in-place if key exists, otherwise inserts.
     fun set_amount<T: key + store>(policy: &mut TransferPolicy<T>, key: &vector<u8>, value: u64) {
         if (vec_map::contains(&policy.amounts, key)) {
-            let (removed_key, removed) = vec_map::remove(&mut policy.amounts, key);
-            let _ = removed_key;
-            let _ = removed;
-        };
-        vec_map::insert(&mut policy.amounts, *key, value);
+            // Use get_mut to update in-place
+            *vec_map::get_mut(&mut policy.amounts, key) = value;
+        } else {
+            vec_map::insert(&mut policy.amounts, *key, value);
+        }
     }
 
     // ==================== Tests ====================
@@ -696,6 +811,61 @@ module kanari_system::transfer_policy {
         share(policy);
         freeze_cap(cap);
         transfer::public_freeze_object(fake);
+    }
+
+    #[test]
+    fun test_withdraw_owed() {
+        let ctx = tx_context::dummy();
+        let pub = package::new<TRANSFER_POLICY>(TRANSFER_POLICY {}, &mut ctx);
+        let (policy, cap) = new<TRANSFER_POLICY, TRANSFER_POLICY>(&pub, &mut ctx);
+
+        // Record some payouts
+        record_payout(&mut policy, 100);
+        record_payout(&mut policy, 200);
+        assert!(owed(&policy) == 300, 0);
+
+        // Withdraw
+        let amount = withdraw_owed(&mut policy, &cap, @0xABC);
+        assert!(amount == 300, 1);
+        assert!(owed(&policy) == 0, 2);
+
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(pub);
+    }
+
+    #[test]
+    fun test_set_amount_inplace_update() {
+        let ctx = tx_context::dummy();
+        let pub = package::new<TRANSFER_POLICY>(TRANSFER_POLICY {}, &mut ctx);
+        let (policy, cap) = new<TRANSFER_POLICY, TRANSFER_POLICY>(&pub, &mut ctx);
+
+        add_rule<TRANSFER_POLICY, TRANSFER_POLICY>(
+            TRANSFER_POLICY {},
+            &mut policy,
+            &cap,
+            b"config"
+        );
+
+        // First collection
+        record_collection<TRANSFER_POLICY, TRANSFER_POLICY>(
+            TRANSFER_POLICY {},
+            &mut policy,
+            50
+        );
+        assert!(collected<TRANSFER_POLICY, TRANSFER_POLICY>(&policy) == 50, 0);
+
+        // Second collection - should update in-place
+        record_collection<TRANSFER_POLICY, TRANSFER_POLICY>(
+            TRANSFER_POLICY {},
+            &mut policy,
+            30
+        );
+        assert!(collected<TRANSFER_POLICY, TRANSFER_POLICY>(&policy) == 80, 1);
+
+        transfer::public_freeze_object(policy);
+        transfer::public_freeze_object(cap);
+        transfer::public_freeze_object(pub);
     }
 
 }

@@ -59,11 +59,7 @@ impl PayModule {
     }
 
     pub fn split_and_transfer_path() -> String {
-        format!(
-            "{}::{}",
-            Self::module_path(),
-            Self::split_and_transfer_name()
-        )
+        format!("{}::{}", Self::module_path(), Self::split_and_transfer_name())
     }
 }
 
@@ -89,10 +85,7 @@ mod tests {
     fn pay_module_id_points_to_system_pay() {
         let module_id = PayModule::get_module_id().unwrap();
 
-        assert_eq!(
-            module_id.address().to_hex_literal(),
-            Address::KANARI_SYSTEM_ADDRESS
-        );
+        assert_eq!(module_id.address().to_hex_literal(), Address::KANARI_SYSTEM_ADDRESS);
         assert_eq!(module_id.name().as_str(), PayModule::PAY_MODULE);
     }
 
@@ -104,21 +97,12 @@ mod tests {
         assert_eq!(names.split, "split");
         assert_eq!(names.split_vec, "split_vec");
         assert_eq!(names.split_and_transfer, "split_and_transfer");
-        assert_eq!(
-            names.split_and_transfer_checked,
-            "split_and_transfer_checked"
-        );
+        assert_eq!(names.split_and_transfer_checked, "split_and_transfer_checked");
         assert_eq!(names.divide_and_keep, "divide_and_keep");
         assert_eq!(names.join, "join");
         assert_eq!(names.join_vec, "join_vec");
         assert_eq!(names.join_vec_and_transfer, "join_vec_and_transfer");
-        assert_eq!(
-            names.join_vec_and_transfer_checked,
-            "join_vec_and_transfer_checked"
-        );
-        assert_eq!(
-            PayModule::split_and_transfer_path(),
-            "0x2::pay::split_and_transfer"
-        );
+        assert_eq!(names.join_vec_and_transfer_checked, "join_vec_and_transfer_checked");
+        assert_eq!(PayModule::split_and_transfer_path(), "0x2::pay::split_and_transfer");
     }
 }

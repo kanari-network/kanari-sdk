@@ -136,9 +136,7 @@ impl Wallet {
     pub fn sign(&self, message: &[u8], password: &str) -> Result<Vec<u8>, WalletError> {
         // Validate message is not empty
         if message.is_empty() {
-            return Err(WalletError::SigningError(
-                "Cannot sign empty message".to_string(),
-            ));
+            return Err(WalletError::SigningError("Cannot sign empty message".to_string()));
         }
 
         // Validate password is not empty - this makes the parameter used and required
@@ -157,15 +155,11 @@ impl Wallet {
     pub fn verify(&self, message: &[u8], signature: &[u8]) -> Result<bool, WalletError> {
         // Validate inputs
         if message.is_empty() {
-            return Err(WalletError::SigningError(
-                "Cannot verify empty message".to_string(),
-            ));
+            return Err(WalletError::SigningError("Cannot verify empty message".to_string()));
         }
 
         if signature.is_empty() {
-            return Err(WalletError::SigningError(
-                "Cannot verify empty signature".to_string(),
-            ));
+            return Err(WalletError::SigningError("Cannot verify empty signature".to_string()));
         }
         // Recreate a KeyPair from the stored private key so we can use the
         // KeyPair-aware verifier which prefers the explicit `pqc_public_key`
@@ -188,9 +182,7 @@ impl Wallet {
     /// keys fail closed.
     pub fn validated_signing_curve(&self) -> Result<CurveType, WalletError> {
         if self.private_key.is_empty() {
-            return Err(WalletError::KeyCurveMismatch(
-                "wallet has no private key".to_string(),
-            ));
+            return Err(WalletError::KeyCurveMismatch("wallet has no private key".to_string()));
         }
 
         if keypair_matches_wallet(&self.private_key, self.curve_type, &self.address) {
@@ -229,9 +221,7 @@ fn keypair_matches_wallet(
 
 fn account_address_matches(derived_address: &str, wallet_address: &AccountAddress) -> bool {
     let normalized = derived_address.trim_start_matches("0x");
-    AccountAddress::from_str(normalized)
-        .map(|derived| &derived == wallet_address)
-        .unwrap_or(false)
+    AccountAddress::from_str(normalized).map(|derived| &derived == wallet_address).unwrap_or(false)
 }
 
 fn candidate_curves_for_private_key(private_key: &str) -> Vec<CurveType> {
@@ -240,11 +230,7 @@ fn candidate_curves_for_private_key(private_key: &str) -> Vec<CurveType> {
     }
 
     if private_key.starts_with(KANAMLDSA_PREFIX) || private_key.starts_with(KANAPQC_PREFIX) {
-        return vec![
-            CurveType::Dilithium2,
-            CurveType::Dilithium3,
-            CurveType::Dilithium5,
-        ];
+        return vec![CurveType::Dilithium2, CurveType::Dilithium3, CurveType::Dilithium5];
     }
 
     if private_key.starts_with(KANASLHDSA_PREFIX) {
@@ -365,9 +351,7 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
 
     // Validate decrypted data integrity - should be valid UTF-8 or compressed data
     if decrypted.is_empty() {
-        return Err(WalletError::DecryptionError(
-            "Decrypted data is empty".to_string(),
-        ));
+        return Err(WalletError::DecryptionError("Decrypted data is empty".to_string()));
     }
 
     // Additional integrity check: verify data structure before decompression
@@ -420,10 +404,9 @@ pub fn load_wallet(address: &str, password: &str) -> Result<Wallet, WalletError>
                 }
             }
         }
-        Err(e) => Err(WalletError::DecryptionError(format!(
-            "Decrypted data is not valid UTF-8: {}",
-            e
-        ))),
+        Err(e) => {
+            Err(WalletError::DecryptionError(format!("Decrypted data is not valid UTF-8: {}", e)))
+        }
     }
 }
 

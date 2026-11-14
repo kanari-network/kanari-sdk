@@ -226,12 +226,7 @@ impl Traversal for NullTraversal {
 #[allow(clippy::len_without_is_empty)]
 impl<'r, 'b, 'l> VecDriver<'r, 'b, 'l> {
     fn new(bytes: &'r mut &'b [u8], layout: &'l MoveTypeLayout, len: u64) -> Self {
-        Self {
-            bytes,
-            layout,
-            len,
-            off: 0,
-        }
+        Self { bytes, layout, len, off: 0 }
     }
 
     /// Type layout for the vector's inner type.
@@ -278,11 +273,7 @@ impl<'r, 'b, 'l> VecDriver<'r, 'b, 'l> {
 
 impl<'r, 'b, 'l> StructDriver<'r, 'b, 'l> {
     fn new(bytes: &'r mut &'b [u8], layout: &'l MoveStructLayout) -> Self {
-        Self {
-            bytes,
-            layout,
-            off: 0,
-        }
+        Self { bytes, layout, off: 0 }
     }
 
     /// The layout of the struct being visited.
@@ -319,8 +310,7 @@ impl<'r, 'b, 'l> StructDriver<'r, 'b, 'l> {
     /// Skip the next field. Returns the layout of the field that was visited if there was one, or
     /// `None` if there was none. Can return an error if there was a deserialization error.
     pub fn skip_field(&mut self) -> Result<Option<&'l MoveFieldLayout>, Error> {
-        self.next_field(&mut NullTraversal)
-            .map(|res| res.map(|(f, _)| f))
+        self.next_field(&mut NullTraversal).map(|res| res.map(|(f, _)| f))
     }
 }
 
@@ -377,8 +367,6 @@ pub(crate) fn visit_struct<V: Visitor + ?Sized>(
 
 fn read_exact<const N: usize>(bytes: &mut &[u8]) -> Result<[u8; N], Error> {
     let mut buf = [0u8; N];
-    bytes
-        .read_exact(&mut buf)
-        .map_err(|_| Error::UnexpectedEof)?;
+    bytes.read_exact(&mut buf).map_err(|_| Error::UnexpectedEof)?;
     Ok(buf)
 }

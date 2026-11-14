@@ -64,10 +64,7 @@ impl FaucetConfig {
     fn from_env() -> Result<Self> {
         let sponsor_key = std::env::var("FAUCET_SPONSOR_KEY")
             .context("FAUCET_SPONSOR_KEY is not set (K256 private key that pays claim gas)")?;
-        anyhow::ensure!(
-            !sponsor_key.trim().is_empty(),
-            "FAUCET_SPONSOR_KEY must not be empty"
-        );
+        anyhow::ensure!(!sponsor_key.trim().is_empty(), "FAUCET_SPONSOR_KEY must not be empty");
         let cooldown_secs: u64 = std::env::var("FAUCET_COOLDOWN_SECS")
             .ok()
             .and_then(|value| value.parse().ok())
@@ -110,11 +107,7 @@ fn cooldown_remaining(
 ) -> Option<Duration> {
     log.get(key).and_then(|last| {
         let remaining = cooldown.saturating_sub(last.elapsed());
-        if remaining.is_zero() {
-            None
-        } else {
-            Some(remaining)
-        }
+        if remaining.is_zero() { None } else { Some(remaining) }
     })
 }
 
@@ -187,10 +180,7 @@ fn shared_cap_id(state: &RpcServerState) -> Result<kanari_rpc_api::ObjectInfo> {
 
 fn handler_error_message(response: &RpcResponse) -> Option<String> {
     response.error.as_ref().map(|error| {
-        format!(
-            "faucet handler rejected request (code {}): {}",
-            error.code, error.message
-        )
+        format!("faucet handler rejected request (code {}): {}", error.code, error.message)
     })
 }
 
@@ -236,9 +226,8 @@ async fn mint_leg(
     let cap_id_bytes = AccountAddress::from_hex_literal(&cap.id)
         .context("Invalid treasury cap object id")?
         .to_vec();
-    let recipient_bytes = AccountAddress::from_hex_literal(recipient)
-        .context("Invalid claim recipient")?
-        .to_vec();
+    let recipient_bytes =
+        AccountAddress::from_hex_literal(recipient).context("Invalid claim recipient")?.to_vec();
 
     let build_request = faucet_build_request(
         &service.sender_tagged,
@@ -262,10 +251,7 @@ async fn mint_leg(
         anyhow::bail!("{message}");
     }
     let mut prepared: CallFunctionRequest = serde_json::from_value(
-        build_response
-            .result
-            .clone()
-            .context("Faucet build returned no prepared call")?,
+        build_response.result.clone().context("Faucet build returned no prepared call")?,
     )
     .context("Faucet build returned an invalid prepared call")?;
 
@@ -366,10 +352,7 @@ pub async fn handle_request_usd_faucet(
         if let Some(wait) = cooldown_remaining(&log, &recipient, service.config.cooldown) {
             return invalid_params_response(
                 request.id,
-                format!(
-                    "Cooldown active for this address, try again in {}s",
-                    wait.as_secs()
-                ),
+                format!("Cooldown active for this address, try again in {}s", wait.as_secs()),
             );
         }
     }
@@ -397,11 +380,7 @@ pub async fn handle_request_usd_faucet(
     match execute_claim(state, &service, request.id, &recipient).await {
         Ok(hashes) => {
             let now = Instant::now();
-            service
-                .last_claim
-                .lock()
-                .expect("faucet log poisoned")
-                .insert(recipient.clone(), now);
+            service.last_claim.lock().expect("faucet log poisoned").insert(recipient.clone(), now);
             if let Some(ip) = client_ip {
                 let mut log = service.last_claim_ip.lock().expect("faucet log poisoned");
                 record_claim(&mut log, ip.to_string(), now, service.config.ip_cooldown);
@@ -481,10 +460,7 @@ mod tests {
 
         let mut stale = HashMap::new();
         for n in 0..MAX_IP_LOG_ENTRIES {
-            stale.insert(
-                format!("10.1.0.{n}"),
-                now - cooldown - Duration::from_secs(1),
-            );
+            stale.insert(format!("10.1.0.{n}"), now - cooldown - Duration::from_secs(1));
         }
         record_claim(&mut stale, "10.9.9.9".to_string(), now, cooldown);
         assert_eq!(stale.len(), 1);

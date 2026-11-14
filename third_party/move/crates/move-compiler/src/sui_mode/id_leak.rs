@@ -37,22 +37,10 @@ pub const FRESH_ID_FUNCTIONS: &[(Symbol, Symbol, Symbol)] = &[
     (SUI_ADDR_NAME, TEST_SCENARIO_MODULE_NAME, TS_NEW_OBJECT),
 ];
 pub const FUNCTIONS_TO_SKIP: &[(Symbol, Symbol, Symbol)] = &[
-    (
-        SUI_SYSTEM_ADDR_NAME,
-        SUI_SYSTEM_MODULE_NAME,
-        SUI_SYSTEM_CREATE,
-    ),
+    (SUI_SYSTEM_ADDR_NAME, SUI_SYSTEM_MODULE_NAME, SUI_SYSTEM_CREATE),
     (SUI_ADDR_NAME, CLOCK_MODULE_NAME, SUI_CLOCK_CREATE),
-    (
-        SUI_ADDR_NAME,
-        AUTHENTICATOR_STATE_MODULE_NAME,
-        AUTHENTICATOR_STATE_CREATE,
-    ),
-    (
-        SUI_ADDR_NAME,
-        RANDOMNESS_MODULE_NAME,
-        RANDOMNESS_STATE_CREATE,
-    ),
+    (SUI_ADDR_NAME, AUTHENTICATOR_STATE_MODULE_NAME, AUTHENTICATOR_STATE_CREATE),
+    (SUI_ADDR_NAME, RANDOMNESS_MODULE_NAME, RANDOMNESS_STATE_CREATE),
     (SUI_ADDR_NAME, DENY_LIST_MODULE_NAME, DENY_LIST_CREATE),
     (BRIDGE_ADDR_NAME, BRIDGE_MODULE_NAME, BRIDGE_CREATE),
 ];
@@ -132,9 +120,7 @@ impl<'a> SimpleAbsInt for IDLeakVerifierAI<'a> {
     }
 
     fn start_command(&self, _: &mut State) -> ExecutionContext {
-        ExecutionContext {
-            diags: Diagnostics::new(),
-        }
+        ExecutionContext { diags: Diagnostics::new() }
     }
 
     fn finish_command(&self, context: ExecutionContext, _state: &mut State) -> Diagnostics {
@@ -212,9 +198,7 @@ impl<'a> SimpleAbsInt for IDLeakVerifierAI<'a> {
 }
 
 fn value_for_ty(loc: &Loc, sp!(_, t): &SingleType) -> Value {
-    if t.is_apply(SUI_ADDR_NAME, OBJECT_MODULE_NAME, UID_TYPE_NAME)
-        .is_some()
-    {
+    if t.is_apply(SUI_ADDR_NAME, OBJECT_MODULE_NAME, UID_TYPE_NAME).is_some() {
         Value::NotFresh(*loc)
     } else {
         Value::Other

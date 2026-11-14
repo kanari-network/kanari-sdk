@@ -41,10 +41,7 @@ pub struct NativeResult {
 impl NativeResult {
     /// Return values of a successful execution.
     pub fn ok(cost: InternalGas, values: SmallVec<[Value; 1]>) -> Self {
-        NativeResult {
-            cost,
-            result: Ok(values),
-        }
+        NativeResult { cost, result: Ok(values) }
     }
 
     /// Failed execution. The failure is a runtime failure in the function and not an invariant
@@ -52,10 +49,7 @@ impl NativeResult {
     /// The only thing the funciton can specify is its abort code, as if it had invoked the `Abort`
     /// bytecode instruction
     pub fn err(cost: InternalGas, abort_code: u64) -> Self {
-        NativeResult {
-            cost,
-            result: Err(abort_code),
-        }
+        NativeResult { cost, result: Err(abort_code) }
     }
 
     /// Convert a PartialVMResult<()> into a PartialVMResult<NativeResult>
@@ -112,9 +106,7 @@ macro_rules! pop_arg {
         use $crate::natives::function::{NativeResult, PartialVMError, StatusCode};
         match $arguments.pop_back().map(|v| v.value_as::<$t>()) {
             None => {
-                return Err(PartialVMError::new(
-                    StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR,
-                ));
+                return Err(PartialVMError::new(StatusCode::UNKNOWN_INVARIANT_VIOLATION_ERROR));
             }
             Some(Err(e)) => return Err(e),
             Some(Ok(v)) => v,

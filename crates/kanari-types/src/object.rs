@@ -89,9 +89,7 @@ pub fn canonical_object_id(id: &str) -> Option<String> {
     } else if !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
-    AccountAddress::from_hex_literal(trimmed)
-        .ok()
-        .map(|address| object_id_for_address(&address))
+    AccountAddress::from_hex_literal(trimmed).ok().map(|address| object_id_for_address(&address))
 }
 
 /// Canonical object id from raw bytes (32-byte address prefix).
@@ -117,9 +115,7 @@ pub fn object_id_from_bytes(bytes: &[u8]) -> Option<String> {
 /// bytes (UID serialization, raw function arguments). Returns `None` when the
 /// input is not exactly `AccountAddress::LENGTH` bytes.
 pub fn object_id_from_address_bytes(bytes: &[u8]) -> Option<String> {
-    AccountAddress::from_bytes(bytes)
-        .ok()
-        .map(|address| object_id_for_address(&address))
+    AccountAddress::from_bytes(bytes).ok().map(|address| object_id_for_address(&address))
 }
 
 impl ObjectModule {
@@ -213,10 +209,7 @@ mod tests {
         assert!(object_id_from_bytes(&[0u8; 31]).is_none());
         let mut bytes = [0u8; AccountAddress::LENGTH];
         bytes[31] = 7;
-        assert_eq!(
-            object_id_from_bytes(&bytes).unwrap(),
-            canonical_object_id("0x7").unwrap()
-        );
+        assert_eq!(object_id_from_bytes(&bytes).unwrap(), canonical_object_id("0x7").unwrap());
         assert_eq!(
             object_id_from_address_bytes(&bytes).unwrap(),
             canonical_object_id("0x7").unwrap()

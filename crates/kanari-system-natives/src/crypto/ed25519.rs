@@ -33,32 +33,30 @@ pub fn make_ed25519_natives(
 
 /// Creates the ed25519::verify native function
 fn make_ed25519_verify_native(gas_cost: InternalGas) -> NativeFunction {
-    make_native(
-        move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
-            use move_vm_types::natives::function::NativeResult as NR;
-            native_charge_gas_early_exit!(context, gas_cost);
-            expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
+    make_native(move |context, ty_args, mut arguments| -> PartialVMResult<NativeResult> {
+        use move_vm_types::natives::function::NativeResult as NR;
+        native_charge_gas_early_exit!(context, gas_cost);
+        expect_native_signature(arguments.len(), 3, ty_args.len(), 0)?;
 
-            // Pop arguments
-            let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
-            let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
-            let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        // Pop arguments
+        let msg_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        let public_key_ref: VectorRef = pop_arg!(arguments, VectorRef);
+        let signature_ref: VectorRef = pop_arg!(arguments, VectorRef);
 
-            let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
-            let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
-            let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
+        let msg: Vec<u8> = msg_ref.as_bytes_ref().to_vec();
+        let public_key: Vec<u8> = public_key_ref.as_bytes_ref().to_vec();
+        let signature: Vec<u8> = signature_ref.as_bytes_ref().to_vec();
 
-            // Prevent overly large messages
-            if msg.len() > MAX_MSG_BYTES {
-                return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]));
-            }
+        // Prevent overly large messages
+        if msg.len() > MAX_MSG_BYTES {
+            return Ok(NR::ok(context.gas_used(), smallvec![Value::bool(false)]));
+        }
 
-            // Wrap verification in panic catcher
-            let result =
-                std::panic::catch_unwind(|| verify_ed25519_native(&public_key, &signature, &msg));
+        // Wrap verification in panic catcher
+        let result =
+            std::panic::catch_unwind(|| verify_ed25519_native(&public_key, &signature, &msg));
 
-            let verified: bool = result.unwrap_or_default();
-            Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)]))
-        },
-    )
+        let verified: bool = result.unwrap_or_default();
+        Ok(NR::ok(context.gas_used(), smallvec![Value::bool(verified)]))
+    })
 }

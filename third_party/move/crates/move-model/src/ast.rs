@@ -123,21 +123,13 @@ impl ModuleName {
     /// Creates a value implementing the Display trait which shows this name,
     /// excluding address.
     pub fn display<'a>(&'a self, pool: &'a SymbolPool) -> ModuleNameDisplay<'a> {
-        ModuleNameDisplay {
-            name: self,
-            pool,
-            with_address: false,
-        }
+        ModuleNameDisplay { name: self, pool, with_address: false }
     }
 
     /// Creates a value implementing the Display trait which shows this name,
     /// including address.
     pub fn display_full<'a>(&'a self, pool: &'a SymbolPool) -> ModuleNameDisplay<'a> {
-        ModuleNameDisplay {
-            name: self,
-            pool,
-            with_address: true,
-        }
+        ModuleNameDisplay { name: self, pool, with_address: true }
     }
 }
 
@@ -168,34 +160,19 @@ impl QualifiedSymbol {
     /// Creates a value implementing the Display trait which shows this symbol,
     /// including module name but excluding address.
     pub fn display<'a>(&'a self, pool: &'a SymbolPool) -> QualifiedSymbolDisplay<'a> {
-        QualifiedSymbolDisplay {
-            sym: self,
-            pool,
-            with_module: true,
-            with_address: false,
-        }
+        QualifiedSymbolDisplay { sym: self, pool, with_module: true, with_address: false }
     }
 
     /// Creates a value implementing the Display trait which shows this qualified symbol,
     /// excluding module name.
     pub fn display_simple<'a>(&'a self, pool: &'a SymbolPool) -> QualifiedSymbolDisplay<'a> {
-        QualifiedSymbolDisplay {
-            sym: self,
-            pool,
-            with_module: false,
-            with_address: false,
-        }
+        QualifiedSymbolDisplay { sym: self, pool, with_module: false, with_address: false }
     }
 
     /// Creates a value implementing the Display trait which shows this symbol,
     /// including module name with address.
     pub fn display_full<'a>(&'a self, pool: &'a SymbolPool) -> QualifiedSymbolDisplay<'a> {
-        QualifiedSymbolDisplay {
-            sym: self,
-            pool,
-            with_module: true,
-            with_address: true,
-        }
+        QualifiedSymbolDisplay { sym: self, pool, with_module: true, with_address: true }
     }
 }
 

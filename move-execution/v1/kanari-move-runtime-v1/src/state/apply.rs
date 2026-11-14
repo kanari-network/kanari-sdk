@@ -65,11 +65,7 @@ impl StateManager {
 
     fn visible_supply_snapshot(&self, token_type: &str) -> Result<u64> {
         let token_type = Self::normalize_token_type(token_type);
-        let cached = self
-            .global_token_supplies
-            .get(&token_type)
-            .copied()
-            .unwrap_or(0);
+        let cached = self.global_token_supplies.get(&token_type).copied().unwrap_or(0);
         Ok(cached.max(self.indexed_wallet_supply(&token_type)?))
     }
 
@@ -81,14 +77,8 @@ impl StateManager {
         let mut visible = BTreeMap::new();
 
         for token_type in token_types {
-            issued.insert(
-                token_type.clone(),
-                self.issued_supply_for_token(&token_type)?,
-            );
-            visible.insert(
-                token_type.clone(),
-                self.visible_supply_snapshot(&token_type)?,
-            );
+            issued.insert(token_type.clone(), self.issued_supply_for_token(&token_type)?);
+            visible.insert(token_type.clone(), self.visible_supply_snapshot(&token_type)?);
         }
 
         Ok((issued, visible))
@@ -187,11 +177,8 @@ impl StateManager {
             records.retain(|record| !deleted_ids.contains(&record.holder_object_id));
         }
 
-        let token_types: BTreeSet<String> = issued_before
-            .keys()
-            .chain(visible_before.keys())
-            .cloned()
-            .collect();
+        let token_types: BTreeSet<String> =
+            issued_before.keys().chain(visible_before.keys()).cloned().collect();
 
         for token_type in token_types {
             let issued_before_value = issued_before.get(&token_type).copied().unwrap_or(0);
@@ -233,12 +220,7 @@ impl StateManager {
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
         if changeset.treasuries.is_empty()
-            && self
-                .global_token_supplies
-                .get(GAS_COIN)
-                .copied()
-                .unwrap_or(0)
-                > self.total_supply
+            && self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0) > self.total_supply
         {
             self.validate_supply_invariants()?;
         }
@@ -351,9 +333,7 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<bool> {
-        Ok(self
-            .compute_owned_token_balances(owner, None)?
-            .contains_key(token_type))
+        Ok(self.compute_owned_token_balances(owner, None)?.contains_key(token_type))
     }
 
     fn changeset_touches_object_backed_token_for_owner(
@@ -362,11 +342,9 @@ impl StateManager {
         owner: AccountAddress,
         token_type: &str,
     ) -> Result<bool> {
-        Ok(
-            self.owner_has_object_backed_token_balance(owner, token_type)?
-                || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
-                || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?,
-        )
+        Ok(self.owner_has_object_backed_token_balance(owner, token_type)?
+            || Self::changeset_creates_object_balance_for_owner(changeset, owner, token_type)
+            || self.changeset_deletes_object_balance_for_owner(changeset, owner, token_type)?)
     }
 
     fn persist_treasury_cap_state(
@@ -469,14 +447,9 @@ impl StateManager {
             return Ok(());
         }
 
-        let supply_delta = changeset
-            .owner_deltas
-            .values()
-            .try_fold(0i128, |total, change| {
-                total
-                    .checked_add(change.balance_delta)
-                    .require("Native supply delta overflow")
-            })?;
+        let supply_delta = changeset.owner_deltas.values().try_fold(0i128, |total, change| {
+            total.checked_add(change.balance_delta).require("Native supply delta overflow")
+        })?;
         let next_total_supply = if supply_delta > 0 {
             let mint_amount = u64::try_from(supply_delta)
                 .require("Native supply delta overflowed u64 total supply")?;
@@ -503,14 +476,9 @@ impl StateManager {
             None
         };
         let native_gas_debit_total =
-            changeset
-                .native_gas_credits
-                .values()
-                .try_fold(0u64, |total, credit| {
-                    total
-                        .checked_add(*credit)
-                        .require("Native gas debit total overflow")
-                })?;
+            changeset.native_gas_credits.values().try_fold(0u64, |total, credit| {
+                total.checked_add(*credit).require("Native gas debit total overflow")
+            })?;
         let owner_native_debit = |owner: &AccountAddress| -> Result<u64> {
             changeset
                 .owner_deltas
@@ -534,31 +502,23 @@ impl StateManager {
             .filter(|(_, change)| change.balance_delta < 0)
             .map(|(owner, _)| *owner);
         let first_debit_owner = debit_owners.next();
-        let single_debit_owner = if debit_owners.next().is_none() {
-            first_debit_owner
-        } else {
-            None
-        };
+        let single_debit_owner =
+            if debit_owners.next().is_none() { first_debit_owner } else { None };
         let implicit_gas_payer = gas_payment_owner.or(single_debit_owner);
         let owner_native_gas_debit =
             |owner: &AccountAddress, explicit_gas_object: bool| -> Result<u64> {
-                Ok(
-                    if explicit_gas_object || Some(*owner) == implicit_gas_payer {
-                        owner_native_debit(owner)?.min(native_gas_debit_total)
-                    } else {
-                        0
-                    },
-                )
+                Ok(if explicit_gas_object || Some(*owner) == implicit_gas_payer {
+                    owner_native_debit(owner)?.min(native_gas_debit_total)
+                } else {
+                    0
+                })
             };
 
         // Capture native balances once before mutating the state. Debit validation and
         // post-object recomputation both need this snapshot; independently resolving the
         // same owner here used to scan every owned Coin object twice before the write pass.
-        let mut native_snapshot_owners = changeset
-            .owner_deltas
-            .keys()
-            .copied()
-            .collect::<BTreeSet<_>>();
+        let mut native_snapshot_owners =
+            changeset.owner_deltas.keys().copied().collect::<BTreeSet<_>>();
         for (_, created) in &changeset.created_objects {
             if Self::object_balance_token_for_type_and_data(&created.type_, &created.data)
                 .is_some_and(|token_type| token_type == GAS_COIN)
@@ -576,10 +536,8 @@ impl StateManager {
         }
         let mut native_balances_before = BTreeMap::new();
         for owner in native_snapshot_owners {
-            let ledger_balance = self
-                .load_owner_state(&owner)?
-                .map(|state| state.native_balance())
-                .unwrap_or(0);
+            let ledger_balance =
+                self.load_owner_state(&owner)?.map(|state| state.native_balance()).unwrap_or(0);
             let native_debit = changeset
                 .owner_deltas
                 .get(&owner)
@@ -594,10 +552,7 @@ impl StateManager {
             let object_balance = if native_debit > 0 && ledger_balance >= native_debit {
                 0
             } else {
-                self.compute_owned_token_balances(owner, None)?
-                    .get(GAS_COIN)
-                    .copied()
-                    .unwrap_or(0)
+                self.compute_owned_token_balances(owner, None)?.get(GAS_COIN).copied().unwrap_or(0)
             };
             native_balances_before.insert(owner, (ledger_balance, object_balance));
         }
@@ -609,10 +564,8 @@ impl StateManager {
             }
             let debit = u64::try_from(change.balance_delta.unsigned_abs())
                 .require("Native debit overflowed u64 owner balance")?;
-            let (ledger_balance, object_balance) = native_balances_before
-                .get(address)
-                .copied()
-                .unwrap_or((0, 0));
+            let (ledger_balance, object_balance) =
+                native_balances_before.get(address).copied().unwrap_or((0, 0));
             let balance = ledger_balance.max(object_balance);
             ensure!(
                 balance >= debit,
@@ -641,16 +594,10 @@ impl StateManager {
         let mut native_object_after_from_changes: BTreeMap<AccountAddress, u64> = BTreeMap::new();
         let mut native_balance_after_owner_deltas: BTreeMap<AccountAddress, u64> = BTreeMap::new();
         let mut object_owner_index_additions = Vec::with_capacity(
-            changeset
-                .created_objects
-                .len()
-                .saturating_add(changeset.gas_object_refs.len()),
+            changeset.created_objects.len().saturating_add(changeset.gas_object_refs.len()),
         );
         let mut object_index_additions = Vec::with_capacity(
-            changeset
-                .created_objects
-                .len()
-                .saturating_add(changeset.gas_object_refs.len()),
+            changeset.created_objects.len().saturating_add(changeset.gas_object_refs.len()),
         );
         let mut owned_object_index_additions: BTreeMap<AccountAddress, Vec<String>> =
             BTreeMap::new();
@@ -685,10 +632,8 @@ impl StateManager {
                 let effective_balance = if current >= debit {
                     current
                 } else {
-                    let (_, object_balance) = native_balances_before
-                        .get(address)
-                        .copied()
-                        .unwrap_or((current, 0));
+                    let (_, object_balance) =
+                        native_balances_before.get(address).copied().unwrap_or((current, 0));
                     current.max(object_balance)
                 };
                 let next = effective_balance.checked_sub(debit).with_context(|| {
@@ -707,8 +652,7 @@ impl StateManager {
                 owner_state.add_module(module_name.clone());
             }
             if owner_state.is_empty() {
-                self.overlay
-                    .insert(Self::owner_state_key(&owner_state.address), None);
+                self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
                 self.remove_from_index_list(
                     OWNER_INDEX_KEY,
                     &owner_state.address.to_hex_literal(),
@@ -794,15 +738,12 @@ impl StateManager {
                     if let Some((_, amount)) =
                         Self::balance_token_amount(&existing.type_name, &existing.data)
                     {
-                        let owner_balance = native_object_before_from_changes
-                            .entry(existing.owner)
-                            .or_insert(0);
+                        let owner_balance =
+                            native_object_before_from_changes.entry(existing.owner).or_insert(0);
                         *owner_balance = owner_balance
                             .checked_add(amount)
                             .require("Native object balance snapshot overflow")?;
-                        native_object_after_from_changes
-                            .entry(existing.owner)
-                            .or_insert(0);
+                        native_object_after_from_changes.entry(existing.owner).or_insert(0);
                     }
                     native_object_owner_changed_owners.insert(existing.owner);
                 }
@@ -862,9 +803,7 @@ impl StateManager {
         for (obj_id, created) in &changeset.created_objects {
             let mut new_obj = created.clone();
             let existing_obj = self.load_stored_object_by_any_id(obj_id)?;
-            let existing_stored_id = existing_obj
-                .as_ref()
-                .map(|(stored_id, _)| stored_id.clone());
+            let existing_stored_id = existing_obj.as_ref().map(|(stored_id, _)| stored_id.clone());
             let existing_owner = existing_obj.as_ref().map(|(_, existing)| existing.owner);
             let canonical_obj_id = Self::canonical_owned_object_id(obj_id);
             let obj_key = object_key(&canonical_obj_id);
@@ -882,11 +821,8 @@ impl StateManager {
                     && existing.data == new_obj.data
                     && existing.owner == new_obj.owner
                     && existing.owner_kind == new_obj.owner_kind;
-                new_obj.version = if identical_clock_replay {
-                    existing.version
-                } else {
-                    existing.version + 1
-                };
+                new_obj.version =
+                    if identical_clock_replay { existing.version } else { existing.version + 1 };
                 if new_obj.owner.to_hex_literal() == *obj_id {
                     new_obj.owner = existing.owner;
                 }
@@ -899,9 +835,8 @@ impl StateManager {
                 if let Some((token_type, amount)) = existing_balance
                     && Self::normalize_token_type(&token_type) == GAS_COIN
                 {
-                    let owner_balance = native_object_before_from_changes
-                        .entry(existing.owner)
-                        .or_insert(0);
+                    let owner_balance =
+                        native_object_before_from_changes.entry(existing.owner).or_insert(0);
                     *owner_balance = owner_balance
                         .checked_add(amount)
                         .require("Native object balance snapshot overflow")?;
@@ -920,10 +855,8 @@ impl StateManager {
                 if existing_native_coin && (is_designated_gas_object || is_implicit_gas_object) {
                     let sender_native_debit =
                         owner_native_gas_debit(&existing.owner, is_designated_gas_object)?;
-                    let already_adjusted = native_object_gas_adjusted
-                        .get(&existing.owner)
-                        .copied()
-                        .unwrap_or(0);
+                    let already_adjusted =
+                        native_object_gas_adjusted.get(&existing.owner).copied().unwrap_or(0);
                     let remaining_debit = sender_native_debit.saturating_sub(already_adjusted);
                     if remaining_debit > 0 {
                         let new_struct_tag = StructTag::from_str(&new_obj.type_)
@@ -995,9 +928,8 @@ impl StateManager {
                 if existing_stored_id.is_none() {
                     native_object_created_owners.insert(new_obj.owner);
                 }
-                let owner_balance = native_object_after_from_changes
-                    .entry(new_obj.owner)
-                    .or_insert(0);
+                let owner_balance =
+                    native_object_after_from_changes.entry(new_obj.owner).or_insert(0);
                 *owner_balance = owner_balance
                     .checked_add(amount)
                     .require("Native object balance snapshot overflow")?;
@@ -1064,11 +996,7 @@ impl StateManager {
             if is_native_gas {
                 return owner_native_gas_debit(owner, true);
             }
-            Ok(changeset
-                .token_gas_credits
-                .get(&gas_coin_normalized)
-                .copied()
-                .unwrap_or(0))
+            Ok(changeset.token_gas_credits.get(&gas_coin_normalized).copied().unwrap_or(0))
         };
         for gas_ref in &changeset.gas_object_refs {
             let canonical_gas_id = Self::canonical_owned_object_id(&gas_ref.object_id);
@@ -1085,10 +1013,8 @@ impl StateManager {
                 continue;
             };
             let sender_debit = sender_token_debit(&existing.owner)?;
-            let already_adjusted = native_object_gas_adjusted
-                .get(&existing.owner)
-                .copied()
-                .unwrap_or(0);
+            let already_adjusted =
+                native_object_gas_adjusted.get(&existing.owner).copied().unwrap_or(0);
             let remaining_debit = sender_debit.saturating_sub(already_adjusted);
             if remaining_debit == 0 {
                 continue;
@@ -1152,9 +1078,8 @@ impl StateManager {
                 Self::balance_token_amount(&next_object.type_name, &next_object.data)
                 && Self::normalize_token_type(&token_type) == GAS_COIN
             {
-                let owner_balance = native_object_after_from_changes
-                    .entry(next_object.owner)
-                    .or_insert(0);
+                let owner_balance =
+                    native_object_after_from_changes.entry(next_object.owner).or_insert(0);
                 *owner_balance = owner_balance
                     .checked_add(amount)
                     .require("Native object balance snapshot overflow")?;
@@ -1177,22 +1102,13 @@ impl StateManager {
                 .map(|change| change.balance_delta)
                 .unwrap_or(0i128);
             let native_object_changed = native_object_changed_owners.contains(&owner);
-            let native_gas_credit = changeset
-                .native_gas_credits
-                .get(&owner)
-                .copied()
-                .unwrap_or(0);
-            let (native_ledger_before, native_object_before) = native_balances_before
-                .get(&owner)
-                .copied()
-                .unwrap_or((0, 0));
+            let native_gas_credit = changeset.native_gas_credits.get(&owner).copied().unwrap_or(0);
+            let (native_ledger_before, native_object_before) =
+                native_balances_before.get(&owner).copied().unwrap_or((0, 0));
             let native_object_before = if native_object_before > 0 {
                 native_object_before
             } else {
-                native_object_before_from_changes
-                    .get(&owner)
-                    .copied()
-                    .unwrap_or(0)
+                native_object_before_from_changes.get(&owner).copied().unwrap_or(0)
             };
             if (native_delta <= 0 || native_gas_credit == 0)
                 && native_object_changed
@@ -1291,24 +1207,14 @@ impl StateManager {
                 changeset.move_writes.len(),
                 snapshots_at.duration_since(apply_started_at).as_secs_f64(),
                 owner_deltas_at.duration_since(snapshots_at).as_secs_f64(),
-                created_objects_at
-                    .duration_since(owner_deltas_at)
-                    .as_secs_f64(),
-                gas_objects_at
-                    .duration_since(created_objects_at)
-                    .as_secs_f64(),
+                created_objects_at.duration_since(owner_deltas_at).as_secs_f64(),
+                gas_objects_at.duration_since(created_objects_at).as_secs_f64(),
                 indexes_at.duration_since(gas_objects_at).as_secs_f64(),
                 recompute_at.duration_since(indexes_at).as_secs_f64(),
                 move_writes_at.duration_since(recompute_at).as_secs_f64(),
-                dynamic_fields_at
-                    .duration_since(move_writes_at)
-                    .as_secs_f64(),
-                access_versions_at
-                    .duration_since(dynamic_fields_at)
-                    .as_secs_f64(),
-                access_versions_at
-                    .duration_since(apply_started_at)
-                    .as_secs_f64(),
+                dynamic_fields_at.duration_since(move_writes_at).as_secs_f64(),
+                access_versions_at.duration_since(dynamic_fields_at).as_secs_f64(),
+                access_versions_at.duration_since(apply_started_at).as_secs_f64(),
             );
         }
 
@@ -1381,13 +1287,9 @@ impl StateManager {
             let sender_debit = u64::try_from(sender_delta.unsigned_abs())
                 .context("Native owned batch sender debit overflowed u64")?;
             let gas_credit_total =
-                changeset
-                    .native_gas_credits
-                    .values()
-                    .try_fold(0u64, |acc, value| {
-                        acc.checked_add(*value)
-                            .context("Native gas credit overflow in owned batch")
-                    })?;
+                changeset.native_gas_credits.values().try_fold(0u64, |acc, value| {
+                    acc.checked_add(*value).context("Native gas credit overflow in owned batch")
+                })?;
             if gas_credit_total > sender_debit {
                 return Ok(false);
             }
@@ -1432,9 +1334,7 @@ impl StateManager {
                 data: next_data,
                 version: created.version.saturating_add(1),
             });
-            access
-                .writes
-                .insert(crate::common::keys::object_key(&canonical_object_id));
+            access.writes.insert(crate::common::keys::object_key(&canonical_object_id));
         }
 
         if supply_delta > 0 {
@@ -1454,11 +1354,7 @@ impl StateManager {
                 .checked_sub(burn_amount)
                 .context("Native total supply underflow after burn precheck")?;
             self.save_native_total_supply(next_total_supply)?;
-            let current_visible = self
-                .global_token_supplies
-                .get(GAS_COIN)
-                .copied()
-                .unwrap_or(0);
+            let current_visible = self.global_token_supplies.get(GAS_COIN).copied().unwrap_or(0);
             ensure!(
                 current_visible >= burn_amount,
                 "Native visible supply underflow in owned batch: visible={}, burn={}",
@@ -1471,8 +1367,7 @@ impl StateManager {
             if next_visible == 0 {
                 self.global_token_supplies.remove(GAS_COIN);
             } else {
-                self.global_token_supplies
-                    .insert(GAS_COIN.to_string(), next_visible);
+                self.global_token_supplies.insert(GAS_COIN.to_string(), next_visible);
             }
             let supplies_clone = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies_clone)?;

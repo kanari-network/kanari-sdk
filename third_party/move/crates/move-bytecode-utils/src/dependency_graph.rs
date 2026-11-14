@@ -27,9 +27,7 @@ impl<'a> DependencyGraph<'a> {
         for (i, m) in module_iter.into_iter().enumerate() {
             modules.push(m);
             assert!(
-                reverse_modules
-                    .insert(m.self_id(), ModuleIndex(i))
-                    .is_none(),
+                reverse_modules.insert(m.self_id(), ModuleIndex(i)).is_none(),
                 "Duplicate module found"
             );
         }

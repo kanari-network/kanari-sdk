@@ -149,6 +149,7 @@ Pinned verifying-key hash mismatch.
 
 ## Function `ephemeral_pubkey_length`
 
+Returns the ephemeral public key length for zkLogin.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_ephemeral_pubkey_length">ephemeral_pubkey_length</a>(): u64
@@ -173,6 +174,7 @@ Pinned verifying-key hash mismatch.
 
 ## Function `ephemeral_sig_length`
 
+Returns the ephemeral signature length for zkLogin.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_ephemeral_sig_length">ephemeral_sig_length</a>(): u64
@@ -197,6 +199,7 @@ Pinned verifying-key hash mismatch.
 
 ## Function `salt_length`
 
+Returns the salt length for zkLogin.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="zklogin.md#0x2_zklogin_salt_length">salt_length</a>(): u64

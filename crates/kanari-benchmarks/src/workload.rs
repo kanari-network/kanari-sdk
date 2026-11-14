@@ -49,10 +49,8 @@ pub fn prepare_engine(use_persistent_state: bool) -> Result<PreparedEngine> {
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&signing_key_bytes);
 
     let mut authority_public_keys = std::collections::BTreeMap::new();
-    authority_public_keys.insert(
-        engine.authority_id().to_string(),
-        signing_key.verifying_key().to_bytes().to_vec(),
-    );
+    authority_public_keys
+        .insert(engine.authority_id().to_string(), signing_key.verifying_key().to_bytes().to_vec());
     engine.set_consensus_signing_key(signing_key, authority_public_keys)?;
 
     Ok(PreparedEngine { engine, temp_dir })
@@ -62,9 +60,8 @@ pub fn build_signed_workload(
     config: &HarnessConfig,
     sender_count: usize,
 ) -> Result<Vec<SignedTransaction>> {
-    let senders: Vec<_> = (0..sender_count)
-        .map(deterministic_sender_keypair)
-        .collect::<Result<_>>()?;
+    let senders: Vec<_> =
+        (0..sender_count).map(deterministic_sender_keypair).collect::<Result<_>>()?;
 
     let signed_txs = (0..config.tx_count)
         .map(|tx_index| {
@@ -88,9 +85,8 @@ pub fn build_funded_owned_fastpath_workload(
     config: &HarnessConfig,
     sender_count: usize,
 ) -> Result<Vec<SignedTransaction>> {
-    let senders: Vec<_> = (0..sender_count)
-        .map(deterministic_sender_keypair)
-        .collect::<Result<_>>()?;
+    let senders: Vec<_> =
+        (0..sender_count).map(deterministic_sender_keypair).collect::<Result<_>>()?;
     let mut funding = ChangeSet::new();
     let coin_balance = 1_000_000u64;
     let mut signed_txs = Vec::with_capacity(config.tx_count);
@@ -141,9 +137,7 @@ pub fn build_funded_owned_fastpath_workload(
         state
             .apply_changeset_without_supply_validation(&funding)
             .context("failed to fund owned-fastpath benchmark senders")?;
-        state
-            .commit()
-            .context("failed to commit owned-fastpath benchmark funding state")?;
+        state.commit().context("failed to commit owned-fastpath benchmark funding state")?;
     }
 
     Ok(signed_txs)
@@ -174,10 +168,7 @@ fn native_coin_object_ref(object_id: &str, balance: u64) -> ObjectRef {
     ObjectRef::new(
         object_id.to_string(),
         Some(1),
-        Some(format!(
-            "0x{}",
-            hex::encode(kanari_crypto::hash_data_blake3(&coin_data))
-        )),
+        Some(format!("0x{}", hex::encode(kanari_crypto::hash_data_blake3(&coin_data)))),
     )
 }
 

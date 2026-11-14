@@ -10,10 +10,7 @@ fn generic_struct_references_are_object_input_candidates() {
             vec![RuntimeType::TyParam(0)],
         )))));
 
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&generic_coin_ref, |_| true),
-        Some(true)
-    );
+    assert_eq!(MoveRuntime::object_param_mutability(&generic_coin_ref, |_| true), Some(true));
 }
 
 #[test]
@@ -23,10 +20,7 @@ fn key_struct_values_are_object_input_candidates() {
         vec![RuntimeType::TyParam(0)],
     )));
 
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&coin_value, |_| true),
-        Some(true)
-    );
+    assert_eq!(MoveRuntime::object_param_mutability(&coin_value, |_| true), Some(true));
 }
 
 #[test]
@@ -34,10 +28,7 @@ fn non_struct_references_are_not_object_input_candidates() {
     let vector_ref =
         RuntimeType::Reference(Box::new(RuntimeType::Vector(Box::new(RuntimeType::U8))));
 
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&vector_ref, |_| false),
-        None
-    );
+    assert_eq!(MoveRuntime::object_param_mutability(&vector_ref, |_| false), None);
 }
 
 #[test]
@@ -75,10 +66,7 @@ fn declared_object_inputs_must_match_reference_param_mutability() {
             )),
             mutable: false,
         }],
-        &[ObjectParamBindingRequirement {
-            param_index: 0,
-            mutable: true,
-        }],
+        &[ObjectParamBindingRequirement { param_index: 0, mutable: true }],
     )
     .expect_err("mutability mismatch should fail");
 
@@ -99,10 +87,7 @@ fn mutable_object_input_can_bind_immutable_reference_param() {
             )),
             mutable: true,
         }],
-        &[ObjectParamBindingRequirement {
-            param_index: 0,
-            mutable: false,
-        }],
+        &[ObjectParamBindingRequirement { param_index: 0, mutable: false }],
     )
     .expect("mutable input should satisfy immutable reference binding");
 }
@@ -119,10 +104,7 @@ fn immutable_object_cannot_bind_mutable_reference_param() {
             owner: Some(kanari_types::transaction::ObjectOwnerKind::Immutable),
             mutable: true,
         }],
-        &[ObjectParamBindingRequirement {
-            param_index: 0,
-            mutable: true,
-        }],
+        &[ObjectParamBindingRequirement { param_index: 0, mutable: true }],
     )
     .expect_err("immutable mutable-ref binding should fail");
 
@@ -135,10 +117,7 @@ fn generic_immutable_reference_is_an_object_input_candidate() {
         Box::new((CachedStructIndex(1), vec![RuntimeType::TyParam(0)])),
     )));
 
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&generic_pool_ref, |_| false),
-        Some(false)
-    );
+    assert_eq!(MoveRuntime::object_param_mutability(&generic_pool_ref, |_| false), Some(false));
 }
 
 #[test]
@@ -147,14 +126,8 @@ fn concrete_struct_references_are_object_inputs_without_key_ability_metadata() {
         RuntimeType::MutableReference(Box::new(RuntimeType::Struct(CachedStructIndex(2))));
     let deny_list_ref = RuntimeType::Reference(Box::new(RuntimeType::Struct(CachedStructIndex(2))));
 
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&deny_list_mut_ref, |_| false),
-        Some(true)
-    );
-    assert_eq!(
-        MoveRuntime::object_param_mutability(&deny_list_ref, |_| false),
-        Some(false)
-    );
+    assert_eq!(MoveRuntime::object_param_mutability(&deny_list_mut_ref, |_| false), Some(true));
+    assert_eq!(MoveRuntime::object_param_mutability(&deny_list_ref, |_| false), Some(false));
 }
 
 #[test]
@@ -171,14 +144,8 @@ fn multiple_object_inputs_validate_in_parameter_order() {
         })
         .collect::<Vec<_>>();
     let requirements = vec![
-        ObjectParamBindingRequirement {
-            param_index: 0,
-            mutable: true,
-        },
-        ObjectParamBindingRequirement {
-            param_index: 1,
-            mutable: false,
-        },
+        ObjectParamBindingRequirement { param_index: 0, mutable: true },
+        ObjectParamBindingRequirement { param_index: 1, mutable: false },
     ];
 
     MoveRuntime::validate_declared_object_input_bindings(&inputs, &requirements)
@@ -197,10 +164,7 @@ fn object_input_requires_owner_semantics() {
             owner: None,
             mutable: true,
         }],
-        &[ObjectParamBindingRequirement {
-            param_index: 0,
-            mutable: true,
-        }],
+        &[ObjectParamBindingRequirement { param_index: 0, mutable: true }],
     )
     .expect_err("object input without owner semantics should fail");
 

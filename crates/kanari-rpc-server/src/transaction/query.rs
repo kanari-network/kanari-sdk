@@ -25,12 +25,7 @@ pub(crate) fn tx_matches_owner(tx: &Transaction, owner_norm: Option<&str>) -> bo
     // without this branch the move never appears in the recipient's history:
     // coin enrichment skips non-coin types and the sender-only fallback below
     // only ever matches the sender.
-    if let Transaction::ExecuteFunction {
-        module,
-        function,
-        args,
-        ..
-    } = tx
+    if let Transaction::ExecuteFunction { module, function, args, .. } = tx
         && module == &TransferModule::module_path()
         && function == TransferModule::ENTRY_TRANSFER
         && args.len() >= 2
@@ -59,19 +54,12 @@ pub(crate) fn details_involve_owner(
     if normalize_addr(&details.sender) == owner {
         return true;
     }
-    if details
-        .sender_address
-        .as_deref()
-        .is_some_and(|sender| normalize_addr(sender) == owner)
-    {
+    if details.sender_address.as_deref().is_some_and(|sender| normalize_addr(sender) == owner) {
         return true;
     }
     details.transfers.as_ref().is_some_and(|transfers| {
         transfers.iter().any(|entry| {
-            entry
-                .recipient
-                .as_deref()
-                .is_some_and(|recipient| normalize_addr(recipient) == owner)
+            entry.recipient.as_deref().is_some_and(|recipient| normalize_addr(recipient) == owner)
         })
     })
 }
@@ -98,12 +86,7 @@ fn emit_unique_tx_details(
 fn extract_hash_param(params: &serde_json::Value) -> Option<String> {
     serde_json::from_value::<String>(params.clone())
         .ok()
-        .or_else(|| {
-            params
-                .get("hash")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })
+        .or_else(|| params.get("hash").and_then(|v| v.as_str()).map(|s| s.to_string()))
 }
 
 /// Handle get transaction by hash request
@@ -141,9 +124,8 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
     }
     drop(chain);
 
-    if let Some((tx, height, state_root)) = state
-        .engine
-        .get_committed_transaction_from_history(&tx_hash_bytes)
+    if let Some((tx, height, state_root)) =
+        state.engine.get_committed_transaction_from_history(&tx_hash_bytes)
     {
         let mut details = map_transaction_to_details(
             state,
@@ -153,9 +135,7 @@ pub async fn handle_get_transaction(state: &RpcServerState, request: &RpcRequest
             Some(height),
             Some(hex::encode(state_root)),
         );
-        let effect = state
-            .engine
-            .get_committed_transaction_effect_from_history(&tx_hash_bytes);
+        let effect = state.engine.get_committed_transaction_effect_from_history(&tx_hash_bytes);
         apply_committed_effect(Some(state), &mut details, effect.as_ref());
         return respond_with_serialize(request.id, details);
     }
@@ -209,11 +189,9 @@ fn walk_transaction_details<F, G>(
     // already after the cursor when it is still pending, and an unset flag
     // means the cursor has committed (the pool is entirely newer than it).
     let (pending, cursor_passed) =
-        state
-            .engine
-            .filter_pending_transaction_records(limit, cursor, |tx| {
-                matches_tx(&tx.signed_tx.transaction)
-            });
+        state.engine.filter_pending_transaction_records(limit, cursor, |tx| {
+            matches_tx(&tx.signed_tx.transaction)
+        });
     let mut cursor_passed = cursor.is_none() || cursor_passed;
 
     for tx in &pending {
@@ -284,16 +262,12 @@ fn walk_transaction_details<F, G>(
         // the cursor itself, so deep history is paged without replaying rows
         // from earlier pages (and without depending on the retained window).
         for (tx, height, state_root) in
-            state
-                .engine
-                .list_committed_transactions_from_history(limit, cursor, &matches_tx)
+            state.engine.list_committed_transactions_from_history(limit, cursor, &matches_tx)
         {
             // The engine only returns rows strictly after the cursor, so no
             // further cursor bookkeeping is needed in this final phase.
             let tx_hash = tx.transaction_hash().to_vec();
-            let effect = state
-                .engine
-                .get_committed_transaction_effect_from_history(&tx_hash);
+            let effect = state.engine.get_committed_transaction_effect_from_history(&tx_hash);
             let mut details = map_transaction_to_details(
                 state,
                 &tx.transaction,
@@ -375,11 +349,7 @@ where
 fn parse_owner_norm(params: &serde_json::Value) -> Option<String> {
     params
         .as_str()
-        .or_else(|| {
-            params
-                .as_object()
-                .and_then(|obj| obj.get("owner").and_then(|v| v.as_str()))
-        })
+        .or_else(|| params.as_object().and_then(|obj| obj.get("owner").and_then(|v| v.as_str())))
         .map(|a| a.trim_start_matches("0x").to_lowercase())
 }
 
@@ -413,23 +383,15 @@ pub async fn handle_get_all_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let limit = request
-        .params
-        .get("limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50)
-        .min(500) as usize;
+    let limit =
+        request.params.get("limit").and_then(|v| v.as_u64()).unwrap_or(50).min(500) as usize;
 
     let owner_norm = parse_owner_norm(&request.params);
 
     // Optional resume point: the hash of the last row the client already has
     // (with or without 0x). The page then starts strictly after it, so the
     // caller can walk the whole history `limit` rows at a time.
-    let cursor = match request
-        .params
-        .as_object()
-        .and_then(|params| params.get("cursor"))
-    {
+    let cursor = match request.params.as_object().and_then(|params| params.get("cursor")) {
         None => None,
         Some(value) => {
             let Some(raw) = value.as_str() else {
@@ -438,10 +400,7 @@ pub async fn handle_get_all_transactions(
                     "Invalid cursor: expected a transaction hash string",
                 );
             };
-            let stripped = raw
-                .strip_prefix("0x")
-                .or_else(|| raw.strip_prefix("0X"))
-                .unwrap_or(raw);
+            let stripped = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")).unwrap_or(raw);
             match hex::decode(stripped) {
                 Ok(bytes) if !bytes.is_empty() => Some(bytes),
                 _ => {
@@ -479,21 +438,17 @@ pub async fn handle_get_fungible_asset_transactions(
     state: &RpcServerState,
     request: &RpcRequest,
 ) -> RpcResponse {
-    let req_data: GetFungibleAssetTransactionsRequest = match parse_labeled_params(
-        request.id,
-        &request.params,
-        "fungible asset transaction query",
-    ) {
-        Ok(data) => data,
-        Err(response) => return *response,
-    };
+    let req_data: GetFungibleAssetTransactionsRequest =
+        match parse_labeled_params(request.id, &request.params, "fungible asset transaction query")
+        {
+            Ok(data) => data,
+            Err(response) => return *response,
+        };
 
     let token_type = CoinModule::normalize_token_type(&req_data.token_type);
     let limit = req_data.limit.unwrap_or(50).min(500);
-    let owner_norm = req_data
-        .owner
-        .as_deref()
-        .map(|owner| owner.trim_start_matches("0x").to_lowercase());
+    let owner_norm =
+        req_data.owner.as_deref().map(|owner| owner.trim_start_matches("0x").to_lowercase());
 
     // Incoming token transfers must be visible in the recipient's view even
     // when the call goes through a router module that never mentions the
@@ -533,9 +488,6 @@ pub async fn handle_get_fungible_asset_transactions(
 
     respond_with_serialize(
         request.id,
-        FungibleAssetTransactionsResponse {
-            token_type,
-            transactions: results,
-        },
+        FungibleAssetTransactionsResponse { token_type, transactions: results },
     )
 }

@@ -184,9 +184,8 @@ impl MoveRuntime {
 
         let tx_hash = tx_hash.unwrap();
         let vm_guard = self.read_vm();
-        let (resolver, resolver_trace) = self
-            .resolver
-            .tracing_clone_with_overlay(state_overlay.clone());
+        let (resolver, resolver_trace) =
+            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
         let mut session =
             self.create_session_with_resolver(&vm_guard, resolver, state_overlay.clone());
         let mut deterministic_reads =
@@ -214,24 +213,17 @@ impl MoveRuntime {
 
         let mut ty_args_loaded = vec![];
         for tag in type_args.iter() {
-            ty_args_loaded.push(
-                session
-                    .load_type(tag)
-                    .require("Object storage operation failed")?,
-            );
+            ty_args_loaded.push(session.load_type(tag).require("Object storage operation failed")?);
         }
 
         let ident = IdentStr::new(function_name).require("Invalid function name")?;
 
         let mut final_args = Self::preprocess_entry_args(args);
         deterministic_reads.extend(
-            final_args
-                .iter()
-                .filter(|arg| arg.len() == AccountAddress::LENGTH)
-                .filter_map(|arg| {
-                    kanari_types::object::object_id_from_address_bytes(arg)
-                        .map(|id| format!("object:{id}").into_bytes())
-                }),
+            final_args.iter().filter(|arg| arg.len() == AccountAddress::LENGTH).filter_map(|arg| {
+                kanari_types::object::object_id_from_address_bytes(arg)
+                    .map(|id| format!("object:{id}").into_bytes())
+            }),
         );
         self.preload_object_ids_from_args(
             &mut session,
@@ -311,33 +303,33 @@ impl MoveRuntime {
                     final_args[i] = otw_bytes;
                 }
 
-                let explicit_binding_index = if matches!(
-                    probe.type_tag_for_param(param_type),
-                    Some(TypeTag::Struct(_))
-                ) || object_mutability.is_some()
-                {
-                    let argument_address = AccountAddress::from_bytes(&final_args[i]).ok();
-                    let matching_input = argument_address.and_then(|address| {
-                        object_inputs.iter().enumerate().find_map(|(index, input)| {
-                            if used_explicit_object_bindings.contains(&index) {
-                                return None;
-                            }
-                            AccountAddress::from_hex_literal(&input.object_ref.object_id)
-                                .ok()
-                                .filter(|input_address| *input_address == address)
-                                .map(|_| index)
-                        })
-                    });
-                    matching_input.or_else(|| {
-                        object_mutability.and_then(|_| {
-                            object_inputs.iter().enumerate().find_map(|(index, _)| {
-                                (!used_explicit_object_bindings.contains(&index)).then_some(index)
+                let explicit_binding_index =
+                    if matches!(probe.type_tag_for_param(param_type), Some(TypeTag::Struct(_)))
+                        || object_mutability.is_some()
+                    {
+                        let argument_address = AccountAddress::from_bytes(&final_args[i]).ok();
+                        let matching_input = argument_address.and_then(|address| {
+                            object_inputs.iter().enumerate().find_map(|(index, input)| {
+                                if used_explicit_object_bindings.contains(&index) {
+                                    return None;
+                                }
+                                AccountAddress::from_hex_literal(&input.object_ref.object_id)
+                                    .ok()
+                                    .filter(|input_address| *input_address == address)
+                                    .map(|_| index)
+                            })
+                        });
+                        matching_input.or_else(|| {
+                            object_mutability.and_then(|_| {
+                                object_inputs.iter().enumerate().find_map(|(index, _)| {
+                                    (!used_explicit_object_bindings.contains(&index))
+                                        .then_some(index)
+                                })
                             })
                         })
-                    })
-                } else {
-                    None
-                };
+                    } else {
+                        None
+                    };
                 let bound_object_mutability = object_mutability
                     .or_else(|| explicit_binding_index.map(|index| object_inputs[index].mutable));
 
@@ -504,11 +496,8 @@ impl MoveRuntime {
                 // writebacks below) are surfaced to callers that compose
                 // calls, e.g. programmable transactions threading a `u64`
                 // across commands.
-                let pure_return_values: Vec<Vec<u8>> = return_values
-                    .return_values
-                    .iter()
-                    .map(|(bytes, _)| bytes.clone())
-                    .collect();
+                let pure_return_values: Vec<Vec<u8>> =
+                    return_values.return_values.iter().map(|(bytes, _)| bytes.clone()).collect();
                 // Extract data from native extensions before finishing the session
                 let SessionNativeOutputs {
                     transferred,
@@ -539,9 +528,7 @@ impl MoveRuntime {
 
                 for (idx, data, _) in return_values.mutable_reference_outputs {
                     if let Some((_, id, owner, owner_kind, type_name, version)) =
-                        loaded_mutable_objects
-                            .iter()
-                            .find(|(i, _, _, _, _, _)| *i == idx as usize)
+                        loaded_mutable_objects.iter().find(|(i, _, _, _, _, _)| *i == idx as usize)
                     {
                         self.upsert_created_object(
                             &mut cs,
@@ -634,9 +621,7 @@ impl MoveRuntime {
                         &mut cs,
                         gas_limit,
                         gas_price,
-                        GasOperation::ExecuteFunction {
-                            complexity: penalty_complexity,
-                        },
+                        GasOperation::ExecuteFunction { complexity: penalty_complexity },
                         0,
                         0,
                     );

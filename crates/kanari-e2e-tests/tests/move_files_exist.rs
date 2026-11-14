@@ -3,10 +3,7 @@
 #[test]
 fn move_source_files_exist_in_sources_folder() {
     let sources_dir = std::path::Path::new("move_package/sources");
-    assert!(
-        sources_dir.exists() && sources_dir.is_dir(),
-        "move_sources directory should exist"
-    );
+    assert!(sources_dir.exists() && sources_dir.is_dir(), "move_sources directory should exist");
 
     let files = [
         "move_e2e_basic.move",
@@ -18,11 +15,7 @@ fn move_source_files_exist_in_sources_folder() {
 
     for f in &files {
         let path = sources_dir.join(f);
-        assert!(
-            path.exists(),
-            "Move source should exist: {}",
-            path.display()
-        );
+        assert!(path.exists(), "Move source should exist: {}", path.display());
     }
 }
 

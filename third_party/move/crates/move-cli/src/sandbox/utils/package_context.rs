@@ -17,14 +17,9 @@ pub struct PackageContext {
 impl PackageContext {
     pub fn new(path: &Option<PathBuf>, build_config: &BuildConfig) -> Result<Self> {
         let path = path.as_deref().unwrap_or_else(|| Path::new("."));
-        let build_dir = build_config
-            .install_dir
-            .as_ref()
-            .unwrap_or(&PathBuf::from(DEFAULT_BUILD_DIR))
-            .clone();
-        let package = build_config
-            .clone()
-            .compile_package(path, &mut Vec::new())?;
+        let build_dir =
+            build_config.install_dir.as_ref().unwrap_or(&PathBuf::from(DEFAULT_BUILD_DIR)).clone();
+        let package = build_config.clone().compile_package(path, &mut Vec::new())?;
         Ok(PackageContext { package, build_dir })
     }
 

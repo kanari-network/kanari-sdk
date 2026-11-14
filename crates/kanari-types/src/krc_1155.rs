@@ -174,38 +174,22 @@ mod tests {
 
     #[test]
     fn recognizes_only_canonical_krc_1155_token_type() {
-        assert!(Krc1155Module::is_token_type_object_type(
-            "0x2::krc_1155::TokenType"
-        ));
-        assert!(!Krc1155Module::is_token_type_object_type(
-            "0x3::krc_1155::TokenType"
-        ));
-        assert!(!Krc1155Module::is_token_type_object_type(
-            "0x2::krc_1155::TokenType<u64>"
-        ));
+        assert!(Krc1155Module::is_token_type_object_type("0x2::krc_1155::TokenType"));
+        assert!(!Krc1155Module::is_token_type_object_type("0x3::krc_1155::TokenType"));
+        assert!(!Krc1155Module::is_token_type_object_type("0x2::krc_1155::TokenType<u64>"));
     }
 
     #[test]
     fn recognizes_only_canonical_krc_1155_token_cap() {
-        assert!(Krc1155Module::is_token_cap_object_type(
-            "0x2::krc_1155::TokenCap"
-        ));
-        assert!(!Krc1155Module::is_token_cap_object_type(
-            "0x3::krc_1155::TokenCap"
-        ));
+        assert!(Krc1155Module::is_token_cap_object_type("0x2::krc_1155::TokenCap"));
+        assert!(!Krc1155Module::is_token_cap_object_type("0x3::krc_1155::TokenCap"));
     }
 
     #[test]
     fn recognizes_only_canonical_krc_1155_balance() {
-        assert!(Krc1155Module::is_krc1155_object_type(
-            "0x2::krc_1155::Balance"
-        ));
-        assert!(!Krc1155Module::is_krc1155_object_type(
-            "0x3::krc_1155::Balance"
-        ));
-        assert!(!Krc1155Module::is_krc1155_object_type(
-            "0x2::krc_1155::Balance<u64>"
-        ));
+        assert!(Krc1155Module::is_krc1155_object_type("0x2::krc_1155::Balance"));
+        assert!(!Krc1155Module::is_krc1155_object_type("0x3::krc_1155::Balance"));
+        assert!(!Krc1155Module::is_krc1155_object_type("0x2::krc_1155::Balance<u64>"));
     }
 
     #[test]
@@ -217,15 +201,9 @@ mod tests {
             .copy_from_slice(token_type.as_ref());
         bytes[Krc1155Module::BALANCE_AMOUNT_OFFSET..Krc1155Module::BALANCE_AMOUNT_END]
             .copy_from_slice(&amount.to_le_bytes());
-        assert_eq!(
-            Krc1155Module::token_type_from_balance_bcs(&bytes),
-            Some(token_type)
-        );
+        assert_eq!(Krc1155Module::token_type_from_balance_bcs(&bytes), Some(token_type));
         assert_eq!(Krc1155Module::amount_from_balance_bcs(&bytes), Some(amount));
-        assert_eq!(
-            Krc1155Module::token_type_from_balance_bcs(&bytes[..31]),
-            None
-        );
+        assert_eq!(Krc1155Module::token_type_from_balance_bcs(&bytes[..31]), None);
         assert_eq!(Krc1155Module::amount_from_balance_bcs(&bytes[..64]), None);
     }
     #[test]

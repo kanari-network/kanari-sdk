@@ -6,10 +6,7 @@ use super::*;
 pub(crate) fn strict_guard_required(network: &str, override_value: Option<&str>) -> bool {
     override_value
         .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
+            matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
         })
         .unwrap_or_else(|| {
             !(network.eq_ignore_ascii_case("local") || network.eq_ignore_ascii_case("test"))
@@ -37,11 +34,7 @@ pub struct RuntimeHealthReport {
 impl RuntimeHealthReport {
     /// Returns a human-readable status string for the runtime health.
     pub fn status(&self) -> &'static str {
-        if self.supply_invariants_ok {
-            "ok"
-        } else {
-            "degraded"
-        }
+        if self.supply_invariants_ok { "ok" } else { "degraded" }
     }
 }
 
@@ -55,9 +48,7 @@ impl BlockchainEngine {
     pub fn strict_persistence_required() -> bool {
         strict_guard_required(
             &Self::network_name(),
-            env::var("KANARI_REQUIRE_PERSISTENT_STORAGE")
-                .ok()
-                .as_deref(),
+            env::var("KANARI_REQUIRE_PERSISTENT_STORAGE").ok().as_deref(),
         )
     }
 

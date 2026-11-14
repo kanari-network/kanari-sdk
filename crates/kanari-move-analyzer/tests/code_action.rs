@@ -12,9 +12,7 @@ use lsp_types::{
 };
 
 fn uri_for(path: &std::path::Path) -> Uri {
-    format!("file://{}", path.to_string_lossy().replace('\\', "/"))
-        .parse()
-        .unwrap()
+    format!("file://{}", path.to_string_lossy().replace('\\', "/")).parse().unwrap()
 }
 
 fn params_for(file: &std::path::Path, diags: Vec<Diagnostic>) -> CodeActionParams {
@@ -23,11 +21,7 @@ fn params_for(file: &std::path::Path, diags: Vec<Diagnostic>) -> CodeActionParam
         partial_result_params: Default::default(),
         text_document: TextDocumentIdentifier { uri: uri_for(file) },
         range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-        context: CodeActionContext {
-            diagnostics: diags,
-            only: None,
-            trigger_kind: None,
-        },
+        context: CodeActionContext { diagnostics: diags, only: None, trigger_kind: None },
     }
 }
 
@@ -78,10 +72,7 @@ fn extracts_could_not_resolve() {
 
 #[test]
 fn extracts_unbound_variable() {
-    assert_eq!(
-        extract_unresolved_name("Unbound variable 'idx'"),
-        Some("idx".to_string())
-    );
+    assert_eq!(extract_unresolved_name("Unbound variable 'idx'"), Some("idx".to_string()));
 }
 
 #[test]
@@ -98,10 +89,7 @@ fn candidates_suppressed_for_prelude_in_2024() {
     // provider used to stay quiet for them; the Rust one must too.
     // (candidates_for is edition-agnostic; the suppression happens in
     // on_code_action_request via edition::is_prelude.)
-    assert_eq!(
-        parse_edition("edition = \"2024\""),
-        MoveEdition::Edition2024
-    );
+    assert_eq!(parse_edition("edition = \"2024\""), MoveEdition::Edition2024);
     assert_eq!(parse_edition("edition = \"legacy\""), MoveEdition::Legacy);
     // Empty (no edition line) → Legacy by convention.
     assert_eq!(parse_edition("[package]\n"), MoveEdition::Legacy);
@@ -112,11 +100,7 @@ fn no_quick_fix_for_vector_in_2024_package() {
     let dir = tempfile::tempdir().unwrap();
     let pkg = dir.path().join("pkg");
     std::fs::create_dir_all(pkg.join("sources")).unwrap();
-    std::fs::write(
-        pkg.join("Move.toml"),
-        "[package]\nname=\"x\"\nedition=\"2024\"\n",
-    )
-    .unwrap();
+    std::fs::write(pkg.join("Move.toml"), "[package]\nname=\"x\"\nedition=\"2024\"\n").unwrap();
     let file = pkg.join("sources").join("mod.move");
     std::fs::write(
         &file,
@@ -127,10 +111,7 @@ fn no_quick_fix_for_vector_in_2024_package() {
         &file,
         vec![diag("Could not resolve the name 'vector'")],
     ));
-    assert!(
-        actions.is_empty(),
-        "2024 prelude should not offer import for `vector`: {actions:?}"
-    );
+    assert!(actions.is_empty(), "2024 prelude should not offer import for `vector`: {actions:?}");
 }
 
 #[test]
@@ -162,16 +143,8 @@ fn merged_self_import_for_txcontext_in_2024() {
         vec![diag("Unbound type 'TxContext' in current scope")],
     ));
     assert_eq!(actions.len(), 1, "{actions:?}");
-    assert!(
-        actions[0].title.contains("{Self, TxContext}"),
-        "{}",
-        actions[0].title
-    );
-    assert!(
-        actions[0].title.contains("tx_context"),
-        "{}",
-        actions[0].title
-    );
+    assert!(actions[0].title.contains("{Self, TxContext}"), "{}", actions[0].title);
+    assert!(actions[0].title.contains("tx_context"), "{}", actions[0].title);
 }
 
 // ---------------------------------------------------------------------------
@@ -196,10 +169,7 @@ fn insert_import_edit_after_last_use() {
     ];
     let edit = insert_import_edit(&lines, "kanari_system::object::{Self, UID}").unwrap();
     assert_eq!(edit.range.start.line, 3);
-    assert!(
-        edit.new_text
-            .contains("use kanari_system::object::{Self, UID};")
-    );
+    assert!(edit.new_text.contains("use kanari_system::object::{Self, UID};"));
 }
 
 #[test]
@@ -245,9 +215,7 @@ fn scan_finds_dep_member_and_module() {
 #[test]
 fn format_document_empty_is_noop() {
     let params = lsp_types::DocumentFormattingParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
         options: lsp_types::FormattingOptions {
             tab_size: 4,
             insert_spaces: true,
@@ -265,9 +233,7 @@ fn format_document_empty_is_noop() {
 #[test]
 fn code_lenses_finds_tests() {
     let params = lsp_types::CodeLensParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
@@ -275,22 +241,13 @@ fn code_lenses_finds_tests() {
     let lenses = code_lenses(&params, text);
     // 1 file lens + 2 per-test lenses
     assert_eq!(lenses.len(), 3);
-    assert!(
-        lenses[1]
-            .command
-            .as_ref()
-            .unwrap()
-            .title
-            .contains("Run Test")
-    );
+    assert!(lenses[1].command.as_ref().unwrap().title.contains("Run Test"));
 }
 
 #[test]
 fn code_lenses_no_tests_only_file_lens() {
     let params = lsp_types::CodeLensParams {
-        text_document: TextDocumentIdentifier {
-            uri: "file:///x.move".parse().unwrap(),
-        },
+        text_document: TextDocumentIdentifier { uri: "file:///x.move".parse().unwrap() },
         work_done_progress_params: Default::default(),
         partial_result_params: Default::default(),
     };
@@ -330,16 +287,10 @@ fn scan_package_members_finds_own_lib_fun() {
     .unwrap();
     let actions = on_code_action_request(&params_for(
         &pkg.join("sources").join("registry.move"),
-        vec![diag(
-            "Unbound function 'create_order_book_with_decimals' in current scope",
-        )],
+        vec![diag("Unbound function 'create_order_book_with_decimals' in current scope")],
     ));
     assert_eq!(actions.len(), 1, "{actions:?}");
-    assert!(
-        actions[0].title.contains("create_order_book_with_decimals"),
-        "{}",
-        actions[0].title
-    );
+    assert!(actions[0].title.contains("create_order_book_with_decimals"), "{}", actions[0].title);
 }
 
 #[test]
@@ -364,10 +315,7 @@ fn grouped_same_module_import_is_single_line() {
     .unwrap();
     let actions = on_code_action_request(&params_for(
         &pkg.join("sources").join("registry.move"),
-        vec![
-            diag("Unbound function 'foo'"),
-            diag("Unbound function 'bar'"),
-        ],
+        vec![diag("Unbound function 'foo'"), diag("Unbound function 'bar'")],
     ));
     // Same module → single merged action, not two lines.
     assert_eq!(actions.len(), 1, "{actions:?}");
@@ -431,20 +379,12 @@ fn legacy_package_offers_vector_import() {
     )
     .unwrap();
     let file = pkg.join("sources").join("mod.move");
-    std::fs::write(
-        &file,
-        "module x::m { public fun f() { vector::empty<u64>(); } }",
-    )
-    .unwrap();
+    std::fs::write(&file, "module x::m { public fun f() { vector::empty<u64>(); } }").unwrap();
     let actions = on_code_action_request(&params_for(
         &file,
         vec![diag("Could not resolve the name 'vector'")],
     ));
     // In legacy there is no prelude — import is offered.
     assert_eq!(actions.len(), 1, "{actions:?}");
-    assert!(
-        actions[0].title.contains("std::vector"),
-        "{}",
-        actions[0].title
-    );
+    assert!(actions[0].title.contains("std::vector"), "{}", actions[0].title);
 }

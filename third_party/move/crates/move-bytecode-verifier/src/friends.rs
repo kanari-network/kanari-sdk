@@ -17,9 +17,7 @@ fn verify_module_impl(module: &CompiledModule) -> PartialVMResult<()> {
     // cannot make friends with the module itself
     let self_handle = module.self_handle();
     if module.friend_decls().contains(self_handle) {
-        return Err(PartialVMError::new(
-            StatusCode::INVALID_FRIEND_DECL_WITH_SELF,
-        ));
+        return Err(PartialVMError::new(StatusCode::INVALID_FRIEND_DECL_WITH_SELF));
     }
 
     // cannot make friends with modules outside of the account address

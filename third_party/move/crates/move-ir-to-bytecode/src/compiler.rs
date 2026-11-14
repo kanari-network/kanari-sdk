@@ -45,9 +45,7 @@ macro_rules! record_src_loc {
             .add_parameter_mapping($context.current_function_definition_index(), source_name)?;
     }};
     (field: $context:expr, $idx: expr, $field:expr) => {{
-        $context
-            .source_map
-            .add_struct_field_mapping($idx, $field.loc)?;
+        $context.source_map.add_struct_field_mapping($idx, $field.loc)?;
     }};
     (function_type_formals: $context:expr, $var:expr) => {
         for (ty_var, _) in $var.iter() {
@@ -204,22 +202,14 @@ fn label_verification_error(
         write!(
             &mut message,
             ", labels were declared twice ({})",
-            redeclared
-                .iter()
-                .map(|l| l.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            redeclared.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
         )?;
     }
     if !undeclared.is_empty() {
         write!(
             &mut message,
             ", labels were used without being declared ({})",
-            undeclared
-                .iter()
-                .map(|l| l.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            undeclared.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
         )?;
     }
     bail!(message);
@@ -359,10 +349,7 @@ pub fn compile_module<'a>(
     // Explicitly declare all structs as they will be included even if not used
     for s in &module.structs {
         let abilities = abilities(&s.value.abilities);
-        let ident = QualifiedStructIdent {
-            module: self_name,
-            name: s.value.name.clone(),
-        };
+        let ident = QualifiedStructIdent { module: self_name, name: s.value.name.clone() };
         let type_parameters = struct_type_parameters(&s.value.type_formals);
         context.declare_struct_handle_index(ident, abilities, type_parameters)?;
     }
@@ -442,25 +429,14 @@ fn compile_explicit_dependency_declarations(
 ) -> Result<()> {
     let mut dependencies_acc = outer_context.take_dependencies();
     for dependency in dependencies {
-        let ModuleDependency {
-            name: mname,
-            structs,
-            functions,
-        } = dependency;
+        let ModuleDependency { name: mname, structs, functions } = dependency;
         let current_module = outer_context.module_ident(&mname)?;
-        let mut context = Context::new(
-            outer_context.decl_location(),
-            dependencies_acc,
-            *current_module,
-        )?;
+        let mut context =
+            Context::new(outer_context.decl_location(), dependencies_acc, *current_module)?;
         compile_imports(&mut context, imports.clone())?;
         let self_module_handle_idx = context.module_handle_index(&mname)?;
         for struct_dep in structs {
-            let StructDependency {
-                abilities: abs,
-                name,
-                type_formals: tys,
-            } = struct_dep;
+            let StructDependency { abilities: abs, name, type_formals: tys } = struct_dep;
             let sname = QualifiedStructIdent::new(mname, name);
             let ability_set = abilities(&abs);
             let kinds = struct_type_parameters(&tys);
@@ -509,10 +485,7 @@ fn compile_explicit_dependency_declarations(
             function_defs: vec![],
         };
         dependencies_acc = compiled_deps;
-        dependencies_acc.insert(
-            *current_module,
-            CompiledDependency::stored(compiled_module)?,
-        );
+        dependencies_acc.insert(*current_module, CompiledDependency::stored(compiled_module)?);
     }
     outer_context.restore_dependencies(dependencies_acc);
     Ok(())
@@ -563,10 +536,7 @@ fn struct_type_parameters(ast_tys: &[ast::StructTypeParameter]) -> Vec<StructTyp
 }
 
 fn abilities(abilities: &BTreeSet<ast::Ability>) -> AbilitySet {
-    abilities
-        .iter()
-        .map(ability)
-        .fold(AbilitySet::EMPTY, |acc, a| acc | a)
+    abilities.iter().map(ability).fold(AbilitySet::EMPTY, |acc, a| acc | a)
 }
 
 fn ability(ab: &ast::Ability) -> Ability {
@@ -583,9 +553,7 @@ fn compile_types(
     type_parameters: &HashMap<TypeVar_, TypeParameterIndex>,
     tys: &[Type],
 ) -> Result<Vec<SignatureToken>> {
-    tys.iter()
-        .map(|ty| compile_type(context, type_parameters, ty))
-        .collect::<Result<_>>()
+    tys.iter().map(|ty| compile_type(context, type_parameters, ty)).collect::<Result<_>>()
 }
 
 fn compile_type(
@@ -603,11 +571,9 @@ fn compile_type(
         Type::U128 => SignatureToken::U128,
         Type::U256 => SignatureToken::U256,
         Type::Bool => SignatureToken::Bool,
-        Type::Vector(inner_type) => SignatureToken::Vector(Box::new(compile_type(
-            context,
-            type_parameters,
-            inner_type,
-        )?)),
+        Type::Vector(inner_type) => {
+            SignatureToken::Vector(Box::new(compile_type(context, type_parameters, inner_type)?))
+        }
         Type::Reference(is_mutable, inner_type) => {
             let inner_token = Box::new(compile_type(context, type_parameters, inner_type)?);
             if *is_mutable {
@@ -642,21 +608,10 @@ fn function_signature(
 ) -> Result<FunctionSignature> {
     let m = type_parameter_indexes(f.type_formals.iter().map(|formal| &formal.0))?;
     let return_ = compile_types(context, &m, &f.return_type)?;
-    let parameters = f
-        .formals
-        .iter()
-        .map(|(_, ty)| compile_type(context, &m, ty))
-        .collect::<Result<_>>()?;
-    let type_parameters = f
-        .type_formals
-        .iter()
-        .map(|(_, abs)| abilities(abs))
-        .collect();
-    Ok(move_binary_format::file_format::FunctionSignature {
-        return_,
-        parameters,
-        type_parameters,
-    })
+    let parameters =
+        f.formals.iter().map(|(_, ty)| compile_type(context, &m, ty)).collect::<Result<_>>()?;
+    let type_parameters = f.type_formals.iter().map(|(_, abs)| abilities(abs)).collect();
+    Ok(move_binary_format::file_format::FunctionSignature { return_, parameters, type_parameters })
 }
 
 fn compile_structs(
@@ -666,20 +621,14 @@ fn compile_structs(
 ) -> Result<Vec<StructDefinition>> {
     let mut struct_defs = vec![];
     for s in structs {
-        let sident = QualifiedStructIdent {
-            module: *self_name,
-            name: s.value.name.clone(),
-        };
+        let sident = QualifiedStructIdent { module: *self_name, name: s.value.name.clone() };
         let sh_idx = context.struct_handle_index(sident.clone())?;
         record_src_loc!(struct_decl: context, s.loc);
         record_src_loc!(struct_type_formals: context, &s.value.type_formals);
         let m = type_parameter_indexes(s.value.type_formals.iter().map(|formal| &formal.1))?;
         let sd_idx = context.declare_struct_definition_index(s.value.name)?;
         let field_information = compile_fields(context, &m, sh_idx, sd_idx, s.value.fields)?;
-        struct_defs.push(StructDefinition {
-            struct_handle: sh_idx,
-            field_information,
-        });
+        struct_defs.push(StructDefinition { struct_handle: sh_idx, field_information });
     }
     Ok(struct_defs)
 }
@@ -700,10 +649,7 @@ fn compile_fields(
                 record_src_loc!(field: context, sd_idx, f);
                 let sig_token = compile_type(context, type_parameters, &ty)?;
                 context.declare_field(sh_idx, sd_idx, f.value, sig_token.clone(), decl_order);
-                decl_fields.push(FieldDefinition {
-                    name,
-                    signature: TypeSignature(sig_token),
-                });
+                decl_fields.push(FieldDefinition { name, signature: TypeSignature(sig_token) });
             }
             StructFieldInformation::Declared(decl_fields)
         }
@@ -731,27 +677,13 @@ fn compile_function_body_impl(
     Ok(match ast_function.body {
         FunctionBody::Move { locals, code } => {
             let m = type_parameter_indexes(
-                ast_function
-                    .signature
-                    .type_formals
-                    .iter()
-                    .map(|formal| &formal.0),
+                ast_function.signature.type_formals.iter().map(|formal| &formal.0),
             )?;
-            Some(compile_function_body(
-                context,
-                m,
-                ast_function.signature.formals,
-                locals,
-                code,
-            )?)
+            Some(compile_function_body(context, m, ast_function.signature.formals, locals, code)?)
         }
         FunctionBody::Bytecode { locals, code } => {
             let m = type_parameter_indexes(
-                ast_function
-                    .signature
-                    .type_formals
-                    .iter()
-                    .map(|formal| &formal.0),
+                ast_function.signature.type_formals.iter().map(|formal| &formal.0),
             )?;
             Some(compile_function_body_bytecode(
                 context,
@@ -849,13 +781,7 @@ fn compile_blocks(
     let mut code = vec![];
     let mut label_to_index: HashMap<BlockLabel_, u16> = HashMap::new();
     for block in blocks {
-        compile_block(
-            context,
-            function_frame,
-            &mut label_to_index,
-            &mut code,
-            block.value,
-        )?;
+        compile_block(context, function_frame, &mut label_to_index, &mut code, block.value)?;
     }
     let fake_to_actual = context.build_index_remapping(label_to_index);
     remap_branch_offsets(&mut code, &fake_to_actual);
@@ -910,10 +836,7 @@ fn compile_statement(
             // and otherwise falls through to an abort. Because the condition expression is
             // evaluated as `!(exp)`, branch to the failure label if the condition is *false*.
             let cont_label = BlockLabel_(Symbol::from(format!("assert_cont_{}", code.len())));
-            push_instr!(
-                cond_loc,
-                Bytecode::BrFalse(context.label_index(cont_label.clone())?)
-            );
+            push_instr!(cond_loc, Bytecode::BrFalse(context.label_index(cont_label.clone())?));
 
             // In case of a fallthrough, the assert has failed.
             // Compile the bytecode for the error expression, then abort.
@@ -931,10 +854,9 @@ fn compile_statement(
         Statement_::Exp(e) => {
             compile_expression(context, function_frame, code, *e)?;
         }
-        Statement_::Jump(label) => push_instr!(
-            label.loc,
-            Bytecode::Branch(context.label_index(label.value)?)
-        ),
+        Statement_::Jump(label) => {
+            push_instr!(label.loc, Bytecode::Branch(context.label_index(label.value)?))
+        }
         Statement_::JumpIf(cond, label) => {
             let loc = cond.loc;
             compile_expression(context, function_frame, code, *cond)?;
@@ -950,11 +872,7 @@ fn compile_statement(
             push_instr!(statement.loc, Bytecode::Ret);
         }
         Statement_::Unpack(name, tys, bindings, e) => {
-            let tokens = Signature(compile_types(
-                context,
-                function_frame.type_parameters(),
-                &tys,
-            )?);
+            let tokens = Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
 
             compile_expression(context, function_frame, code, *e)?;
 
@@ -1094,10 +1012,7 @@ fn compile_expression(
             let def_idx = context.struct_definition_index(&name)?;
 
             let self_name = ModuleName::module_self();
-            let ident = QualifiedStructIdent {
-                module: self_name,
-                name: name.clone(),
-            };
+            let ident = QualifiedStructIdent { module: self_name, name: name.clone() };
             let sh_idx = context.struct_handle_index(ident)?;
 
             let num_fields = fields.len();
@@ -1198,11 +1113,7 @@ fn compile_expression(
             compile_expression(context, function_frame, code, *e)?;
             push_instr!(exp.loc, Bytecode::ReadRef);
         }
-        Exp_::Borrow {
-            is_mutable,
-            exp: inner_exp,
-            field,
-        } => {
+        Exp_::Borrow { is_mutable, exp: inner_exp, field } => {
             // Compile the "inner expression." In the case of a field borrow
             // such as `&mut move(s).S::f`, `move(s)` would be the inner
             // expression.
@@ -1381,11 +1292,7 @@ fn compile_call(
                 }
             }
         }
-        FunctionCall_::ModuleFunctionCall {
-            module,
-            name,
-            type_actuals,
-        } => {
+        FunctionCall_::ModuleFunctionCall { module, name, type_actuals } => {
             let ty_arg_tokens =
                 compile_types(context, function_frame.type_parameters(), &type_actuals)?;
             let tokens = Signature(ty_arg_tokens);
@@ -1470,10 +1377,7 @@ fn compile_function_body_bytecode(
     }
     let fake_to_actual = context.build_index_remapping(label_to_index);
     remap_branch_offsets(&mut code, &fake_to_actual);
-    Ok(CodeUnit {
-        locals: sig_idx,
-        code,
-    })
+    Ok(CodeUnit { locals: sig_idx, code })
 }
 
 fn compile_bytecode_block(
@@ -1530,11 +1434,7 @@ fn compile_bytecode(
         IRBytecode_::MoveLoc(sp!(_, v_)) => Bytecode::MoveLoc(function_frame.get_local(&v_)?),
         IRBytecode_::StLoc(sp!(_, v_)) => Bytecode::StLoc(function_frame.get_local(&v_)?),
         IRBytecode_::Call(m, n, tys) => {
-            let tokens = Signature(compile_types(
-                context,
-                function_frame.type_parameters(),
-                &tys,
-            )?);
+            let tokens = Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
             let type_actuals_id = context.signature_index(tokens)?;
             let fh_idx = context.function_handle(m, n)?.1;
             if tys.is_empty() {
@@ -1545,11 +1445,7 @@ fn compile_bytecode(
             }
         }
         IRBytecode_::Pack(n, tys) => {
-            let tokens = Signature(compile_types(
-                context,
-                function_frame.type_parameters(),
-                &tys,
-            )?);
+            let tokens = Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
             let type_actuals_id = context.signature_index(tokens)?;
             let def_idx = context.struct_definition_index(&n)?;
             if tys.is_empty() {
@@ -1560,11 +1456,7 @@ fn compile_bytecode(
             }
         }
         IRBytecode_::Unpack(n, tys) => {
-            let tokens = Signature(compile_types(
-                context,
-                function_frame.type_parameters(),
-                &tys,
-            )?);
+            let tokens = Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
             let type_actuals_id = context.signature_index(tokens)?;
             let def_idx = context.struct_definition_index(&n)?;
             if tys.is_empty() {
@@ -1584,10 +1476,8 @@ fn compile_bytecode(
             Bytecode::ImmBorrowLoc(function_frame.get_local(&v_)?)
         }
         IRBytecode_::MutBorrowField(name, tys, sp!(_, field_)) => {
-            let qualified_struct_name = QualifiedStructIdent {
-                module: ModuleName::module_self(),
-                name,
-            };
+            let qualified_struct_name =
+                QualifiedStructIdent { module: ModuleName::module_self(), name };
             let sh_idx = context.struct_handle_index(qualified_struct_name)?;
             let (def_idx, _, field_offset) = context.field(sh_idx, field_)?;
 
@@ -1595,21 +1485,16 @@ fn compile_bytecode(
             if tys.is_empty() {
                 Bytecode::MutBorrowField(fh_idx)
             } else {
-                let tokens = Signature(compile_types(
-                    context,
-                    function_frame.type_parameters(),
-                    &tys,
-                )?);
+                let tokens =
+                    Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
                 let type_actuals_id = context.signature_index(tokens)?;
                 let fi_idx = context.field_instantiation_index(fh_idx, type_actuals_id)?;
                 Bytecode::MutBorrowFieldGeneric(fi_idx)
             }
         }
         IRBytecode_::ImmBorrowField(name, tys, sp!(_, field_)) => {
-            let qualified_struct_name = QualifiedStructIdent {
-                module: ModuleName::module_self(),
-                name,
-            };
+            let qualified_struct_name =
+                QualifiedStructIdent { module: ModuleName::module_self(), name };
             let sh_idx = context.struct_handle_index(qualified_struct_name)?;
             let (def_idx, _, field_offset) = context.field(sh_idx, field_)?;
 
@@ -1617,11 +1502,8 @@ fn compile_bytecode(
             if tys.is_empty() {
                 Bytecode::ImmBorrowField(fh_idx)
             } else {
-                let tokens = Signature(compile_types(
-                    context,
-                    function_frame.type_parameters(),
-                    &tys,
-                )?);
+                let tokens =
+                    Signature(compile_types(context, function_frame.type_parameters(), &tys)?);
                 let type_actuals_id = context.signature_index(tokens)?;
                 let fi_idx = context.field_instantiation_index(fh_idx, type_actuals_id)?;
                 Bytecode::ImmBorrowFieldGeneric(fi_idx)
@@ -1687,10 +1569,7 @@ fn compile_bytecode(
             let sig = Signature(vec![tokens]);
             Bytecode::VecSwap(context.signature_index(sig)?)
         }
-        IRBytecode_::ErrorConstant {
-            line_number,
-            constant,
-        } => {
+        IRBytecode_::ErrorConstant { line_number, constant } => {
             let mut bitset_builder = ErrorBitsetBuilder::new(line_number);
 
             if let Some(const_name) = constant {

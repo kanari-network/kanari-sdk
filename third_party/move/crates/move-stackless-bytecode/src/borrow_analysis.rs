@@ -52,18 +52,12 @@ pub struct WriteBackAction {
 impl BorrowInfo {
     /// Gets the children of this node.
     fn get_children(&self, node: &BorrowNode) -> Vec<&BorrowNode> {
-        self.borrowed_by
-            .get(node)
-            .map(|s| s.iter().map(|(n, _)| n).collect())
-            .unwrap_or_default()
+        self.borrowed_by.get(node).map(|s| s.iter().map(|(n, _)| n).collect()).unwrap_or_default()
     }
 
     /// Gets the parents (together with the edges) of this node.
     fn get_incoming(&self, node: &BorrowNode) -> Vec<&(BorrowNode, BorrowEdge)> {
-        self.borrows_from
-            .get(node)
-            .map(|s| s.iter().collect())
-            .unwrap_or_default()
+        self.borrows_from.get(node).map(|s| s.iter().collect()).unwrap_or_default()
     }
 
     /// Checks whether a node is in use. A node is used if it is in the live_nodes set
@@ -72,9 +66,7 @@ impl BorrowInfo {
         if self.live_nodes.contains(node) {
             true
         } else {
-            self.get_children(node)
-                .iter()
-                .any(|child| self.is_in_use(child))
+            self.get_children(node).iter().any(|child| self.is_in_use(child))
         }
     }
 
@@ -163,10 +155,7 @@ impl BorrowInfo {
         };
         add(
             "live_nodes",
-            self.live_nodes
-                .iter()
-                .map(|node| format!("{}", node.display(func_target)))
-                .join(", "),
+            self.live_nodes.iter().map(|node| format!("{}", node.display(func_target))).join(", "),
         );
         let borrows_str =
             |(node1, borrows): (&BorrowNode, &SetDomain<(BorrowNode, BorrowEdge)>)| {
@@ -183,14 +172,8 @@ impl BorrowInfo {
                         .join(", ")
                 )
             };
-        add(
-            "borrowed_by",
-            self.borrowed_by.iter().map(borrows_str).join(", "),
-        );
-        add(
-            "borrows_from",
-            self.borrows_from.iter().map(borrows_str).join(", "),
-        );
+        add("borrowed_by", self.borrowed_by.iter().map(borrows_str).join(", "));
+        add("borrows_from", self.borrows_from.iter().map(borrows_str).join(", "));
         parts.iter().join("\n")
     }
 
@@ -203,11 +186,7 @@ impl BorrowInfo {
     }
 
     fn add_edge(&mut self, parent: BorrowNode, child: BorrowNode, weight: BorrowEdge) -> bool {
-        self.borrowed_by
-            .entry(parent)
-            .or_default()
-            .insert((child, weight))
-            .is_none()
+        self.borrowed_by.entry(parent).or_default().insert((child, weight)).is_none()
     }
 
     fn consolidate(&mut self) {
@@ -271,17 +250,11 @@ impl BorrowInfo {
                     path.pop().unwrap()
                 } else {
                     path.reverse();
-                    let flattened = path
-                        .iter()
-                        .flat_map(|e| e.flatten().into_iter())
-                        .cloned()
-                        .collect();
+                    let flattened =
+                        path.iter().flat_map(|e| e.flatten().into_iter()).cloned().collect();
                     BorrowEdge::Hyper(flattened)
                 };
-                self.borrowed_by
-                    .entry(dest.clone())
-                    .or_default()
-                    .insert((leaf.clone(), edge));
+                self.borrowed_by.entry(dest.clone()).or_default().insert((leaf.clone(), edge));
             }
         }
     }
@@ -296,16 +269,12 @@ impl BorrowInfo {
         outs: &[TempIndex],
     ) {
         let get_in = |idx: usize| {
-            assert!(
-                idx < ins.len(),
-                "inconsistent borrow information: undefined input"
-            );
+            assert!(idx < ins.len(), "inconsistent borrow information: undefined input");
             ins[idx]
         };
         for (ret_idx, out) in outs.iter().enumerate() {
-            if let Some(edges) = callee_summary
-                .borrows_from
-                .get(&BorrowNode::ReturnPlaceholder(ret_idx))
+            if let Some(edges) =
+                callee_summary.borrows_from.get(&BorrowNode::ReturnPlaceholder(ret_idx))
             {
                 let out_node = BorrowNode::Reference(*out);
                 self.add_node(out_node.clone());
@@ -363,9 +332,7 @@ impl BorrowAnnotation {
         for (offset, info) in self.code_map.iter_mut() {
             let other_info = other.code_map.get(offset).unwrap();
             result = result.combine(
-                info.before
-                    .join(&other_info.before)
-                    .combine(info.after.join(&other_info.after)),
+                info.before.join(&other_info.before).combine(info.after.join(&other_info.after)),
             );
         }
         result
@@ -413,9 +380,7 @@ impl FunctionTargetProcessor for BorrowAnalysisProcessor {
                 },
             },
         };
-        data.annotations
-            .borrow_mut()
-            .set::<BorrowAnnotation>(borrow_annotation, fixedpoint);
+        data.annotations.borrow_mut().set::<BorrowAnnotation>(borrow_annotation, fixedpoint);
         data
     }
 
@@ -444,12 +409,7 @@ impl FunctionTargetProcessor for BorrowAnalysisProcessor {
                     if let Some(an) = target.get_annotations().get::<BorrowAnnotation>()
                         && !an.summary.is_empty()
                     {
-                        writeln!(
-                            f,
-                            "fun {}[{}]",
-                            fun.get_full_name_str(),
-                            target.data.variant
-                        )?;
+                        writeln!(f, "fun {}[{}]", fun.get_full_name_str(), target.data.variant)?;
                         writeln!(f, "{}\n", an.summary.borrow_info_str(target))?;
                     }
                 }
@@ -485,11 +445,7 @@ fn summarize_custom_borrow(
             let param_node = BorrowNode::Reference(*param_index);
             let return_node = BorrowNode::ReturnPlaceholder(*return_index);
             let edge = BorrowEdge::Index(edge_kind.clone());
-            an.summary
-                .borrowed_by
-                .entry(param_node)
-                .or_default()
-                .insert((return_node, edge));
+            an.summary.borrowed_by.entry(param_node).or_default().insert((return_node, edge));
         }
     }
     an.summary.consolidate();
@@ -513,11 +469,7 @@ fn get_custom_annotation_or_none(
                 None
             }
         }
-        Some(name) => Some(summarize_custom_borrow(
-            IndexEdgeKind::Custom(name),
-            &[0],
-            &[0],
-        )),
+        Some(name) => Some(summarize_custom_borrow(IndexEdgeKind::Custom(name), &[0], &[0])),
     }
 }
 
@@ -534,17 +486,10 @@ impl<'a> BorrowAnalysis<'a> {
         targets: &'a FunctionTargetsHolder,
         borrow_natives: &'a Vec<String>,
     ) -> Self {
-        let livevar_annotation = func_target
-            .get_annotations()
-            .get::<LiveVarAnnotation>()
-            .expect("livevar annotation");
+        let livevar_annotation =
+            func_target.get_annotations().get::<LiveVarAnnotation>().expect("livevar annotation");
 
-        Self {
-            func_target,
-            livevar_annotation,
-            targets,
-            borrow_natives,
-        }
+        Self { func_target, livevar_annotation, targets, borrow_natives }
     }
 
     fn analyze(&self, instrs: &[Bytecode]) -> BorrowAnnotation {
@@ -582,11 +527,7 @@ impl<'a> BorrowAnalysis<'a> {
 
     fn borrow_node(&self, idx: TempIndex) -> BorrowNode {
         let ty = self.func_target.get_local_type(idx);
-        if ty.is_reference() {
-            BorrowNode::Reference(idx)
-        } else {
-            BorrowNode::LocalRoot(idx)
-        }
+        if ty.is_reference() { BorrowNode::Reference(idx) } else { BorrowNode::LocalRoot(idx) }
     }
 }
 
@@ -596,10 +537,8 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
 
     fn execute(&self, state: &mut BorrowInfo, instr: &Bytecode, code_offset: CodeOffset) {
         use Bytecode::*;
-        let livevar_annotation_at = self
-            .livevar_annotation
-            .get_live_var_info_at(code_offset)
-            .expect("livevar annotation");
+        let livevar_annotation_at =
+            self.livevar_annotation.get_live_var_info_at(code_offset).expect("livevar annotation");
 
         match instr {
             Assign(_, dest, src, kind) => {
@@ -619,11 +558,7 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                     }
                     AssignKind::Store => {
                         if self.func_target.get_local_type(*src).is_mutable_reference() {
-                            assert!(
-                                self.func_target
-                                    .get_local_type(*dest)
-                                    .is_mutable_reference()
-                            );
+                            assert!(self.func_target.get_local_type(*dest).is_mutable_reference());
                             state.add_edge(src_node, dest_node, BorrowEdge::Direct);
                         }
                     }
@@ -667,10 +602,8 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                         );
                     }
                     Function(mid, fid, targs) => {
-                        let callee_env = &self
-                            .func_target
-                            .global_env()
-                            .get_function_qid(mid.qualified(*fid));
+                        let callee_env =
+                            &self.func_target.global_env().get_function_qid(mid.qualified(*fid));
 
                         let callee_annotation =
                             get_custom_annotation_or_none(callee_env, self.borrow_natives)
@@ -720,10 +653,7 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
         }
 
         // Update live_vars.
-        for idx in livevar_annotation_at
-            .before
-            .difference(&livevar_annotation_at.after)
-        {
+        for idx in livevar_annotation_at.before.difference(&livevar_annotation_at.after) {
             if self.func_target.get_local_type(*idx).is_reference() {
                 let node = self.borrow_node(*idx);
                 state.del_node(&node);

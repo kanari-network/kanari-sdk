@@ -16,10 +16,7 @@ pub(crate) struct KanariGasMeter {
 
 impl KanariGasMeter {
     pub(crate) fn new(gas_limit: u64) -> Self {
-        Self {
-            gas_used: 0,
-            gas_limit,
-        }
+        Self { gas_used: 0, gas_limit }
     }
 
     pub(crate) fn gas_used(&self) -> u64 {
@@ -34,9 +31,7 @@ impl KanariGasMeter {
         })?;
 
         if self.gas_used > self.gas_limit {
-            return Err(out_of_gas_error(
-                "Kanari execution limit exceeded".to_string(),
-            ));
+            return Err(out_of_gas_error("Kanari execution limit exceeded".to_string()));
         }
         Ok(())
     }
@@ -121,9 +116,7 @@ impl GasMeter for KanariGasMeter {
         num_locals: move_core_types::gas_algebra::NumArgs,
     ) -> PartialVMResult<()> {
         self.charge(
-            CALL_COST
-                .saturating_add(args.len() as u64)
-                .saturating_add(u64::from(num_locals)),
+            CALL_COST.saturating_add(args.len() as u64).saturating_add(u64::from(num_locals)),
         )
     }
 
@@ -225,9 +218,7 @@ impl GasMeter for KanariGasMeter {
         rhs: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
         self.charge(
-            EQ_COST
-                .saturating_add(Self::value_size(&lhs))
-                .saturating_add(Self::value_size(&rhs)),
+            EQ_COST.saturating_add(Self::value_size(&lhs)).saturating_add(Self::value_size(&rhs)),
         )
     }
 
@@ -237,9 +228,7 @@ impl GasMeter for KanariGasMeter {
         rhs: impl move_vm_types::views::ValueView,
     ) -> PartialVMResult<()> {
         self.charge(
-            NEQ_COST
-                .saturating_add(Self::value_size(&lhs))
-                .saturating_add(Self::value_size(&rhs)),
+            NEQ_COST.saturating_add(Self::value_size(&lhs)).saturating_add(Self::value_size(&rhs)),
         )
     }
 
@@ -349,13 +338,9 @@ mod tests {
     #[test]
     fn gas_counter_overflow_becomes_out_of_gas() {
         let mut meter = KanariGasMeter::new(u64::MAX);
-        meter
-            .charge(u64::MAX)
-            .invariant("max charge should fit once");
+        meter.charge(u64::MAX).invariant("max charge should fit once");
 
-        let err = meter
-            .charge(1)
-            .expect_err("overflow should not silently disable the gas cap");
+        let err = meter.charge(1).expect_err("overflow should not silently disable the gas cap");
         assert_eq!(err.major_status(), StatusCode::OUT_OF_GAS);
     }
 

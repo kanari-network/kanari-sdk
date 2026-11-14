@@ -43,21 +43,13 @@ pub fn locate_module(file_name: &str, cli_path: Option<&str>) -> Result<PathBuf>
         manifest_dir.join("../../../").join(&relative),
     ];
 
-    candidates
-        .iter()
-        .find(|path| path.exists())
-        .cloned()
-        .with_context(|| {
-            format!(
-                "compiled {file_name} not found; searched [{}]. \
+    candidates.iter().find(|path| path.exists()).cloned().with_context(|| {
+        format!(
+            "compiled {file_name} not found; searched [{}]. \
                  Build the Move package first, or pass a path as the first argument.",
-                candidates
-                    .iter()
-                    .map(|path| path.display().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })
+            candidates.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
+        )
+    })
 }
 
 /// Read and deserialize a compiled module, keeping the raw bytes for publishing.
@@ -77,10 +69,7 @@ pub fn read_module(path: &Path) -> Result<(CompiledModule, Vec<u8>)> {
 /// published modules into live node state just by being run, so examples go
 /// through an explicit scratch directory instead.
 pub fn example_db_dir() -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "kanari-move-runtime-example-{}",
-        std::process::id()
-    ))
+    std::env::temp_dir().join(format!("kanari-move-runtime-example-{}", std::process::id()))
 }
 
 /// Delete the directory [`example_db_dir`] points at.
@@ -126,9 +115,7 @@ pub fn publish(
     bytes: Vec<u8>,
     module_address: AccountAddress,
 ) -> Result<ChangeSet> {
-    runtime
-        .publish_module(bytes, module_address, None, None)
-        .context("publish_module failed")
+    runtime.publish_module(bytes, module_address, None, None).context("publish_module failed")
 }
 
 /// First positional CLI argument, if the example was given one.

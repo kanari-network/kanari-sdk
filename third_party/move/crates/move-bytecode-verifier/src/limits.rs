@@ -118,18 +118,14 @@ impl<'a> LimitsVerifier<'a> {
         if let Some(max_function_definitions) = config.max_function_definitions
             && defs.len() > max_function_definitions
         {
-            return Err(PartialVMError::new(
-                StatusCode::MAX_FUNCTION_DEFINITIONS_REACHED,
-            ));
+            return Err(PartialVMError::new(StatusCode::MAX_FUNCTION_DEFINITIONS_REACHED));
         }
 
         let defs = self.module.struct_defs();
         if let Some(max_struct_definitions) = config.max_struct_definitions
             && defs.len() > max_struct_definitions
         {
-            return Err(PartialVMError::new(
-                StatusCode::MAX_STRUCT_DEFINITIONS_REACHED,
-            ));
+            return Err(PartialVMError::new(StatusCode::MAX_STRUCT_DEFINITIONS_REACHED));
         }
         if let Some(max_fields_in_struct) = config.max_fields_in_struct {
             for def in defs {

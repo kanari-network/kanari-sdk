@@ -36,10 +36,7 @@ impl HarnessReport {
         let target = self
             .target_tps
             .map(|target| {
-                format!(
-                    "\ntarget_tps={target:.2}\ntarget_status={}",
-                    self.target_status()
-                )
+                format!("\ntarget_tps={target:.2}\ntarget_status={}", self.target_status())
             })
             .unwrap_or_default();
         format!(

@@ -126,10 +126,7 @@ where
     for (k, op) in changes.into_iter() {
         match (map.entry(k), op) {
             (Occupied(entry), New(_)) => {
-                bail!(
-                    "Failed to apply changes -- key {:?} already exists",
-                    entry.key()
-                )
+                bail!("Failed to apply changes -- key {:?} already exists", entry.key())
             }
             (Occupied(entry), Delete) => {
                 entry.remove();
@@ -140,10 +137,9 @@ where
             (Vacant(entry), New(val)) => {
                 entry.insert(val);
             }
-            (Vacant(entry), Delete | Modify(_)) => bail!(
-                "Failed to apply changes -- key {:?} does not exist",
-                entry.key()
-            ),
+            (Vacant(entry), Delete | Modify(_)) => {
+                bail!("Failed to apply changes -- key {:?} does not exist", entry.key())
+            }
         }
     }
     Ok(())
@@ -170,9 +166,7 @@ impl InMemoryAccountStorage {
     }
 
     fn new() -> Self {
-        Self {
-            modules: BTreeMap::new(),
-        }
+        Self { modules: BTreeMap::new() }
     }
 }
 
@@ -199,9 +193,7 @@ impl InMemoryStorage {
     }
 
     pub fn new() -> Self {
-        Self {
-            accounts: BTreeMap::new(),
-        }
+        Self { accounts: BTreeMap::new() }
     }
 
     pub fn publish_or_overwrite_module(&mut self, module_id: ModuleId, blob: Vec<u8>) {

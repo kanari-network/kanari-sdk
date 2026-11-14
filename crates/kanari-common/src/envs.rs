@@ -29,12 +29,9 @@ pub fn get_envs() -> io::Result<Vec<(String, String)>> {
 
 /// Get active environment alias
 pub fn get_active_env() -> Option<String> {
-    load_kanari_config().ok().and_then(|config| {
-        config
-            .get("active_env")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-    })
+    load_kanari_config()
+        .ok()
+        .and_then(|config| config.get("active_env").and_then(|v| v.as_str()).map(String::from))
 }
 
 /// Set active environment by alias
@@ -46,8 +43,7 @@ pub fn set_active_env(alias: &str) -> io::Result<()> {
             .get(Value::String("envs".to_string()))
             .and_then(|v| v.as_sequence())
             .map(|envs| {
-                envs.iter()
-                    .any(|env| env.get("alias").and_then(|v| v.as_str()) == Some(alias))
+                envs.iter().any(|env| env.get("alias").and_then(|v| v.as_str()) == Some(alias))
             })
             .unwrap_or(false);
 
@@ -58,17 +54,11 @@ pub fn set_active_env(alias: &str) -> io::Result<()> {
             ));
         }
 
-        map.insert(
-            Value::String("active_env".to_string()),
-            Value::String(alias.to_string()),
-        );
+        map.insert(Value::String("active_env".to_string()), Value::String(alias.to_string()));
         save_kanari_config(&config)?;
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid config format",
-        ))
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid config format"))
     }
 }
 
@@ -88,10 +78,8 @@ pub fn add_env(alias: &str, rpc: &str) -> io::Result<()> {
                 if env.get("alias").and_then(|v| v.as_str()) == Some(alias)
                     && let Some(env_map) = env.as_mapping_mut()
                 {
-                    env_map.insert(
-                        Value::String("rpc".to_string()),
-                        Value::String(rpc.to_string()),
-                    );
+                    env_map
+                        .insert(Value::String("rpc".to_string()), Value::String(rpc.to_string()));
                     env_map.insert(Value::String("ws".to_string()), Value::Null);
                     found = true;
                     break;
@@ -100,14 +88,9 @@ pub fn add_env(alias: &str, rpc: &str) -> io::Result<()> {
 
             if !found {
                 let mut new_env = Mapping::new();
-                new_env.insert(
-                    Value::String("alias".to_string()),
-                    Value::String(alias.to_string()),
-                );
-                new_env.insert(
-                    Value::String("rpc".to_string()),
-                    Value::String(rpc.to_string()),
-                );
+                new_env
+                    .insert(Value::String("alias".to_string()), Value::String(alias.to_string()));
+                new_env.insert(Value::String("rpc".to_string()), Value::String(rpc.to_string()));
                 new_env.insert(Value::String("ws".to_string()), Value::Null);
                 envs.push(Value::Mapping(new_env));
             }
@@ -116,10 +99,7 @@ pub fn add_env(alias: &str, rpc: &str) -> io::Result<()> {
         save_kanari_config(&config)?;
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid config format",
-        ))
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid config format"))
     }
 }
 
@@ -129,9 +109,8 @@ pub fn remove_env(alias: &str) -> io::Result<()> {
 
     if let Some(map) = config.as_mapping_mut() {
         let mut removed = false;
-        if let Some(envs) = map
-            .get_mut(Value::String("envs".to_string()))
-            .and_then(|v| v.as_sequence_mut())
+        if let Some(envs) =
+            map.get_mut(Value::String("envs".to_string())).and_then(|v| v.as_sequence_mut())
         {
             let initial_len = envs.len();
             envs.retain(|env| env.get("alias").and_then(|v| v.as_str()) != Some(alias));
@@ -152,10 +131,7 @@ pub fn remove_env(alias: &str) -> io::Result<()> {
             ))
         }
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid config format",
-        ))
+        Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid config format"))
     }
 }
 

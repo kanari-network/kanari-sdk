@@ -73,8 +73,7 @@ fn test_large_types() {
     });
 
     // takes_and_returns_vecs
-    m.identifiers
-        .push(Identifier::new("takes_and_returns_vecs").unwrap());
+    m.identifiers.push(Identifier::new("takes_and_returns_vecs").unwrap());
     m.function_handles.push(FunctionHandle {
         module: ModuleHandleIndex(0),
         name: IdentifierIndex(2),
@@ -107,16 +106,12 @@ fn test_large_types() {
         visibility: Public,
         is_entry: false,
         acquires_global_resources: vec![],
-        code: Some(CodeUnit {
-            locals: SignatureIndex(0),
-            code: vec![Bytecode::Ret],
-        }),
+        code: Some(CodeUnit { locals: SignatureIndex(0), code: vec![Bytecode::Ret] }),
     });
 
     // other fcts
     for i in 0..NUM_FUNCTIONS {
-        m.identifiers
-            .push(Identifier::new(format!("f{}", i)).unwrap());
+        m.identifiers.push(Identifier::new(format!("f{}", i)).unwrap());
         m.function_handles.push(FunctionHandle {
             module: ModuleHandleIndex(0),
             name: IdentifierIndex(i + 4),
@@ -129,10 +124,7 @@ fn test_large_types() {
             visibility: Public,
             is_entry: false,
             acquires_global_resources: vec![],
-            code: Some(CodeUnit {
-                locals: SignatureIndex(0),
-                code: vec![],
-            }),
+            code: Some(CodeUnit { locals: SignatureIndex(0), code: vec![] }),
         });
 
         let code = &mut m.function_defs[i as usize + 4].code.as_mut().unwrap().code;
@@ -153,8 +145,5 @@ fn test_large_types() {
         &m,
         &mut meter,
     );
-    assert_eq!(
-        result.unwrap_err().major_status(),
-        StatusCode::CONSTRAINT_NOT_SATISFIED,
-    );
+    assert_eq!(result.unwrap_err().major_status(), StatusCode::CONSTRAINT_NOT_SATISFIED,);
 }

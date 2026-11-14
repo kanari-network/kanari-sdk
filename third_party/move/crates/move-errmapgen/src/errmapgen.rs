@@ -52,11 +52,7 @@ pub struct ErrmapGen<'env> {
 
 impl<'env> ErrmapGen<'env> {
     pub fn new(env: &'env GlobalEnv, options: &'env ErrmapOptions) -> Self {
-        Self {
-            options,
-            env,
-            output: ErrorMapping::default(),
-        }
+        Self { options, env, output: ErrorMapping::default() }
     }
 
     pub fn save_result(&self) {

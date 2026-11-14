@@ -233,9 +233,7 @@ struct Parser<I: Iterator<Item = Token>> {
 
 impl<I: Iterator<Item = Token>> Parser<I> {
     fn new<T: IntoIterator<Item = Token, IntoIter = I>>(v: T) -> Self {
-        Self {
-            it: v.into_iter().peekable(),
-        }
+        Self { it: v.into_iter().peekable() }
     }
 
     fn next(&mut self) -> Result<Token> {
@@ -355,10 +353,7 @@ fn parse<F, T>(s: &str, f: F) -> Result<T>
 where
     F: Fn(&mut Parser<std::vec::IntoIter<Token>>) -> Result<T>,
 {
-    let mut tokens: Vec<_> = tokenize(s)?
-        .into_iter()
-        .filter(|tok| !tok.is_whitespace())
-        .collect();
+    let mut tokens: Vec<_> = tokenize(s)?.into_iter().filter(|tok| !tok.is_whitespace()).collect();
     tokens.push(Token::Eof);
     let mut parser = Parser::new(tokens);
     let res = f(&mut parser)?;
@@ -367,15 +362,11 @@ where
 }
 
 pub fn parse_string_list(s: &str) -> Result<Vec<String>> {
-    parse(s, |parser| {
-        parser.parse_comma_list(|parser| parser.parse_string(), Token::Eof, true)
-    })
+    parse(s, |parser| parser.parse_comma_list(|parser| parser.parse_string(), Token::Eof, true))
 }
 
 pub fn parse_type_tags(s: &str) -> Result<Vec<TypeTag>> {
-    parse(s, |parser| {
-        parser.parse_comma_list(|parser| parser.parse_type_tag(), Token::Eof, true)
-    })
+    parse(s, |parser| parser.parse_comma_list(|parser| parser.parse_type_tag(), Token::Eof, true))
 }
 
 pub fn parse_type_tag(s: &str) -> Result<TypeTag> {
@@ -384,11 +375,7 @@ pub fn parse_type_tag(s: &str) -> Result<TypeTag> {
 
 pub fn parse_transaction_arguments(s: &str) -> Result<Vec<TransactionArgument>> {
     parse(s, |parser| {
-        parser.parse_comma_list(
-            |parser| parser.parse_transaction_argument(),
-            Token::Eof,
-            true,
-        )
+        parser.parse_comma_list(|parser| parser.parse_transaction_argument(), Token::Eof, true)
     })
 }
 
@@ -459,10 +446,7 @@ mod tests {
             ("1_0_00u32", T::U32(1_000)),
             ("1_0_0_0u32", T::U32(1_000)),
             ("1_000_000u256", T::U256(u256::U256::from(1_000_000u64))),
-            (
-                "1_000_000_000u256",
-                T::U256(u256::U256::from(1_000_000_000u128)),
-            ),
+            ("1_000_000_000u256", T::U256(u256::U256::from(1_000_000_000u128))),
             (
                 "3402823669209384634633746074317682114551234u256",
                 T::U256(
@@ -471,18 +455,9 @@ mod tests {
             ),
             ("true", T::Bool(true)),
             ("false", T::Bool(false)),
-            (
-                "0x0",
-                T::Address(AccountAddress::from_hex_literal("0x0").unwrap()),
-            ),
-            (
-                "0x54afa3526",
-                T::Address(AccountAddress::from_hex_literal("0x54afa3526").unwrap()),
-            ),
-            (
-                "0X54afa3526",
-                T::Address(AccountAddress::from_hex_literal("0x54afa3526").unwrap()),
-            ),
+            ("0x0", T::Address(AccountAddress::from_hex_literal("0x0").unwrap())),
+            ("0x54afa3526", T::Address(AccountAddress::from_hex_literal("0x54afa3526").unwrap())),
+            ("0X54afa3526", T::Address(AccountAddress::from_hex_literal("0x54afa3526").unwrap())),
             ("x\"7fff\"", T::U8Vector(vec![0x7f, 0xff])),
             ("x\"\"", T::U8Vector(vec![])),
             ("x\"00\"", T::U8Vector(vec![0x00])),
@@ -629,9 +604,8 @@ mod tests {
 
     #[test]
     fn test_parse_struct_tag_with_type_names() {
-        let names = vec![
-            "address", "vector", "u128", "u256", "u64", "u32", "u16", "u8", "bool", "signer",
-        ];
+        let names =
+            vec!["address", "vector", "u128", "u256", "u64", "u32", "u16", "u8", "bool", "signer"];
 
         let mut tests = vec![];
         for name in &names {

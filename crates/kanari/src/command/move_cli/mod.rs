@@ -89,11 +89,7 @@ impl MoveCommand {
                     .invariant("stdlib address");
                 let std_natives = all_natives(std_addr, GasParameters::zeros())
                     .into_iter()
-                    .chain(nursery_natives(
-                        false,
-                        std_addr,
-                        NurseryGasParameters::zeros(),
-                    ));
+                    .chain(nursery_natives(false, std_addr, NurseryGasParameters::zeros()));
 
                 // Construct kanari crypto/system natives (registered under package address 0x2)
                 let system_addr =

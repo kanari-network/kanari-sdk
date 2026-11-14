@@ -61,10 +61,7 @@ impl Docgen {
     pub fn execute(self, path: Option<PathBuf>, config: BuildConfig) -> anyhow::Result<()> {
         let model = config.move_model_for_package(
             &reroot_path(path).unwrap(),
-            ModelConfig {
-                all_files_as_targets: false,
-                target_filter: None,
-            },
+            ModelConfig { all_files_as_targets: false, target_filter: None },
         )?;
 
         let mut options = DocgenOptions::default();
@@ -115,10 +112,7 @@ impl Docgen {
             println!("Generated {:?}", path);
         }
 
-        anyhow::ensure!(
-            !model.has_errors(),
-            "Errors encountered while generating documentation!"
-        );
+        anyhow::ensure!(!model.has_errors(), "Errors encountered while generating documentation!");
 
         println!("\nDocumentation generation successful!");
         Ok(())

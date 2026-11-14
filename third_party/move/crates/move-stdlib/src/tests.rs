@@ -14,11 +14,7 @@ fn check_that_docs_are_updated() {
     crate::build_stdlib_doc(&temp_dir.path().to_string_lossy());
 
     let res = check_dirs_not_diff(&temp_dir, crate::move_stdlib_docs_full_path());
-    assert!(
-        res.is_ok(),
-        "Generated docs differ from the ones checked in. {}",
-        res.unwrap_err()
-    )
+    assert!(res.is_ok(), "Generated docs differ from the ones checked in. {}", res.unwrap_err())
 }
 
 #[test]
@@ -48,25 +44,13 @@ fn check_dirs_not_diff<A: AsRef<Path>, B: AsRef<Path>>(
         let b = b?;
 
         if a.depth() != b.depth() {
-            bail!(
-                "Mismatched depth for {} and {}",
-                display_dir_entry(a),
-                display_dir_entry(b),
-            )
+            bail!("Mismatched depth for {} and {}", display_dir_entry(a), display_dir_entry(b),)
         }
         if a.file_type() != b.file_type() {
-            bail!(
-                "Mismatched file type for {} and {}",
-                display_dir_entry(a),
-                display_dir_entry(b),
-            )
+            bail!("Mismatched file type for {} and {}", display_dir_entry(a), display_dir_entry(b),)
         }
         if a.file_name() != b.file_name() {
-            bail!(
-                "Mismatched file name for {} and {}",
-                display_dir_entry(a),
-                display_dir_entry(b),
-            )
+            bail!("Mismatched file name for {} and {}", display_dir_entry(a), display_dir_entry(b),)
         }
         if a.file_type().is_file()
             && normalize_line_endings(std::fs::read_to_string(a.path())?)
@@ -77,16 +61,10 @@ fn check_dirs_not_diff<A: AsRef<Path>, B: AsRef<Path>>(
     }
 
     if let Some(a) = act_walker.next() {
-        bail!(
-            "Unexpected dir entry: {}. Not found in expected",
-            display_dir_entry(a?)
-        )
+        bail!("Unexpected dir entry: {}. Not found in expected", display_dir_entry(a?))
     }
     if let Some(b) = exp_walker.next() {
-        bail!(
-            "Expected dir entry: {}. Not found in actual",
-            display_dir_entry(b?)
-        )
+        bail!("Expected dir entry: {}. Not found in actual", display_dir_entry(b?))
     }
     Ok(())
 }

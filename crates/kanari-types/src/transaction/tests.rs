@@ -14,23 +14,14 @@ fn transfer_helper_builds_native_execute_function() {
     );
     let tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
-        ObjectRef::new(
-            coin_object_id.clone(),
-            Some(1),
-            Some("0xtestdigest".to_string()),
-        ),
+        ObjectRef::new(coin_object_id.clone(), Some(1), Some("0xtestdigest".to_string())),
         "0x2".to_string(),
         42,
         7,
     );
 
     match &tx {
-        Transaction::ExecuteFunction {
-            module,
-            function,
-            nonce,
-            ..
-        } => {
+        Transaction::ExecuteFunction { module, function, nonce, .. } => {
             assert_eq!(module, &GasModule::module_path());
             assert_eq!(function, GasModule::function_names().transfer);
             assert_eq!(*nonce, 7);
@@ -47,9 +38,7 @@ fn transfer_helper_builds_native_execute_function() {
         tx.native_call(),
         Some(NativeCall::Transfer {
             coin_object_id: canonical_coin_object_id,
-            recipient: AccountAddress::from_hex_literal("0x2")
-                .unwrap()
-                .to_hex_literal(),
+            recipient: AccountAddress::from_hex_literal("0x2").unwrap().to_hex_literal(),
             amount: 42,
         })
     );
@@ -64,24 +53,14 @@ fn transfer_helper_builds_execute_function_with_coin_input() {
     );
     let tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
-        ObjectRef::new(
-            coin_object_id.clone(),
-            Some(1),
-            Some("0xtestdigest".to_string()),
-        ),
+        ObjectRef::new(coin_object_id.clone(), Some(1), Some("0xtestdigest".to_string())),
         "0x2".to_string(),
         42,
         7,
     );
 
     match &tx {
-        Transaction::ExecuteFunction {
-            module,
-            function,
-            nonce,
-            args,
-            ..
-        } => {
+        Transaction::ExecuteFunction { module, function, nonce, args, .. } => {
             assert_eq!(module, &GasModule::module_path());
             assert_eq!(function, GasModule::function_names().transfer);
             assert_eq!(*nonce, 7);
@@ -99,9 +78,7 @@ fn transfer_helper_builds_execute_function_with_coin_input() {
         tx.native_call(),
         Some(NativeCall::Transfer {
             coin_object_id: canonical_coin_object_id,
-            recipient: AccountAddress::from_hex_literal("0x2")
-                .unwrap()
-                .to_hex_literal(),
+            recipient: AccountAddress::from_hex_literal("0x2").unwrap().to_hex_literal(),
             amount: 42,
         })
     );
@@ -115,11 +92,7 @@ fn native_transfer_uses_abi_coin_id_not_object_input_order() {
     );
     let mut tx = Transaction::new_transfer_with_object_ref(
         "0x1".to_string(),
-        ObjectRef::new(
-            coin_object_id.clone(),
-            Some(1),
-            Some("0xtestdigest".to_string()),
-        ),
+        ObjectRef::new(coin_object_id.clone(), Some(1), Some("0xtestdigest".to_string())),
         "0x2".to_string(),
         42,
         7,
@@ -144,9 +117,7 @@ fn native_transfer_uses_abi_coin_id_not_object_input_order() {
         tx.native_call(),
         Some(NativeCall::Transfer {
             coin_object_id: canonical_coin_object_id,
-            recipient: AccountAddress::from_hex_literal("0x2")
-                .unwrap()
-                .to_hex_literal(),
+            recipient: AccountAddress::from_hex_literal("0x2").unwrap().to_hex_literal(),
             amount: 42,
         })
     );
@@ -201,11 +172,7 @@ fn burn_helper_builds_native_execute_function() {
 #[test]
 fn upgrade_transactions_have_upgrade_type_labels() {
     let gas_payment = GasPayment {
-        payment_objects: vec![ObjectRef::new(
-            "0xgas",
-            Some(7),
-            Some("0xdigest".to_string()),
-        )],
+        payment_objects: vec![ObjectRef::new("0xgas", Some(7), Some("0xdigest".to_string()))],
         owner: "0x1".to_string(),
         budget: 100_000,
         price: 1,
@@ -256,18 +223,9 @@ fn upgrade_package_conflict_keys_are_deterministic_and_deduplicated() {
     let tx = Transaction::UpgradePackage {
         sender: "0x1".to_string(),
         modules: vec![
-            PublishedModule {
-                module_name: "zeta".to_string(),
-                module_bytes: vec![],
-            },
-            PublishedModule {
-                module_name: "alpha".to_string(),
-                module_bytes: vec![],
-            },
-            PublishedModule {
-                module_name: "alpha".to_string(),
-                module_bytes: vec![],
-            },
+            PublishedModule { module_name: "zeta".to_string(), module_bytes: vec![] },
+            PublishedModule { module_name: "alpha".to_string(), module_bytes: vec![] },
+            PublishedModule { module_name: "alpha".to_string(), module_bytes: vec![] },
         ],
         gas_payment: None,
         gas_limit: 100_000,
@@ -277,11 +235,7 @@ fn upgrade_package_conflict_keys_are_deterministic_and_deduplicated() {
 
     assert_eq!(
         tx.get_conflict_keys(),
-        vec![
-            "module:alpha".to_string(),
-            "module:zeta".to_string(),
-            "owner:0x1".to_string()
-        ]
+        vec!["module:alpha".to_string(), "module:zeta".to_string(), "owner:0x1".to_string()]
     );
 }
 
@@ -297,10 +251,7 @@ fn upgrade_transactions_without_gas_fall_back_to_owner_conflict_key() {
         nonce: 0,
     };
 
-    assert_eq!(
-        tx.get_conflict_keys(),
-        vec!["module:demo".to_string(), "owner:0x1".to_string()]
-    );
+    assert_eq!(tx.get_conflict_keys(), vec!["module:demo".to_string(), "owner:0x1".to_string()]);
 }
 
 #[test]
@@ -313,9 +264,7 @@ fn tampering_transaction_after_signing_invalidates_signature_cache() {
         100_000,
         0,
     ));
-    signed_tx
-        .sign(&keypair.private_key, keypair.curve_type)
-        .unwrap();
+    signed_tx.sign(&keypair.private_key, keypair.curve_type).unwrap();
 
     assert!(signed_tx.verify_signature().unwrap());
 
@@ -342,9 +291,7 @@ fn deserialized_transaction_verifies_without_in_memory_signature_cache() {
         100_000,
         0,
     ));
-    signed_tx
-        .sign(&keypair.private_key, keypair.curve_type)
-        .unwrap();
+    signed_tx.sign(&keypair.private_key, keypair.curve_type).unwrap();
 
     let bytes = bcs::to_bytes(&signed_tx).unwrap();
     let decoded: SignedTransaction = bcs::from_bytes(&bytes).unwrap();
@@ -362,9 +309,7 @@ fn verified_transaction_rejects_tampered_signed_payload() {
         100_000,
         0,
     ));
-    signed_tx
-        .sign(&keypair.private_key, keypair.curve_type)
-        .unwrap();
+    signed_tx.sign(&keypair.private_key, keypair.curve_type).unwrap();
 
     let verified = signed_tx.clone().into_verified().unwrap();
     assert_eq!(verified.hash(), signed_tx.transaction_hash());
@@ -438,8 +383,5 @@ fn bcs_round_trips_sparse_transaction_effects() {
         error_message: None,
     };
     let bytes = bcs::to_bytes(&effects).unwrap();
-    assert_eq!(
-        bcs::from_bytes::<TransactionEffects>(&bytes).unwrap(),
-        effects
-    );
+    assert_eq!(bcs::from_bytes::<TransactionEffects>(&bytes).unwrap(), effects);
 }

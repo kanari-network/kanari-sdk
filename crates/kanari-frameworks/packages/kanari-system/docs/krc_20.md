@@ -12,6 +12,9 @@ or supply ledger: <code><a href="coin.md#0x2_coin">coin</a></code> is the canoni
 one-currency-per-witness check, overflow checks, and object ownership.
 
 
+-  [Struct `Minted`](#0x2_krc_20_Minted)
+-  [Struct `Burned`](#0x2_krc_20_Burned)
+-  [Struct `Transferred`](#0x2_krc_20_Transferred)
 -  [Constants](#@Constants_0)
 -  [Function `create`](#0x2_krc_20_create)
 -  [Function `create_regulated`](#0x2_krc_20_create_regulated)
@@ -28,12 +31,115 @@ one-currency-per-witness check, overflow checks, and object ownership.
 <pre><code><b>use</b> <a href="dependencies/move-stdlib/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="coin.md#0x2_coin">0x2::coin</a>;
 <b>use</b> <a href="deny_list.md#0x2_deny_list">0x2::deny_list</a>;
+<b>use</b> <a href="event.md#0x2_event">0x2::event</a>;
 <b>use</b> <a href="pay.md#0x2_pay">0x2::pay</a>;
 <b>use</b> <a href="tx_context.md#0x2_tx_context">0x2::tx_context</a>;
 <b>use</b> <a href="url.md#0x2_url">0x2::url</a>;
 </code></pre>
 
 
+
+<a name="0x2_krc_20_Minted"></a>
+
+## Struct `Minted`
+
+Emitted when tokens are minted.
+
+
+<pre><code><b>struct</b> <a href="krc_20.md#0x2_krc_20_Minted">Minted</a> <b>has</b> <b>copy</b>, drop
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>recipient: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_krc_20_Burned"></a>
+
+## Struct `Burned`
+
+Emitted when tokens are burned.
+
+
+<pre><code><b>struct</b> <a href="krc_20.md#0x2_krc_20_Burned">Burned</a> <b>has</b> <b>copy</b>, drop
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_krc_20_Transferred"></a>
+
+## Struct `Transferred`
+
+Emitted when tokens are transferred.
+
+
+<pre><code><b>struct</b> <a href="krc_20.md#0x2_krc_20_Transferred">Transferred</a> <b>has</b> <b>copy</b>, drop
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>sender: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>recipient: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
 
 <a name="@Constants_0"></a>
 
@@ -158,7 +264,14 @@ Mint a coin object. Only a holder of the token's treasury cap can mint.
     amount: u64,
     ctx: &<b>mut</b> TxContext
 ): Coin&lt;T&gt; {
-    <a href="coin.md#0x2_coin_mint">coin::mint</a>(cap, amount, ctx)
+    <b>let</b> <a href="coin.md#0x2_coin">coin</a> = <a href="coin.md#0x2_coin_mint">coin::mint</a>(cap, amount, ctx);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="krc_20.md#0x2_krc_20_Minted">Minted</a> {
+            recipient: <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx),
+            amount
+        }
+    );
+    <a href="coin.md#0x2_coin">coin</a>
 }
 </code></pre>
 
@@ -188,7 +301,13 @@ Mint directly to an address. This is the issuer's airdrop primitive.
     recipient: <b>address</b>,
     ctx: &<b>mut</b> TxContext
 ) {
-    <a href="coin.md#0x2_coin_mint_and_transfer">coin::mint_and_transfer</a>(cap, amount, recipient, ctx)
+    <a href="coin.md#0x2_coin_mint_and_transfer">coin::mint_and_transfer</a>(cap, amount, recipient, ctx);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="krc_20.md#0x2_krc_20_Minted">Minted</a> {
+            recipient,
+            amount
+        }
+    );
 }
 </code></pre>
 
@@ -213,7 +332,14 @@ Burn a complete coin object and reduce total supply.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="krc_20.md#0x2_krc_20_burn">burn</a>&lt;T&gt;(cap: &<b>mut</b> TreasuryCap&lt;T&gt;, token: Coin&lt;T&gt;): u64 {
-    <a href="coin.md#0x2_coin_burn">coin::burn</a>(cap, token)
+    <b>let</b> amount = <a href="coin.md#0x2_coin_value">coin::value</a>(&token);
+    <b>let</b> result = <a href="coin.md#0x2_coin_burn">coin::burn</a>(cap, token);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="krc_20.md#0x2_krc_20_Burned">Burned</a> {
+            amount
+        }
+    );
+    result
 }
 </code></pre>
 
@@ -251,7 +377,14 @@ reject a denied sender, a denied recipient, or a global pause.
     <b>assert</b>!(!<a href="coin.md#0x2_coin_is_denied">coin::is_denied</a>&lt;T&gt;(sender), <a href="krc_20.md#0x2_krc_20_E_DENIED_OR_PAUSED">E_DENIED_OR_PAUSED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_is_denied">coin::is_denied</a>&lt;T&gt;(recipient), <a href="krc_20.md#0x2_krc_20_E_DENIED_OR_PAUSED">E_DENIED_OR_PAUSED</a>);
     <b>assert</b>!(!<a href="coin.md#0x2_coin_is_paused">coin::is_paused</a>&lt;T&gt;(), <a href="krc_20.md#0x2_krc_20_E_DENIED_OR_PAUSED">E_DENIED_OR_PAUSED</a>);
-    <a href="pay.md#0x2_pay_split_and_transfer">pay::split_and_transfer</a>(token, amount, recipient, ctx)
+    <a href="pay.md#0x2_pay_split_and_transfer">pay::split_and_transfer</a>(token, amount, recipient, ctx);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="krc_20.md#0x2_krc_20_Transferred">Transferred</a> {
+            sender,
+            recipient,
+            amount
+        }
+    );
 }
 </code></pre>
 
@@ -283,7 +416,15 @@ against <code>deny</code>; a globally paused token also aborts.
     deny: &DenyList,
     ctx: &<b>mut</b> TxContext
 ) {
-    <a href="pay.md#0x2_pay_split_and_transfer_checked">pay::split_and_transfer_checked</a>(token, amount, recipient, deny, ctx)
+    <b>let</b> sender = <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx);
+    <a href="pay.md#0x2_pay_split_and_transfer_checked">pay::split_and_transfer_checked</a>(token, amount, recipient, deny, ctx);
+    <a href="event.md#0x2_event_emit">event::emit</a>(
+        <a href="krc_20.md#0x2_krc_20_Transferred">Transferred</a> {
+            sender,
+            recipient,
+            amount
+        }
+    );
 }
 </code></pre>
 
@@ -298,7 +439,7 @@ against <code>deny</code>; a globally paused token also aborts.
 Merge <code>other</code> into <code>token</code>, reducing coin-object fragmentation.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="krc_20.md#0x2_krc_20_join">join</a>&lt;T&gt;(token: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;)
+<pre><code><b>public</b> entry <b>fun</b> <a href="krc_20.md#0x2_krc_20_join">join</a>&lt;T&gt;(token: &<b>mut</b> <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, other: <a href="coin.md#0x2_coin_Coin">coin::Coin</a>&lt;T&gt;, _ctx: &<b>mut</b> <a href="tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -307,7 +448,11 @@ Merge <code>other</code> into <code>token</code>, reducing coin-object fragmenta
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="krc_20.md#0x2_krc_20_join">join</a>&lt;T&gt;(token: &<b>mut</b> Coin&lt;T&gt;, other: Coin&lt;T&gt;) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="krc_20.md#0x2_krc_20_join">join</a>&lt;T&gt;(
+    token: &<b>mut</b> Coin&lt;T&gt;,
+    other: Coin&lt;T&gt;,
+    _ctx: &<b>mut</b> TxContext
+) {
     <a href="coin.md#0x2_coin_join">coin::join</a>(token, other)
 }
 </code></pre>

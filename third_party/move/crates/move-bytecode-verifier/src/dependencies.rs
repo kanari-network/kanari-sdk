@@ -54,11 +54,8 @@ impl<'a, 'b> Context<'a, 'b> {
             .map(|d| (d.self_id(), d))
             .collect();
 
-        let script_functions = if module.version() < VERSION_5 {
-            Some(BTreeSet::new())
-        } else {
-            None
-        };
+        let script_functions =
+            if module.version() < VERSION_5 { Some(BTreeSet::new()) } else { None };
         let mut context = Self {
             module,
             dependency_map,
@@ -76,10 +73,9 @@ impl<'a, 'b> Context<'a, 'b> {
             for struct_def in module.struct_defs() {
                 let struct_handle = module.struct_handle_at(struct_def.struct_handle);
                 let struct_name = module.identifier_at(struct_handle.name);
-                context.struct_id_to_handle_map.insert(
-                    (module_id.clone(), struct_name.to_owned()),
-                    struct_def.struct_handle,
-                );
+                context
+                    .struct_id_to_handle_map
+                    .insert((module_id.clone(), struct_name.to_owned()), struct_def.struct_handle);
             }
             // Module::FuncName -> def handle idx
             for func_def in module.function_defs() {
@@ -103,14 +99,9 @@ impl<'a, 'b> Context<'a, 'b> {
         }
 
         for function_def in self_function_defs {
-            context
-                .function_visibilities
-                .insert(function_def.function, function_def.visibility);
+            context.function_visibilities.insert(function_def.function, function_def.visibility);
             if function_def.is_entry {
-                context
-                    .script_functions
-                    .as_mut()
-                    .map(|s| s.insert(function_def.function));
+                context.script_functions.as_mut().map(|s| s.insert(function_def.function));
             }
         }
         for (idx, function_handle) in context.module.function_handles().iter().enumerate() {
@@ -131,14 +122,9 @@ impl<'a, 'b> Context<'a, 'b> {
                 Some(vis_entry) => *vis_entry,
             };
             let fhandle_idx = FunctionHandleIndex(idx as TableIndex);
-            context
-                .function_visibilities
-                .insert(fhandle_idx, visibility);
+            context.function_visibilities.insert(fhandle_idx, visibility);
             if dep_file_format_version < VERSION_5 && is_entry {
-                context
-                    .script_functions
-                    .as_mut()
-                    .map(|s| s.insert(fhandle_idx));
+                context.script_functions.as_mut().map(|s| s.insert(fhandle_idx));
             }
         }
 
@@ -195,10 +181,7 @@ fn verify_imported_structs(context: &Context) -> PartialVMResult<()> {
         // TODO: remove unwrap
         let owner_module = safe_unwrap!(context.dependency_map.get(&owner_module_id));
         let struct_name = context.module.identifier_at(struct_handle.name);
-        match context
-            .struct_id_to_handle_map
-            .get(&(owner_module_id, struct_name.to_owned()))
-        {
+        match context.struct_id_to_handle_map.get(&(owner_module_id, struct_name.to_owned())) {
             Some(def_idx) => {
                 let def_handle = owner_module.struct_handle_at(*def_idx);
                 if !compatible_struct_abilities(struct_handle.abilities, def_handle.abilities)
@@ -327,20 +310,14 @@ fn compatible_fun_type_parameters(
     defined_type_parameters: &[AbilitySet],
 ) -> bool {
     local_type_parameters_declaration.len() == defined_type_parameters.len()
-        && local_type_parameters_declaration
-            .iter()
-            .zip(defined_type_parameters)
-            .all(
-                |(
-                    local_type_parameter_constraints_declaration,
-                    defined_type_parameter_constraints,
-                )| {
-                    compatible_type_parameter_constraints(
-                        *local_type_parameter_constraints_declaration,
-                        *defined_type_parameter_constraints,
-                    )
-                },
-            )
+        && local_type_parameters_declaration.iter().zip(defined_type_parameters).all(
+            |(local_type_parameter_constraints_declaration, defined_type_parameter_constraints)| {
+                compatible_type_parameter_constraints(
+                    *local_type_parameter_constraints_declaration,
+                    *defined_type_parameter_constraints,
+                )
+            },
+        )
 }
 
 // - The number of type parameters must be the same
@@ -350,20 +327,17 @@ fn compatible_struct_type_parameters(
     defined_type_parameters: &[StructTypeParameter],
 ) -> bool {
     local_type_parameters_declaration.len() == defined_type_parameters.len()
-        && local_type_parameters_declaration
-            .iter()
-            .zip(defined_type_parameters)
-            .all(
-                |(local_type_parameter_declaration, defined_type_parameter)| {
-                    compatible_type_parameter_phantom_decl(
-                        local_type_parameter_declaration,
-                        defined_type_parameter,
-                    ) && compatible_type_parameter_constraints(
-                        local_type_parameter_declaration.constraints,
-                        defined_type_parameter.constraints,
-                    )
-                },
-            )
+        && local_type_parameters_declaration.iter().zip(defined_type_parameters).all(
+            |(local_type_parameter_declaration, defined_type_parameter)| {
+                compatible_type_parameter_phantom_decl(
+                    local_type_parameter_declaration,
+                    defined_type_parameter,
+                ) && compatible_type_parameter_constraints(
+                    local_type_parameter_declaration.constraints,
+                    defined_type_parameter.constraints,
+                )
+            },
+        )
 }
 
 //  The local view of a type parameter must be a superset of (or equal to) the defined
@@ -437,11 +411,7 @@ fn compare_types(
             compare_types(context, ty1, ty2, def_module)
         }
         (SignatureToken::TypeParameter(idx1), SignatureToken::TypeParameter(idx2)) => {
-            if idx1 != idx2 {
-                Err(PartialVMError::new(StatusCode::TYPE_MISMATCH))
-            } else {
-                Ok(())
-            }
+            if idx1 != idx2 { Err(PartialVMError::new(StatusCode::TYPE_MISMATCH)) } else { Ok(()) }
         }
         (SignatureToken::Bool, _)
         | (SignatureToken::U8, _)

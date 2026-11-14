@@ -106,10 +106,7 @@ fn find_forwarding_jump_destinations(blocks: &BasicBlocks) -> LabelMap {
         }
     }
 
-    final_jumps
-        .into_iter()
-        .filter(|(from, to)| from != to)
-        .collect()
+    final_jumps.into_iter().filter(|(from, to)| from != to).collect()
 }
 
 fn optimize_forwarding_jumps(
@@ -129,10 +126,7 @@ fn optimize_forwarding_jumps(
 fn optimize_cmd(sp!(_, cmd_): &mut Command, final_jumps: &BTreeMap<Label, Label>) -> bool {
     use Command_ as C;
     match cmd_ {
-        C::Jump {
-            target,
-            from_user: _,
-        } => {
+        C::Jump { target, from_user: _ } => {
             if let Some(final_target) = final_jumps.get(target) {
                 *target = *final_target;
                 true
@@ -140,11 +134,7 @@ fn optimize_cmd(sp!(_, cmd_): &mut Command, final_jumps: &BTreeMap<Label, Label>
                 false
             }
         }
-        C::JumpIf {
-            cond: _,
-            if_true,
-            if_false,
-        } => {
+        C::JumpIf { cond: _, if_true, if_false } => {
             let mut result = false;
             if let Some(final_target) = final_jumps.get(if_true) {
                 *if_true = *final_target;

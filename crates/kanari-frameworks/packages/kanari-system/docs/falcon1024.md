@@ -47,6 +47,7 @@ FIPS 206 FN-DSA-1024 / Falcon-1024 verification.
 
 ## Function `public_key_length`
 
+Returns the public key length for Falcon-1024.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="falcon1024.md#0x2_falcon1024_public_key_length">public_key_length</a>(): u64
@@ -71,6 +72,7 @@ FIPS 206 FN-DSA-1024 / Falcon-1024 verification.
 
 ## Function `max_signature_length`
 
+Returns the maximum signature length for Falcon-1024.
 
 
 <pre><code><b>public</b> <b>fun</b> <a href="falcon1024.md#0x2_falcon1024_max_signature_length">max_signature_length</a>(): u64

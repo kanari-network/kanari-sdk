@@ -28,10 +28,7 @@ fn main() {
 
     let mut location = args.location.trim().split("::");
     let mut address_literal = location.next().expect("Could not find address").to_string();
-    let module_name = location
-        .next()
-        .expect("Could not find module name")
-        .to_string();
+    let module_name = location.next().expect("Could not find module name").to_string();
     if !address_literal.starts_with("0x") {
         address_literal = format!("0x{}", address_literal);
     }
@@ -45,13 +42,9 @@ fn main() {
         bcs::from_bytes(&errmap_bytes).expect("Failed to deserialize errmap");
 
     match errmap.get_explanation(&module_id, args.abort_code) {
-        None => println!(
-            "Unable to find a description for {}::{}",
-            args.location, args.abort_code
-        ),
-        Some(error_desc) => println!(
-            "Name: {}\nDescription: {}",
-            error_desc.code_name, error_desc.code_description,
-        ),
+        None => println!("Unable to find a description for {}::{}", args.location, args.abort_code),
+        Some(error_desc) => {
+            println!("Name: {}\nDescription: {}", error_desc.code_name, error_desc.code_description,)
+        }
     }
 }

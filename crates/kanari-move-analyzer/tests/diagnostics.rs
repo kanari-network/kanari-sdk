@@ -9,9 +9,7 @@ fn invalid_object_sui_filtered() {
     assert!(is_kanari_false_positive(
         "Invalid object 'X'. Structs with the 'key' ability must have 'id: sui::object::UID' as their first field"
     ));
-    assert!(!is_kanari_false_positive(
-        "Invalid object 'X' for another reason"
-    ));
+    assert!(!is_kanari_false_positive("Invalid object 'X' for another reason"));
 }
 
 #[test]
@@ -30,10 +28,7 @@ fn entry_ctx_filtered() {
     // Message alone (no file context) must not filter any entry diagnostic.
     for name in ["ctx", "_ctx", "foo", "_ctx2"] {
         let msg = format!("Invalid 'entry' parameter type for parameter '{name}'");
-        assert!(
-            !is_kanari_false_positive(&msg),
-            "message-only must not filter {name}"
-        );
+        assert!(!is_kanari_false_positive(&msg), "message-only must not filter {name}");
     }
     // Non-TxContext entry types stay visible.
     let code = "module m::n {\n    fun f(foo: address) {}\n}\n";
@@ -52,9 +47,7 @@ fn entry_ctx_filtered() {
 
 #[test]
 fn object_creation_filtered() {
-    assert!(is_kanari_false_positive(
-        "Invalid object creation without a newly created UID."
-    ));
+    assert!(is_kanari_false_positive("Invalid object creation without a newly created UID."));
     assert!(!is_kanari_false_positive("Invalid object creation"));
 }
 

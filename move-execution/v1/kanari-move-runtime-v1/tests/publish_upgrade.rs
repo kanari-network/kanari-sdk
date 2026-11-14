@@ -13,9 +13,7 @@ fn module_upgrade_preserves_storage_and_publish_rejects_existing_module() {
     assert!(!modules.is_empty(), "expected at least one system module");
 
     // Find a module which has persisted bytes in the runtime state
-    let maybe = modules
-        .into_iter()
-        .find_map(|m| runtime.get_module_bytes(&m).map(|b| (m, b)));
+    let maybe = modules.into_iter().find_map(|m| runtime.get_module_bytes(&m).map(|b| (m, b)));
     let (module_id, module_bytes) = match maybe {
         Some(pair) => pair,
         None => panic!("no preloaded module had persisted bytes in state"),
@@ -24,19 +22,15 @@ fn module_upgrade_preserves_storage_and_publish_rejects_existing_module() {
     let publish_err = runtime
         .publish_module(module_bytes.clone(), *module_id.address(), None, None)
         .expect_err("publish should reject an existing module");
-    assert!(
-        publish_err.to_string().contains("already exists"),
-        "unexpected error: {publish_err}"
-    );
+    assert!(publish_err.to_string().contains("already exists"), "unexpected error: {publish_err}");
 
     let _ = runtime
         .upgrade_module(module_bytes.clone(), *module_id.address(), None, None)
         .invariant("upgrade should succeed");
 
     // Ensure storage contains the module bytes after publish
-    let stored = runtime
-        .get_module_bytes(&module_id)
-        .invariant("module bytes present after publish");
+    let stored =
+        runtime.get_module_bytes(&module_id).invariant("module bytes present after publish");
     assert_eq!(stored, module_bytes);
 
     // Confirm module_id still present in listed modules
@@ -47,9 +41,8 @@ fn module_upgrade_preserves_storage_and_publish_rejects_existing_module() {
         .upgrade_module(module_bytes.clone(), *module_id.address(), None, None)
         .invariant("second upgrade should succeed");
 
-    let stored2 = runtime
-        .get_module_bytes(&module_id)
-        .invariant("module bytes present after second publish");
+    let stored2 =
+        runtime.get_module_bytes(&module_id).invariant("module bytes present after second publish");
     assert_eq!(stored2, module_bytes);
 }
 
@@ -83,14 +76,10 @@ fn incompatible_module_upgrade_is_rejected_before_storage_changes() {
         .upgrade_module(upgraded_bytes, *module_id.address(), None, None)
         .expect_err("incompatible upgrade should be rejected");
     let msg = err.to_string();
-    assert!(
-        msg.contains("Incompatible module upgrade"),
-        "unexpected error: {msg}"
-    );
+    assert!(msg.contains("Incompatible module upgrade"), "unexpected error: {msg}");
 
-    let stored = runtime
-        .get_module_bytes(&module_id)
-        .invariant("module bytes should remain present");
+    let stored =
+        runtime.get_module_bytes(&module_id).invariant("module bytes should remain present");
     assert_eq!(stored, module_bytes);
 }
 
@@ -138,10 +127,9 @@ fn compatible_module_upgrade_can_change_metadata() {
     let runtime = MoveRuntime::new_with_kanari_natives_in_memory().invariant("init runtime");
     let (module_id, module_bytes, mut upgraded) = first_published_module(&runtime);
 
-    upgraded.metadata.push(Metadata {
-        key: b"kanari:test:upgrade-metadata".to_vec(),
-        value: b"v2".to_vec(),
-    });
+    upgraded
+        .metadata
+        .push(Metadata { key: b"kanari:test:upgrade-metadata".to_vec(), value: b"v2".to_vec() });
 
     let upgraded_bytes = serialize_module(&upgraded);
     assert_ne!(
@@ -201,10 +189,7 @@ fn package_upgrade_rejects_missing_module_before_storage_changes() {
 
     let err = runtime
         .upgrade_package_with_context_and_persistence(
-            vec![(
-                missing_module_id.name().to_string(),
-                missing_module_bytes.clone(),
-            )],
+            vec![(missing_module_id.name().to_string(), missing_module_bytes.clone())],
             missing_sender,
             None,
             None,
@@ -273,10 +258,7 @@ fn package_upgrade_can_change_metadata() {
         value: b"v2".to_vec(),
     });
     let upgraded_bytes = serialize_module(&upgraded);
-    assert_ne!(
-        upgraded_bytes, module_bytes,
-        "package metadata upgrade should change module bytes"
-    );
+    assert_ne!(upgraded_bytes, module_bytes, "package metadata upgrade should change module bytes");
 
     let _ = runtime
         .upgrade_package_with_context_and_persistence(
@@ -343,10 +325,7 @@ fn bootstrap_module_rejects_incompatible_existing_framework_module() {
         )
         .expect_err("bootstrap must reject incompatible replacement bytes");
     let msg = err.to_string();
-    assert!(
-        msg.contains("Incompatible module upgrade"),
-        "unexpected error: {msg}"
-    );
+    assert!(msg.contains("Incompatible module upgrade"), "unexpected error: {msg}");
     assert_module_storage_unchanged(&runtime, &module_id, &module_bytes);
 }
 
@@ -398,11 +377,7 @@ fn module_publish_requires_sender_to_match_module_address() {
 
 fn first_published_module(
     runtime: &MoveRuntime,
-) -> (
-    move_core_types::language_storage::ModuleId,
-    Vec<u8>,
-    CompiledModule,
-) {
+) -> (move_core_types::language_storage::ModuleId, Vec<u8>, CompiledModule) {
     runtime
         .list_modules()
         .into_iter()
@@ -419,20 +394,15 @@ fn assert_module_storage_unchanged(
     module_id: &move_core_types::language_storage::ModuleId,
     expected_bytes: &[u8],
 ) {
-    let stored = runtime
-        .get_module_bytes(module_id)
-        .invariant("module bytes should remain present");
+    let stored =
+        runtime.get_module_bytes(module_id).invariant("module bytes should remain present");
     assert_eq!(stored, expected_bytes);
 }
 
 fn missing_module_bytecode(
     runtime: &MoveRuntime,
     address: &str,
-) -> (
-    AccountAddress,
-    move_core_types::language_storage::ModuleId,
-    Vec<u8>,
-) {
+) -> (AccountAddress, move_core_types::language_storage::ModuleId, Vec<u8>) {
     let (_, _, mut compiled) = first_published_module(runtime);
     let missing_sender = AccountAddress::from_hex_literal(address).invariant("valid account");
     let self_handle_idx = compiled.self_module_handle_idx.0 as usize;
@@ -490,10 +460,7 @@ fn mutate_first_constant_value(module: &mut CompiledModule) -> bool {
 
 fn constant_pool_has_duplicates(module: &CompiledModule) -> bool {
     for (index, constant) in module.constant_pool.iter().enumerate() {
-        if module.constant_pool[(index + 1)..]
-            .iter()
-            .any(|other| other == constant)
-        {
+        if module.constant_pool[(index + 1)..].iter().any(|other| other == constant) {
             return true;
         }
     }

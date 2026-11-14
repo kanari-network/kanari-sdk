@@ -264,11 +264,7 @@ pub enum BorrowNode {
 
 impl BorrowNode {
     pub fn get_ref(&self) -> Option<TempIndex> {
-        if let BorrowNode::Reference(idx) = self {
-            Some(*idx)
-        } else {
-            None
-        }
+        if let BorrowNode::Reference(idx) = self { Some(*idx) } else { None }
     }
 
     pub fn instantiate(&self, params: &[Type]) -> Self {
@@ -305,11 +301,7 @@ pub enum BorrowEdge {
 
 impl BorrowEdge {
     pub fn flatten(&self) -> Vec<&BorrowEdge> {
-        if let BorrowEdge::Hyper(edges) = self {
-            edges.iter().collect_vec()
-        } else {
-            vec![self]
-        }
+        if let BorrowEdge::Hyper(edges) = self { edges.iter().collect_vec() } else { vec![self] }
     }
 
     pub fn instantiate(&self, params: &[Type]) -> Self {
@@ -335,13 +327,7 @@ pub struct AbortAction(pub Label, pub TempIndex);
 pub enum Bytecode {
     Assign(AttrId, TempIndex, TempIndex, AssignKind),
 
-    Call(
-        AttrId,
-        Vec<TempIndex>,
-        Operation,
-        Vec<TempIndex>,
-        Option<AbortAction>,
-    ),
+    Call(AttrId, Vec<TempIndex>, Operation, Vec<TempIndex>, Option<AbortAction>),
     Ret(AttrId, Vec<TempIndex>),
 
     Load(AttrId, TempIndex, Constant),
@@ -390,10 +376,7 @@ impl Bytecode {
     }
 
     pub fn is_conditional_branch(&self) -> bool {
-        matches!(
-            self,
-            Bytecode::Branch(..) | Bytecode::Call(_, _, _, _, Some(_))
-        )
+        matches!(self, Bytecode::Branch(..) | Bytecode::Call(_, _, _, _, Some(_)))
     }
 
     pub fn is_branch(&self) -> bool {
@@ -512,13 +495,9 @@ impl Bytecode {
                 map(true, f, srcs),
                 map_abort(f, aa),
             ),
-            Call(attr, dests, op, srcs, aa) => Call(
-                attr,
-                map(false, f, dests),
-                op,
-                map(true, f, srcs),
-                map_abort(f, aa),
-            ),
+            Call(attr, dests, op, srcs, aa) => {
+                Call(attr, map(false, f, dests), op, map(true, f, srcs), map_abort(f, aa))
+            }
             Ret(attr, rets) => Ret(attr, map(true, f, rets)),
             Branch(attr, if_label, else_label, cond) => {
                 Branch(attr, if_label, else_label, f(true, cond))
@@ -580,13 +559,7 @@ impl Bytecode {
                     // others
                     _ => op.clone(),
                 };
-                Self::Call(
-                    *attr_id,
-                    dsts.clone(),
-                    new_op,
-                    srcs.clone(),
-                    on_abort.clone(),
-                )
+                Self::Call(*attr_id, dsts.clone(), new_op, srcs.clone(), on_abort.clone())
             }
             _ => self.clone(),
         }
@@ -690,11 +663,7 @@ impl Bytecode {
         func_target: &'env FunctionTarget<'env>,
         label_offsets: &'env BTreeMap<Label, CodeOffset>,
     ) -> BytecodeDisplay<'env> {
-        BytecodeDisplay {
-            bytecode: self,
-            func_target,
-            label_offsets,
-        }
+        BytecodeDisplay { bytecode: self, func_target, label_offsets }
     }
 }
 
@@ -807,10 +776,7 @@ impl Operation {
         &'env self,
         func_target: &'env FunctionTarget<'env>,
     ) -> OperationDisplay<'env> {
-        OperationDisplay {
-            oper: self,
-            func_target,
-        }
+        OperationDisplay { oper: self, func_target }
     }
 }
 
@@ -828,11 +794,7 @@ impl<'env> fmt::Display for OperationDisplay<'env> {
             Function(mid, fid, targs)
             | OpaqueCallBegin(mid, fid, targs)
             | OpaqueCallEnd(mid, fid, targs) => {
-                let func_env = self
-                    .func_target
-                    .global_env()
-                    .get_module(*mid)
-                    .into_function(*fid);
+                let func_env = self.func_target.global_env().get_module(*mid).into_function(*fid);
                 write!(
                     f,
                     "{}",
@@ -845,10 +807,7 @@ impl<'env> fmt::Display for OperationDisplay<'env> {
                 write!(
                     f,
                     "{}::{}",
-                    func_env
-                        .module_env
-                        .get_name()
-                        .display(func_env.symbol_pool()),
+                    func_env.module_env.get_name().display(func_env.symbol_pool()),
                     func_env.get_name().display(func_env.symbol_pool()),
                 )?;
                 self.fmt_type_args(f, targs)?;
@@ -868,34 +827,18 @@ impl<'env> fmt::Display for OperationDisplay<'env> {
             }
             BorrowField(mid, sid, targs, offset) => {
                 write!(f, "borrow_field<{}>", self.struct_str(*mid, *sid, targs))?;
-                let struct_env = self
-                    .func_target
-                    .global_env()
-                    .get_module(*mid)
-                    .into_struct(*sid);
+                let struct_env = self.func_target.global_env().get_module(*mid).into_struct(*sid);
                 let field_env = struct_env.get_field_by_offset(*offset);
-                write!(
-                    f,
-                    ".{}",
-                    field_env.get_name().display(struct_env.symbol_pool())
-                )?;
+                write!(f, ".{}", field_env.get_name().display(struct_env.symbol_pool()))?;
             }
             BorrowGlobal(mid, sid, targs) => {
                 write!(f, "borrow_global<{}>", self.struct_str(*mid, *sid, targs))?;
             }
             GetField(mid, sid, targs, offset) => {
                 write!(f, "get_field<{}>", self.struct_str(*mid, *sid, targs))?;
-                let struct_env = self
-                    .func_target
-                    .global_env()
-                    .get_module(*mid)
-                    .into_struct(*sid);
+                let struct_env = self.func_target.global_env().get_module(*mid).into_struct(*sid);
                 let field_env = struct_env.get_field_by_offset(*offset);
-                write!(
-                    f,
-                    ".{}",
-                    field_env.get_name().display(struct_env.symbol_pool())
-                )?;
+                write!(f, ".{}", field_env.get_name().display(struct_env.symbol_pool()))?;
             }
             GetGlobal(mid, sid, targs) => {
                 write!(f, "get_global<{}>", self.struct_str(*mid, *sid, targs))?;
@@ -1001,11 +944,7 @@ impl<'env> fmt::Display for OperationDisplay<'env> {
             // Debugging
             TraceLocal(l) => {
                 let name = self.func_target.get_local_name(*l);
-                write!(
-                    f,
-                    "trace_local[{}]",
-                    name.display(self.func_target.symbol_pool())
-                )?
+                write!(f, "trace_local[{}]", name.display(self.func_target.symbol_pool()))?
             }
             TraceAbort => write!(f, "trace_abort")?,
             TraceReturn(r) => write!(f, "trace_return[{}]", r)?,
@@ -1057,9 +996,7 @@ impl fmt::Display for Constant {
             AddressArray(x) => write!(
                 f,
                 "{:?}",
-                x.iter()
-                    .map(|v| format!("0x{}", v.to_str_radix(16)))
-                    .collect_vec()
+                x.iter().map(|v| format!("0x{}", v.to_str_radix(16))).collect_vec()
             )?,
             Vector(x) => write!(f, "{:?}", x.iter().map(|v| format!("{}", v)).collect_vec())?,
             U16(x) => write!(f, "{}", x)?,
@@ -1081,10 +1018,7 @@ impl BorrowNode {
         &'env self,
         func_target: &'env FunctionTarget<'env>,
     ) -> BorrowNodeDisplay<'env> {
-        BorrowNodeDisplay {
-            node: self,
-            func_target,
-        }
+        BorrowNodeDisplay { node: self, func_target }
     }
 }
 
@@ -1127,10 +1061,7 @@ pub struct BorrowEdgeDisplay<'a> {
 impl<'a> std::fmt::Display for BorrowEdgeDisplay<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use BorrowEdge::*;
-        let tctx = TypeDisplayContext::WithEnv {
-            env: self.env,
-            type_param_names: None,
-        };
+        let tctx = TypeDisplayContext::WithEnv { env: self.env, type_param_names: None };
         match self.edge {
             Field(qid, field) => {
                 let struct_env = self.env.get_struct(qid.to_qualified_id());
@@ -1146,13 +1077,7 @@ impl<'a> std::fmt::Display for BorrowEdgeDisplay<'a> {
             Index(_) => write!(f, "[]"),
             Direct => write!(f, "@"),
             Hyper(es) => {
-                write!(
-                    f,
-                    "{}",
-                    es.iter()
-                        .map(|e| format!("{}", e.display(self.env)))
-                        .join("/")
-                )
+                write!(f, "{}", es.iter().map(|e| format!("{}", e.display(self.env))).join("/"))
             }
         }
     }

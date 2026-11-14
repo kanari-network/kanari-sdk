@@ -25,6 +25,15 @@ use crate::concrete::ty::{BaseType, PrimitiveType, StructInstantiation, Type};
 // Value core
 //**************************************************************************************************
 
+/// Convert a (non-negative) big integer into a fixed-width little-endian 32-byte buffer,
+/// padding with zero bytes on the high end.
+fn big_int_to_u256_bytes(v: &BigInt) -> [u8; u256::U256_NUM_BYTES] {
+    let mut buf = [0u8; u256::U256_NUM_BYTES];
+    let bytes = v.to_bytes_le().1;
+    buf[..bytes.len()].copy_from_slice(&bytes);
+    buf
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum BaseValue {
     Bool(bool),
@@ -111,12 +120,7 @@ impl BaseValue {
     }
     pub fn into_u256(self) -> u256::U256 {
         match self {
-            Self::Int(v) => u256::U256::from_le_bytes(
-                &v.to_bytes_le()
-                    .1
-                    .try_into()
-                    .unwrap_or_else(|_| panic!("Cannot convert {} to U256", v)),
-            ),
+            Self::Int(v) => u256::U256::from_le_bytes(&big_int_to_u256_bytes(&v)),
             _ => unreachable!(),
         }
     }
@@ -186,9 +190,9 @@ impl TypedValue {
                 (BaseType::Primitive(PrimitiveType::Int(_)), BaseValue::Int(_)) => true,
                 (BaseType::Primitive(PrimitiveType::Address), BaseValue::Address(_)) => true,
                 (BaseType::Primitive(PrimitiveType::Signer), BaseValue::Signer(_)) => true,
-                (BaseType::Vector(elem_ty), BaseValue::Vector(elem_vals)) => elem_vals
-                    .iter()
-                    .all(|elem_val| type_match(elem_ty, elem_val)),
+                (BaseType::Vector(elem_ty), BaseValue::Vector(elem_vals)) => {
+                    elem_vals.iter().all(|elem_val| type_match(elem_ty, elem_val))
+                }
                 (BaseType::Struct(inst), BaseValue::Struct(field_vals)) => {
                     field_vals.len() == inst.fields.len()
                         && field_vals
@@ -203,11 +207,7 @@ impl TypedValue {
         if cfg!(debug_assertions) {
             assert!(type_match(&ty, &val));
         }
-        Self {
-            ty: Type::Base(ty),
-            val,
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::Base(ty), val, ptr: Pointer::None }
     }
 
     //
@@ -215,70 +215,37 @@ impl TypedValue {
     //
 
     pub fn mk_bool(v: bool) -> Self {
-        Self {
-            ty: Type::mk_bool(),
-            val: BaseValue::mk_bool(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_bool(), val: BaseValue::mk_bool(v), ptr: Pointer::None }
     }
     pub fn mk_u8(v: u8) -> Self {
-        Self {
-            ty: Type::mk_u8(),
-            val: BaseValue::mk_u8(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_u8(), val: BaseValue::mk_u8(v), ptr: Pointer::None }
     }
 
     pub fn mk_u16(v: u16) -> Self {
-        Self {
-            ty: Type::mk_u16(),
-            val: BaseValue::mk_u16(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_u16(), val: BaseValue::mk_u16(v), ptr: Pointer::None }
     }
 
     pub fn mk_u32(v: u32) -> Self {
-        Self {
-            ty: Type::mk_u32(),
-            val: BaseValue::mk_u32(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_u32(), val: BaseValue::mk_u32(v), ptr: Pointer::None }
     }
 
     pub fn mk_u64(v: u64) -> Self {
-        Self {
-            ty: Type::mk_u64(),
-            val: BaseValue::mk_u64(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_u64(), val: BaseValue::mk_u64(v), ptr: Pointer::None }
     }
     pub fn mk_u128(v: u128) -> Self {
-        Self {
-            ty: Type::mk_u128(),
-            val: BaseValue::mk_u128(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_u128(), val: BaseValue::mk_u128(v), ptr: Pointer::None }
+    }
+    pub fn mk_u256(v: u256::U256) -> Self {
+        Self { ty: Type::mk_u256(), val: BaseValue::mk_u256(v), ptr: Pointer::None }
     }
     pub fn mk_num(v: BigInt) -> Self {
-        Self {
-            ty: Type::mk_num(),
-            val: BaseValue::mk_num(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_num(), val: BaseValue::mk_num(v), ptr: Pointer::None }
     }
     pub fn mk_address(v: AccountAddress) -> Self {
-        Self {
-            ty: Type::mk_address(),
-            val: BaseValue::mk_address(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_address(), val: BaseValue::mk_address(v), ptr: Pointer::None }
     }
     pub fn mk_signer(v: AccountAddress) -> Self {
-        Self {
-            ty: Type::mk_signer(),
-            val: BaseValue::mk_signer(v),
-            ptr: Pointer::None,
-        }
+        Self { ty: Type::mk_signer(), val: BaseValue::mk_signer(v), ptr: Pointer::None }
     }
     pub fn mk_vector(elem: BaseType, v: Vec<TypedValue>) -> Self {
         if cfg!(debug_assertions) {
@@ -307,60 +274,28 @@ impl TypedValue {
     }
 
     pub fn mk_ref_bool(v: bool, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_bool(is_mut),
-            val: BaseValue::mk_bool(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_bool(is_mut), val: BaseValue::mk_bool(v), ptr }
     }
     pub fn mk_ref_u8(v: u8, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_u8(is_mut),
-            val: BaseValue::mk_u8(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_u8(is_mut), val: BaseValue::mk_u8(v), ptr }
     }
     pub fn mk_ref_u64(v: u64, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_u64(is_mut),
-            val: BaseValue::mk_u64(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_u64(is_mut), val: BaseValue::mk_u64(v), ptr }
     }
     pub fn mk_ref_u128(v: u128, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_u128(is_mut),
-            val: BaseValue::mk_u128(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_u128(is_mut), val: BaseValue::mk_u128(v), ptr }
     }
     pub fn mk_ref_u256(v: u256::U256, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_u256(is_mut),
-            val: BaseValue::mk_u256(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_u256(is_mut), val: BaseValue::mk_u256(v), ptr }
     }
     pub fn mk_ref_num(v: BigInt, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_num(is_mut),
-            val: BaseValue::mk_num(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_num(is_mut), val: BaseValue::mk_num(v), ptr }
     }
     pub fn mk_ref_address(v: AccountAddress, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_address(is_mut),
-            val: BaseValue::mk_address(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_address(is_mut), val: BaseValue::mk_address(v), ptr }
     }
     pub fn mk_ref_signer(v: AccountAddress, is_mut: bool, ptr: Pointer) -> Self {
-        Self {
-            ty: Type::mk_ref_signer(is_mut),
-            val: BaseValue::mk_signer(v),
-            ptr,
-        }
+        Self { ty: Type::mk_ref_signer(is_mut), val: BaseValue::mk_signer(v), ptr }
     }
     pub fn mk_ref_vector(elem: BaseType, v: Vec<TypedValue>, is_mut: bool, ptr: Pointer) -> Self {
         if cfg!(debug_assertions) {
@@ -415,11 +350,29 @@ impl TypedValue {
         }
         self.val.into_u64()
     }
+    pub fn into_u16(self) -> u16 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u16());
+        }
+        self.val.into_u16()
+    }
+    pub fn into_u32(self) -> u32 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u32());
+        }
+        self.val.into_u32()
+    }
     pub fn into_u128(self) -> u128 {
         if cfg!(debug_assertions) {
             assert!(self.ty.is_u128());
         }
         self.val.into_u128()
+    }
+    pub fn into_u256(self) -> u256::U256 {
+        if cfg!(debug_assertions) {
+            assert!(self.ty.is_u256());
+        }
+        self.val.into_u256()
     }
     pub fn into_num(self) -> BigInt {
         if cfg!(debug_assertions) {
@@ -557,11 +510,7 @@ impl TypedValue {
         if cfg!(debug_assertions) {
             assert!(ty.is_compatible_for_assign(&self.ty));
         }
-        TypedValue {
-            ty,
-            val: self.val,
-            ptr: self.ptr,
-        }
+        TypedValue { ty, val: self.val, ptr: self.ptr }
     }
 
     /// Create a reference that is a direct borrow of another reference value
@@ -569,11 +518,7 @@ impl TypedValue {
         if cfg!(debug_assertions) {
             assert!(ty.is_compatible_for_assign(&self.ty));
         }
-        TypedValue {
-            ty,
-            val: self.val,
-            ptr: Pointer::RefDirect(local_idx),
-        }
+        TypedValue { ty, val: self.val, ptr: Pointer::RefDirect(local_idx) }
     }
 
     /// Create a reference to the base value
@@ -587,20 +532,12 @@ impl TypedValue {
 
     /// Read the reference and create a base value
     pub fn read_ref(self) -> TypedValue {
-        TypedValue {
-            ty: Type::Base(self.ty.into_ref_type().1),
-            val: self.val,
-            ptr: Pointer::None,
-        }
+        TypedValue { ty: Type::Base(self.ty.into_ref_type().1), val: self.val, ptr: Pointer::None }
     }
 
     /// Create a mutable reference to this base value
     pub fn write_ref(self, ptr: Pointer) -> TypedValue {
-        TypedValue {
-            ty: Type::Reference(true, self.ty.into_base_type()),
-            val: self.val,
-            ptr,
-        }
+        TypedValue { ty: Type::Reference(true, self.ty.into_base_type()), val: self.val, ptr }
     }
 
     /// Convert the mutable reference into immutable
@@ -609,11 +546,7 @@ impl TypedValue {
         if cfg!(debug_assertions) {
             assert!(is_mut);
         }
-        TypedValue {
-            ty: Type::Reference(false, base_ty),
-            val: self.val,
-            ptr: self.ptr,
-        }
+        TypedValue { ty: Type::Reference(false, base_ty), val: self.val, ptr: self.ptr }
     }
 
     /// Wrap the pointer in the mutable reference to mark that this ref is passed in as an argument
@@ -622,11 +555,7 @@ impl TypedValue {
         if cfg!(debug_assertions) {
             assert!(ty.is_ref(Some(true)));
         }
-        TypedValue {
-            ty,
-            val,
-            ptr: Pointer::ArgRef(index, Box::new(ptr)),
-        }
+        TypedValue { ty, val, ptr: Pointer::ArgRef(index, Box::new(ptr)) }
     }
 
     /// Unwrap the pointer from the mutable reference to its original pointer
@@ -639,11 +568,7 @@ impl TypedValue {
             Pointer::ArgRef(_, original_ptr) => *original_ptr,
             _ => unreachable!(),
         };
-        TypedValue {
-            ty,
-            val,
-            ptr: unboxed_ptr,
-        }
+        TypedValue { ty, val, ptr: unboxed_ptr }
     }
 
     /// Wrap the pointer in the mutable reference to mark that this ref is passed out as a return
@@ -676,11 +601,7 @@ impl TypedValue {
         let mut trace = vec![];
         follow_return_pointers_recursive(&ptr, ptrs, &mut trace);
         let boxed_ptr = Pointer::RetRef(trace);
-        TypedValue {
-            ty,
-            val,
-            ptr: boxed_ptr,
-        }
+        TypedValue { ty, val, ptr: boxed_ptr }
     }
 
     /// Unwrap the pointer from the mutable reference to its original pointer
@@ -702,11 +623,7 @@ impl TypedValue {
             }
             _ => unreachable!(),
         };
-        TypedValue {
-            ty,
-            val,
-            ptr: unboxed_ptr,
-        }
+        TypedValue { ty, val, ptr: unboxed_ptr }
     }
 
     /// update the reference directly
@@ -717,11 +634,7 @@ impl TypedValue {
             assert!(old_ty.is_ref(Some(true)));
             assert_eq!(old_ty, new_ty);
         }
-        TypedValue {
-            ty: old_ty,
-            val: new_val,
-            ptr: old_ptr,
-        }
+        TypedValue { ty: old_ty, val: new_val, ptr: old_ptr }
     }
 
     /// Retrieve an element from a vector at the given index. Return None of index out-of-bounds.
@@ -736,11 +649,7 @@ impl TypedValue {
             }
             _ => unreachable!(),
         };
-        Some(TypedValue {
-            ty: Type::Base(elem_ty),
-            val,
-            ptr: Pointer::None,
-        })
+        Some(TypedValue { ty: Type::Base(elem_ty), val, ptr: Pointer::None })
     }
 
     /// Borrow an element from a vector at the given index. Return None of index out-of-bounds.
@@ -822,11 +731,7 @@ impl TypedValue {
             return None;
         }
         elems.swap(lhs, rhs);
-        let new_vec = TypedValue {
-            ty: vec_ty,
-            val: BaseValue::mk_vector(elems),
-            ptr: vec_ptr,
-        };
+        let new_vec = TypedValue { ty: vec_ty, val: BaseValue::mk_vector(elems), ptr: vec_ptr };
         Some(new_vec)
     }
 
@@ -871,29 +776,17 @@ impl TypedValue {
             BaseValue::Struct(mut v) => v.remove(field_num),
             _ => unreachable!(),
         };
-        TypedValue {
-            ty: Type::Base(field.ty),
-            val,
-            ptr: Pointer::None,
-        }
+        TypedValue { ty: Type::Base(field.ty), val, ptr: Pointer::None }
     }
 
     /// Unpack one specific field from a struct reference
     pub fn unpack_ref_struct_field(self, field_num: usize, is_mut_opt: Option<bool>) -> TypedValue {
-        let field = self
-            .ty
-            .into_ref_struct_inst(is_mut_opt)
-            .fields
-            .remove(field_num);
+        let field = self.ty.into_ref_struct_inst(is_mut_opt).fields.remove(field_num);
         let val = match self.val {
             BaseValue::Struct(mut v) => v.remove(field_num),
             _ => unreachable!(),
         };
-        TypedValue {
-            ty: Type::Base(field.ty),
-            val,
-            ptr: Pointer::None,
-        }
+        TypedValue { ty: Type::Base(field.ty), val, ptr: Pointer::None }
     }
 
     /// Borrow one specific field from a struct reference
@@ -942,13 +835,19 @@ impl TypedValue {
             BaseValue::Int(v) => {
                 if self.ty.is_u8() {
                     MoveValue::U8(v.to_u8().unwrap())
+                } else if self.ty.is_u16() {
+                    MoveValue::U16(v.to_u16().unwrap())
+                } else if self.ty.is_u32() {
+                    MoveValue::U32(v.to_u32().unwrap())
                 } else if self.ty.is_u64() {
                     MoveValue::U64(v.to_u64().unwrap())
+                } else if self.ty.is_u128() {
+                    MoveValue::U128(v.to_u128().unwrap())
                 } else {
                     if cfg!(debug_assertions) {
-                        assert!(self.ty.is_u128());
+                        assert!(self.ty.is_u256());
                     }
-                    MoveValue::U128(v.to_u128().unwrap())
+                    MoveValue::U256(u256::U256::from_le_bytes(&big_int_to_u256_bytes(&v)))
                 }
             }
             BaseValue::Address(v) => MoveValue::Address(v),
@@ -1008,21 +907,11 @@ impl LocalSlot {
     /// Create a local slot that holds a function argument
     pub fn new_arg(name: String, val: TypedValue) -> Self {
         let (ty, val, ptr) = val.decompose();
-        LocalSlot {
-            name,
-            ty,
-            is_arg: true,
-            content: Some((val, ptr)),
-        }
+        LocalSlot { name, ty, is_arg: true, content: Some((val, ptr)) }
     }
     /// Create a local slot that holds a function temporary
     pub fn new_tmp(name: String, ty: Type) -> Self {
-        LocalSlot {
-            name,
-            ty,
-            is_arg: false,
-            content: None,
-        }
+        LocalSlot { name, ty, is_arg: false, content: None }
     }
 
     /// Get the type of this local slot
@@ -1037,11 +926,7 @@ impl LocalSlot {
     /// Get the value held in this local slot. Panics if the slot does not hold a value
     pub fn get_value(&self) -> TypedValue {
         let (val, ptr) = self.content.as_ref().unwrap();
-        TypedValue {
-            ty: self.ty.clone(),
-            val: val.clone(),
-            ptr: ptr.clone(),
-        }
+        TypedValue { ty: self.ty.clone(), val: val.clone(), ptr: ptr.clone() }
     }
     /// Put the value held in this local slot. Override if the slot already holds a value
     pub fn put_value_override(&mut self, val: TypedValue) {
@@ -1061,11 +946,7 @@ impl LocalSlot {
     /// Delete the value held in this local slot. Panics if the slot does not hold a value
     pub fn del_value(&mut self) -> TypedValue {
         let (val, ptr) = self.content.take().unwrap();
-        TypedValue {
-            ty: self.ty.clone(),
-            val,
-            ptr,
-        }
+        TypedValue { ty: self.ty.clone(), val, ptr }
     }
 
     /// Get the content of the slot, if any, return None of the slot does not currently hold a value
@@ -1126,11 +1007,7 @@ impl GlobalState {
                     None => Type::mk_struct(key),
                     Some(is_mut) => Type::mk_ref_struct(key, is_mut),
                 };
-                TypedValue {
-                    ty,
-                    val,
-                    ptr: Pointer::Global(addr),
-                }
+                TypedValue { ty, val, ptr: Pointer::Global(addr) }
             })
         })
     }
@@ -1178,18 +1055,12 @@ impl GlobalState {
             .entry(addr)
             .or_default()
             .put_resource(&key, object.val)
-            .map(|val| TypedValue {
-                ty: Type::mk_struct(key),
-                val,
-                ptr: Pointer::None,
-            })
+            .map(|val| TypedValue { ty: Type::mk_struct(key), val, ptr: Pointer::None })
     }
 
     /// Check whether the address has a resource
     pub fn has_resource(&self, addr: &AccountAddress, key: &StructInstantiation) -> bool {
-        self.accounts
-            .get(addr)
-            .is_some_and(|account| account.has_resource(key))
+        self.accounts.get(addr).is_some_and(|account| account.has_resource(key))
     }
 
     /// Emit an event to the event store

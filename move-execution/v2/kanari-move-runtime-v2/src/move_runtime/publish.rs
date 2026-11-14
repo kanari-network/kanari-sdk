@@ -116,10 +116,7 @@ impl MoveRuntime {
         // The caller provides these context fields for API compatibility. The
         // bytecode publish path has no TxContext and must not fabricate them;
         // they are forwarded to a module `init` when one runs at publish.
-        let publish_guard = self
-            .module_publish_lock
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
         self.verify_module_publish_safety(
@@ -159,10 +156,7 @@ impl MoveRuntime {
                 )?;
             }
 
-            let result = session
-                .finish()
-                .0
-                .require("Failed to finish publish session")?;
+            let result = session.finish().0.require("Failed to finish publish session")?;
             (result.0, result.1, metered_gas.gas_used())
         };
 
@@ -234,10 +228,7 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // Package publishing shares the same context rule as single modules.
-        let publish_guard = self
-            .module_publish_lock
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
 
         // Deserialize the whole package before verifying any of it: a module
         // may depend on a sibling that is published by this same transaction,
@@ -323,10 +314,7 @@ impl MoveRuntime {
                 }
             }
 
-            let result = session
-                .finish()
-                .0
-                .require("Failed to finish publish package session")?;
+            let result = session.finish().0.require("Failed to finish publish package session")?;
             (result.0, result.1, metered_gas.gas_used())
         };
 
@@ -428,9 +416,8 @@ impl MoveRuntime {
         use move_core_types::language_storage::TypeTag;
 
         let ident = IdentStr::new("init").require("Invalid init function name")?;
-        let func = session
-            .load_function(module_id, ident, &[])
-            .require("Failed to load init function")?;
+        let func =
+            session.load_function(module_id, ident, &[]).require("Failed to load init function")?;
 
         // Build args: one empty slot per non-context parameter (the entry
         // machinery synthesizes one-time-witness bytes into empty slots),
@@ -554,10 +541,8 @@ impl MoveRuntime {
         modules: Vec<(ModuleId, CompiledModule, Vec<u8>)>,
     ) -> Result<Vec<(ModuleId, CompiledModule, Vec<u8>)>> {
         let module_count = modules.len();
-        let package_ids: HashSet<ModuleId> = modules
-            .iter()
-            .map(|(module_id, _, _)| module_id.clone())
-            .collect();
+        let package_ids: HashSet<ModuleId> =
+            modules.iter().map(|(module_id, _, _)| module_id.clone()).collect();
 
         // Edge direction: dependency -> dependent, so a module is published
         // once every sibling it depends on has been published.
@@ -573,9 +558,8 @@ impl MoveRuntime {
             }
         }
 
-        let mut ready: Vec<usize> = (0..module_count)
-            .filter(|index| pending_dependencies[*index] == 0)
-            .collect();
+        let mut ready: Vec<usize> =
+            (0..module_count).filter(|index| pending_dependencies[*index] == 0).collect();
         let mut order: Vec<usize> = Vec::with_capacity(module_count);
         while let Some(index) = ready.pop() {
             let (module_id, _, _) = &modules[index];
@@ -598,9 +582,7 @@ impl MoveRuntime {
             modules.into_iter().map(Some).collect();
         let mut ordered = Vec::with_capacity(module_count);
         for index in order {
-            let module = slots[index]
-                .take()
-                .expect("each package module is ordered exactly once");
+            let module = slots[index].take().expect("each package module is ordered exactly once");
             ordered.push(module);
         }
         Ok(ordered)

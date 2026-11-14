@@ -49,9 +49,7 @@ pub fn verify_signature_k256(
         .map_err(|_| SignatureError::InvalidFormat("Invalid signature format".to_string()))?;
 
     // Enforce low-S to prevent malleability
-    if bool::from(k256::elliptic_curve::scalar::IsHigh::is_high(
-        &signature.s(),
-    )) {
+    if bool::from(k256::elliptic_curve::scalar::IsHigh::is_high(&signature.s())) {
         return Err(SignatureError::InvalidFormat(
             "High S value - malleable signature".to_string(),
         ));
@@ -67,9 +65,7 @@ pub fn verify_signature_k256(
     let decoded_hex = match hex::decode(raw_key) {
         Ok(v) => v,
         Err(_) => {
-            return Err(SignatureError::InvalidPublicKey(
-                "Invalid address format".to_string(),
-            ));
+            return Err(SignatureError::InvalidPublicKey("Invalid address format".to_string()));
         }
     };
 
@@ -97,9 +93,7 @@ pub fn verify_signature_k256(
             }
         } else {
             // If 33 bytes but no prefix, treat as invalid
-            return Err(SignatureError::InvalidPublicKey(
-                "Invalid address format".to_string(),
-            ));
+            return Err(SignatureError::InvalidPublicKey("Invalid address format".to_string()));
         }
     }
 
@@ -171,9 +165,7 @@ pub fn sign_message_k256(private_key_hex: &str, message: &[u8]) -> Result<Vec<u8
 
     // Sign the hashed message and enforce low-S (BIP-0062) to prevent malleability
     let mut signature: K256Signature = signing_key.sign(&message_hash);
-    if bool::from(k256::elliptic_curve::scalar::IsHigh::is_high(
-        &signature.s(),
-    )) {
+    if bool::from(k256::elliptic_curve::scalar::IsHigh::is_high(&signature.s())) {
         let r_bytes = signature.r().to_bytes();
         let s_low = (-signature.s()).to_bytes();
         signature = K256Signature::from_scalars(r_bytes, s_low)

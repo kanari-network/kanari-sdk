@@ -21,10 +21,7 @@ fn package_hash_skips_non_move_files() {
     .unwrap();
 
     let dummy_path = path.join("deps_only/other_dep/sources/dummy_text");
-    std::fs::File::create(&dummy_path)
-        .unwrap()
-        .write_all("hello".as_bytes())
-        .unwrap();
+    std::fs::File::create(&dummy_path).unwrap().write_all("hello".as_bytes()).unwrap();
 
     let pkg2 = BuildConfig {
         install_dir: Some(tempdir().unwrap().path().to_path_buf()),

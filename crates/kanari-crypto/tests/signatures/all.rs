@@ -75,16 +75,8 @@ mod tests {
         // append some bytes to represent pqc part
         sig.extend_from_slice(&[0u8; 16]);
 
-        let classical_pub = keypair
-            .public_key
-            .split(':')
-            .next()
-            .unwrap_or(&keypair.public_key);
-        let addr = format!(
-            "{}:{}",
-            classical_pub,
-            keypair.get_pqc_public_key().unwrap()
-        );
+        let classical_pub = keypair.public_key.split(':').next().unwrap_or(&keypair.public_key);
+        let addr = format!("{}:{}", classical_pub, keypair.get_pqc_public_key().unwrap());
         let res =
             verify_signature_with_curve(&addr, message, &sig, CurveType::K256Dilithium3).unwrap();
         // should return false due to oversized classical length (defensive check)
@@ -99,16 +91,8 @@ mod tests {
         // Sign and verify roundtrip
         let signature =
             sign_message(&keypair.private_key, message, CurveType::Ed25519Dilithium3).unwrap();
-        let classical_pub = keypair
-            .public_key
-            .split(':')
-            .next()
-            .unwrap_or(&keypair.public_key);
-        let addr = format!(
-            "{}:{}",
-            classical_pub,
-            keypair.get_pqc_public_key().unwrap()
-        );
+        let classical_pub = keypair.public_key.split(':').next().unwrap_or(&keypair.public_key);
+        let addr = format!("{}:{}", classical_pub, keypair.get_pqc_public_key().unwrap());
         assert!(
             verify_signature_with_curve(&addr, message, &signature, CurveType::Ed25519Dilithium3)
                 .unwrap()
@@ -145,10 +129,7 @@ mod tests {
         secure_clear(&mut sensitive);
 
         // Verify all bytes are zero
-        assert!(
-            sensitive.iter().all(|&b| b == 0),
-            "All bytes should be zero after secure_clear"
-        );
+        assert!(sensitive.iter().all(|&b| b == 0), "All bytes should be zero after secure_clear");
     }
 
     #[test]
@@ -307,10 +288,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            !verified,
-            "Signature should not verify with different address"
-        );
+        assert!(!verified, "Signature should not verify with different address");
     }
 
     #[test]
@@ -340,10 +318,7 @@ mod tests {
         );
 
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SignatureError::InvalidSignatureLength
-        ));
+        assert!(matches!(result.unwrap_err(), SignatureError::InvalidSignatureLength));
     }
 
     #[test]
@@ -373,10 +348,7 @@ mod tests {
     fn test_sign_with_invalid_private_key() {
         let result = sign_message("invalid_hex", b"message", CurveType::K256);
         assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            SignatureError::InvalidPrivateKey(_)
-        ));
+        assert!(matches!(result.unwrap_err(), SignatureError::InvalidPrivateKey(_)));
     }
 
     #[test]
@@ -424,12 +396,9 @@ mod tests {
         let message = b"Hello, SLH-DSA/SphincsPlusSha256Robust!";
 
         assert!(keypair.private_key.starts_with("kanaslh"));
-        let signature = sign_message(
-            &keypair.private_key,
-            message,
-            CurveType::SphincsPlusSha256Robust,
-        )
-        .unwrap();
+        let signature =
+            sign_message(&keypair.private_key, message, CurveType::SphincsPlusSha256Robust)
+                .unwrap();
         let verified = verify_signature_with_curve(
             &keypair.public_key,
             message,
@@ -467,10 +436,7 @@ mod tests {
             let verified =
                 verify_signature_with_curve(&keypair.public_key, message, &signature, curve)
                     .unwrap_or(false);
-            assert!(
-                !verified,
-                "truncated signature unexpectedly verified for {curve:?}"
-            );
+            assert!(!verified, "truncated signature unexpectedly verified for {curve:?}");
         }
     }
 
@@ -532,11 +498,7 @@ mod tests {
         for size in [0, 1, 16, 32, 64, 128, 256, 1024] {
             let mut data = vec![0xAA; size];
             secure_clear(&mut data);
-            assert!(
-                data.iter().all(|&b| b == 0),
-                "Size {} should be fully cleared",
-                size
-            );
+            assert!(data.iter().all(|&b| b == 0), "Size {} should be fully cleared", size);
         }
     }
 
@@ -597,10 +559,7 @@ mod tests {
             CurveType::Ed25519Dilithium3,
         )
         .unwrap();
-        assert!(
-            verified,
-            "Hybrid Ed25519+Dilithium3 signature should verify"
-        );
+        assert!(verified, "Hybrid Ed25519+Dilithium3 signature should verify");
     }
 
     #[test]
@@ -657,10 +616,7 @@ mod tests {
 
         // Untagged address should fail
         let untagged_result = verify_signature(&keypair.address, message, &signature);
-        assert!(
-            untagged_result.is_err(),
-            "Verification should fail with untagged address"
-        );
+        assert!(untagged_result.is_err(), "Verification should fail with untagged address");
     }
 
     #[test]
@@ -676,10 +632,7 @@ mod tests {
         let tagged_addr = keypair.tagged_address();
         let result = verify_signature(&tagged_addr, message2, &signature).unwrap();
 
-        assert!(
-            !result,
-            "Verification should reject wrong message with tagged address"
-        );
+        assert!(!result, "Verification should reject wrong message with tagged address");
     }
 
     // ============================================================================
@@ -706,17 +659,10 @@ mod tests {
         )
         .expect("Ed25519 verification should succeed");
 
-        assert!(
-            verified,
-            "✅ Ed25519 signature verified successfully (RFC-8032 compliant)"
-        );
+        assert!(verified, "✅ Ed25519 signature verified successfully (RFC-8032 compliant)");
 
         // Verify signature length is standard 64 bytes
-        assert_eq!(
-            signature.len(),
-            64,
-            "Ed25519 signature MUST be exactly 64 bytes per RFC-8032"
-        );
+        assert_eq!(signature.len(), 64, "Ed25519 signature MUST be exactly 64 bytes per RFC-8032");
 
         // Verify the signature fails for different message (proves no external hashing)
         let wrong_message = b"Different message";
@@ -746,10 +692,7 @@ mod tests {
         let sig2 = sign_message(&keypair.private_key, message, CurveType::Ed25519)
             .expect("Second signing should succeed");
 
-        assert_eq!(
-            sig1, sig2,
-            "✅ Ed25519 signatures are deterministic per RFC-8032"
-        );
+        assert_eq!(sig1, sig2, "✅ Ed25519 signatures are deterministic per RFC-8032");
     }
 
     #[test]
@@ -769,10 +712,7 @@ mod tests {
         // Ed25519: RFC-8032 (direct sign) = 64 bytes
         // K256: ECDSA with SHA3-256 = variable DER format (typically 70-72 bytes)
         assert_eq!(ed_sig.len(), 64, "Ed25519 signature is always 64 bytes");
-        assert!(
-            k256_sig.len() > 64,
-            "K256 DER signature is larger than 64 bytes"
-        );
+        assert!(k256_sig.len() > 64, "K256 DER signature is larger than 64 bytes");
     }
 
     #[test]
@@ -782,12 +722,9 @@ mod tests {
             generate_keypair(CurveType::Ed25519Dilithium3).expect("Hybrid keypair generation");
 
         let message = b"Hybrid RFC-8032 Test";
-        let signature = sign_message(
-            &hybrid_keypair.private_key,
-            message,
-            CurveType::Ed25519Dilithium3,
-        )
-        .expect("Hybrid signing");
+        let signature =
+            sign_message(&hybrid_keypair.private_key, message, CurveType::Ed25519Dilithium3)
+                .expect("Hybrid signing");
 
         let verified = verify_signature_with_curve(
             &hybrid_keypair.public_key,
@@ -797,21 +734,12 @@ mod tests {
         )
         .expect("Hybrid verification");
 
-        assert!(
-            verified,
-            "✅ Hybrid Ed25519+Dilithium3 verifies (uses RFC-8032)"
-        );
+        assert!(verified, "✅ Hybrid Ed25519+Dilithium3 verifies (uses RFC-8032)");
 
         // Hybrid signature format: [2-byte len] || classical_sig || pqc_sig
         // First 2 bytes = Ed25519 signature length (always 64 for RFC-8032)
-        assert!(
-            signature.len() > 64,
-            "Hybrid signature must be larger than Ed25519 alone"
-        );
+        assert!(signature.len() > 64, "Hybrid signature must be larger than Ed25519 alone");
         let classical_len = u16::from_be_bytes([signature[0], signature[1]]) as usize;
-        assert_eq!(
-            classical_len, 64,
-            "✅ Hybrid Ed25519 component is 64 bytes (RFC-8032)"
-        );
+        assert_eq!(classical_len, 64, "✅ Hybrid Ed25519 component is 64 bytes (RFC-8032)");
     }
 }

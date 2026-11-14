@@ -173,10 +173,7 @@ pub fn last_usage(
     context: &super::CFGContext,
     cfg: &mut MutForwardCFG,
 ) {
-    let super::CFGContext {
-        infinite_loop_starts,
-        ..
-    } = context;
+    let super::CFGContext { infinite_loop_starts, .. } = context;
     let (final_invariants, per_command_states) = analyze(cfg, infinite_loop_starts);
     for (lbl, block) in cfg.blocks_mut() {
         let final_invariant = final_invariants
@@ -213,11 +210,7 @@ mod last_usage {
             next_live: &'b BTreeSet<Var>,
             dropped_live: BTreeSet<Var>,
         ) -> Self {
-            Context {
-                env,
-                next_live,
-                dropped_live,
-            }
+            Context { env, next_live, dropped_live }
         }
     }
 
@@ -229,10 +222,7 @@ mod last_usage {
     ) {
         let len = block.len();
         let last_cmd = block.get(len - 1).unwrap();
-        assert!(
-            last_cmd.value.is_terminal(),
-            "ICE malformed block. missing jump"
-        );
+        assert!(last_cmd.value.is_terminal(), "ICE malformed block. missing jump");
         for idx in 0..len {
             let cmd = block.get_mut(idx).unwrap();
             let cur_data = &command_states.get(idx).unwrap().0;
@@ -241,14 +231,8 @@ mod last_usage {
                 None => &final_invariant.0,
             };
 
-            let dropped_live = cur_data
-                .difference(next_data)
-                .cloned()
-                .collect::<BTreeSet<_>>();
-            command(
-                &mut Context::new(compilation_env, next_data, dropped_live),
-                cmd,
-            )
+            let dropped_live = cur_data.difference(next_data).cloned().collect::<BTreeSet<_>>();
+            command(&mut Context::new(compilation_env, next_data, dropped_live), cmd)
         }
     }
 
@@ -283,11 +267,7 @@ mod last_usage {
         use LValue_ as L;
         match &mut l.value {
             L::Ignore => (),
-            L::Var {
-                var: v,
-                unused_assignment,
-                ..
-            } => {
+            L::Var { var: v, unused_assignment, .. } => {
                 context.dropped_live.insert(*v);
                 if !*unused_assignment && !context.next_live.contains(v) {
                     match display_var(v.value()) {
@@ -299,9 +279,7 @@ mod last_usage {
                                      removing, replacing with '_', or prefixing with '_' (e.g., \
                                      '_{vstr}')",
                                 );
-                                context
-                                    .env
-                                    .add_diag(diag!(UnusedItem::Assignment, (l.loc, msg)));
+                                context.env.add_diag(diag!(UnusedItem::Assignment, (l.loc, msg)));
                             }
                             *unused_assignment = true;
                         }
@@ -337,18 +315,14 @@ mod last_usage {
                 // Non-references might still be borrowed, but that error will be caught in borrow
                 // checking with a specific tip/message
                 if var_is_dead && !*from_user {
-                    parent_e.exp.value = E::Move {
-                        var: *var,
-                        annotation: MoveOpAnnotation::InferredLastUsage,
-                    }
+                    parent_e.exp.value =
+                        E::Move { var: *var, annotation: MoveOpAnnotation::InferredLastUsage }
                 }
             }
 
-            E::ModuleCall(mcall) => mcall
-                .arguments
-                .iter_mut()
-                .rev()
-                .for_each(|arg| exp(context, arg)),
+            E::ModuleCall(mcall) => {
+                mcall.arguments.iter_mut().rev().for_each(|arg| exp(context, arg))
+            }
             E::Vector(_, _, _, args) => args.iter_mut().rev().for_each(|arg| exp(context, arg)),
             E::Freeze(e)
             | E::Dereference(e)
@@ -362,15 +336,11 @@ mod last_usage {
                 exp(context, e1)
             }
 
-            E::Pack(_, _, fields) => fields
-                .iter_mut()
-                .rev()
-                .for_each(|(_, _, e)| exp(context, e)),
+            E::Pack(_, _, fields) => fields.iter_mut().rev().for_each(|(_, _, e)| exp(context, e)),
 
-            E::PackVariant(_, _, _, fields) => fields
-                .iter_mut()
-                .rev()
-                .for_each(|(_, _, e)| exp(context, e)),
+            E::PackVariant(_, _, _, fields) => {
+                fields.iter_mut().rev().for_each(|(_, _, e)| exp(context, e))
+            }
 
             E::Multiple(es) => es.iter_mut().rev().for_each(|e| exp(context, e)),
 
@@ -405,11 +375,7 @@ pub fn release_dead_refs(
     locals_pre_states: &BTreeMap<Label, locals::state::LocalStates>,
     cfg: &mut MutForwardCFG,
 ) {
-    let super::CFGContext {
-        locals,
-        infinite_loop_starts,
-        ..
-    } = context;
+    let super::CFGContext { locals, infinite_loop_starts, .. } = context;
     let (liveness_pre_states, _per_command_states) = analyze(cfg, infinite_loop_starts);
     let forward_intersections = build_forward_intersections(cfg, &liveness_pre_states);
     for (lbl, block) in cfg.blocks_mut() {
@@ -433,10 +399,8 @@ fn build_forward_intersections(
     cfg.blocks()
         .keys()
         .map(|lbl| {
-            let mut states = cfg
-                .predecessors(*lbl)
-                .iter()
-                .map(|pred| &final_invariants.get(pred).unwrap().0);
+            let mut states =
+                cfg.predecessors(*lbl).iter().map(|pred| &final_invariants.get(pred).unwrap().0);
             let intersection = states
                 .next()
                 .map(|init| states.fold(init.clone(), |acc, s| &acc & s))
@@ -487,14 +451,8 @@ fn is_ref((_local, (_, sp!(_, local_ty_))): &(&Var, &(Mutability, SingleType))) 
 fn pop_ref(loc: Loc, var: Var, ty: SingleType) -> Command {
     use Command_ as C;
     use UnannotatedExp_ as E;
-    let move_e_ = E::Move {
-        annotation: MoveOpAnnotation::InferredLastUsage,
-        var,
-    };
+    let move_e_ = E::Move { annotation: MoveOpAnnotation::InferredLastUsage, var };
     let move_e = H::exp(Type_::single(ty), sp(loc, move_e_));
-    let pop_ = C::IgnoreAndPop {
-        pop_num: 1,
-        exp: move_e,
-    };
+    let pop_ = C::IgnoreAndPop { pop_num: 1, exp: move_e };
     sp(loc, pop_)
 }

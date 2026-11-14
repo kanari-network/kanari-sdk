@@ -160,10 +160,7 @@ impl super::MoveRuntime {
                     .collect();
             claimed.extend(claimed_witnesses);
             let rendered: Vec<String> = claimed.into_iter().collect();
-            cs.record_move_write(
-                CLAIMED_WITNESSES_KEY.to_vec(),
-                Some(bcs::to_bytes(&rendered)?),
-            );
+            cs.record_move_write(CLAIMED_WITNESSES_KEY.to_vec(), Some(bcs::to_bytes(&rendered)?));
         }
 
         // Apply each parent's ops in call order over its durable base, then
@@ -178,9 +175,8 @@ impl super::MoveRuntime {
             let key = children_key(&parent);
             let mut links: ChildLinks =
                 load_metadata::<ChildLinks>(&store, overlay, &key)?.unwrap_or_default();
-            for (_, name, child) in child_links
-                .iter()
-                .filter(|(op_parent, _, _)| op_parent == &parent)
+            for (_, name, child) in
+                child_links.iter().filter(|(op_parent, _, _)| op_parent == &parent)
             {
                 links.retain(|(existing, _)| existing != name);
                 if let Some(child) = child {
@@ -291,9 +287,7 @@ impl super::MoveRuntime {
         sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
-        let loaded = session
-            .get_native_extensions()
-            .get_mut::<LoadedObjectsExt>();
+        let loaded = session.get_native_extensions().get_mut::<LoadedObjectsExt>();
 
         // Runs first, on the freshly created session, so declared object
         // inputs always take precedence over the raw-address and well-known
@@ -325,9 +319,7 @@ impl super::MoveRuntime {
         sender: Option<AccountAddress>,
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
-        let loaded = session
-            .get_native_extensions()
-            .get_mut::<LoadedObjectsExt>();
+        let loaded = session.get_native_extensions().get_mut::<LoadedObjectsExt>();
         for arg in args {
             if arg.is_empty() || arg.len() > 32 {
                 continue;
@@ -408,20 +400,11 @@ impl super::MoveRuntime {
         overlay: Option<&BTreeMap<Vec<u8>, Option<Vec<u8>>>>,
     ) -> anyhow::Result<()> {
         let object_id = Self::deny_list_singleton_full_id();
-        let loaded = session
-            .get_native_extensions()
-            .get_mut::<LoadedObjectsExt>();
+        let loaded = session.get_native_extensions().get_mut::<LoadedObjectsExt>();
         if loaded.get(&object_id).is_some() {
             return Ok(());
         }
-        self.preload_object_entry(
-            loaded,
-            &object_id,
-            false,
-            None,
-            overlay,
-            "well-known singleton",
-        )
+        self.preload_object_entry(loaded, &object_id, false, None, overlay, "well-known singleton")
     }
 
     /// Check if struct tag represents a treasury resource

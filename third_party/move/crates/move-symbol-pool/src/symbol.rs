@@ -181,11 +181,7 @@ impl fmt::Debug for Symbol {
 
 impl Ord for Symbol {
     fn cmp(&self, other: &Symbol) -> Ordering {
-        if self.0 == other.0 {
-            Ordering::Equal
-        } else {
-            self.as_str().cmp(other.as_str())
-        }
+        if self.0 == other.0 { Ordering::Equal } else { self.as_str().cmp(other.as_str()) }
     }
 }
 
@@ -327,11 +323,7 @@ mod tests {
         for n in 0..=s.len() {
             let sym = Symbol::from(&s[..n]);
             assert_eq!(sym.len(), n);
-            let expected_tag = if n <= MAX_INLINE_LEN {
-                Tag::Inlined
-            } else {
-                Tag::Dynamic
-            };
+            let expected_tag = if n <= MAX_INLINE_LEN { Tag::Inlined } else { Tag::Dynamic };
             assert_eq!(sym.tag(), expected_tag)
         }
     }

@@ -68,10 +68,7 @@ impl TUIInterface for DebugInterface {
     }
 
     fn bound_line(&self, line_number: u16) -> u16 {
-        std::cmp::min(
-            line_number,
-            (self.text.len().checked_sub(1).unwrap()) as u16,
-        )
+        std::cmp::min(line_number, (self.text.len().checked_sub(1).unwrap()) as u16)
     }
 
     fn bound_column(&self, line_number: u16, column_number: u16) -> u16 {

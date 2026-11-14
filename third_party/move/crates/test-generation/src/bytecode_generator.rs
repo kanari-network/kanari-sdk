@@ -147,12 +147,7 @@ impl FunctionGenerationContext {
         locals_len: usize,
         bytecode_len: u64,
     ) -> Self {
-        Self {
-            function_handle_index,
-            starting_call_height,
-            locals_len,
-            bytecode_len,
-        }
+        Self { function_handle_index, starting_call_height, locals_len, bytecode_len }
     }
 
     pub fn incr_instruction_count(&mut self) -> Option<()> {
@@ -192,29 +187,14 @@ impl<'a> BytecodeGenerator<'a> {
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::CastU64)),
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::CastU128)),
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::CastU256)),
-            (
-                StackEffect::Add,
-                BytecodeType::ConstantPoolIndex(Bytecode::LdConst),
-            ),
+            (StackEffect::Add, BytecodeType::ConstantPoolIndex(Bytecode::LdConst)),
             (StackEffect::Add, BytecodeType::NoArg(Bytecode::LdTrue)),
             (StackEffect::Add, BytecodeType::NoArg(Bytecode::LdFalse)),
-            (
-                StackEffect::Add,
-                BytecodeType::LocalIndex(Bytecode::CopyLoc),
-            ),
-            (
-                StackEffect::Add,
-                BytecodeType::LocalIndex(Bytecode::MoveLoc),
-            ),
+            (StackEffect::Add, BytecodeType::LocalIndex(Bytecode::CopyLoc)),
+            (StackEffect::Add, BytecodeType::LocalIndex(Bytecode::MoveLoc)),
             (StackEffect::Sub, BytecodeType::LocalIndex(Bytecode::StLoc)),
-            (
-                StackEffect::Add,
-                BytecodeType::LocalIndex(Bytecode::MutBorrowLoc),
-            ),
-            (
-                StackEffect::Add,
-                BytecodeType::LocalIndex(Bytecode::ImmBorrowLoc),
-            ),
+            (StackEffect::Add, BytecodeType::LocalIndex(Bytecode::MutBorrowLoc)),
+            (StackEffect::Add, BytecodeType::LocalIndex(Bytecode::ImmBorrowLoc)),
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::ReadRef)),
             (StackEffect::Sub, BytecodeType::NoArg(Bytecode::WriteRef)),
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::FreezeRef)),
@@ -236,48 +216,24 @@ impl<'a> BytecodeGenerator<'a> {
             (StackEffect::Sub, BytecodeType::NoArg(Bytecode::Le)),
             (StackEffect::Sub, BytecodeType::NoArg(Bytecode::Ge)),
             (StackEffect::Nop, BytecodeType::StructIndex(Bytecode::Pack)),
-            (
-                StackEffect::Nop,
-                BytecodeType::StructInstantiationIndex(Bytecode::PackGeneric),
-            ),
-            (
-                StackEffect::Nop,
-                BytecodeType::StructIndex(Bytecode::Unpack),
-            ),
-            (
-                StackEffect::Nop,
-                BytecodeType::StructInstantiationIndex(Bytecode::UnpackGeneric),
-            ),
-            (
-                StackEffect::Nop,
-                BytecodeType::FieldHandleIndex(Bytecode::MutBorrowField),
-            ),
+            (StackEffect::Nop, BytecodeType::StructInstantiationIndex(Bytecode::PackGeneric)),
+            (StackEffect::Nop, BytecodeType::StructIndex(Bytecode::Unpack)),
+            (StackEffect::Nop, BytecodeType::StructInstantiationIndex(Bytecode::UnpackGeneric)),
+            (StackEffect::Nop, BytecodeType::FieldHandleIndex(Bytecode::MutBorrowField)),
             (
                 StackEffect::Nop,
                 BytecodeType::FieldInstantiationIndex(Bytecode::MutBorrowFieldGeneric),
             ),
-            (
-                StackEffect::Nop,
-                BytecodeType::FieldHandleIndex(Bytecode::ImmBorrowField),
-            ),
+            (StackEffect::Nop, BytecodeType::FieldHandleIndex(Bytecode::ImmBorrowField)),
             (
                 StackEffect::Nop,
                 BytecodeType::FieldInstantiationIndex(Bytecode::ImmBorrowFieldGeneric),
             ),
-            (
-                StackEffect::Nop,
-                BytecodeType::FunctionIndex(Bytecode::Call),
-            ),
-            (
-                StackEffect::Nop,
-                BytecodeType::FunctionInstantiationIndex(Bytecode::CallGeneric),
-            ),
+            (StackEffect::Nop, BytecodeType::FunctionIndex(Bytecode::Call)),
+            (StackEffect::Nop, BytecodeType::FunctionInstantiationIndex(Bytecode::CallGeneric)),
             (StackEffect::Nop, BytecodeType::CodeOffset(Bytecode::Branch)),
             (StackEffect::Sub, BytecodeType::CodeOffset(Bytecode::BrTrue)),
-            (
-                StackEffect::Sub,
-                BytecodeType::CodeOffset(Bytecode::BrFalse),
-            ),
+            (StackEffect::Sub, BytecodeType::CodeOffset(Bytecode::BrFalse)),
             (StackEffect::Sub, BytecodeType::NoArg(Bytecode::Abort)),
             (StackEffect::Nop, BytecodeType::NoArg(Bytecode::Ret)),
         ];
@@ -285,11 +241,7 @@ impl<'a> BytecodeGenerator<'a> {
     }
 
     fn index_or_none<T>(table: &[T], rng: &mut StdRng) -> Option<TableIndex> {
-        if table.is_empty() {
-            None
-        } else {
-            Some(rng.random_range(0..table.len()) as TableIndex)
-        }
+        if table.is_empty() { None } else { Some(rng.random_range(0..table.len()) as TableIndex) }
     }
 
     // Soft cutoff: We starting making it less likely for the stack size to be increased once it
@@ -316,9 +268,7 @@ impl<'a> BytecodeGenerator<'a> {
         fn_context: &FunctionGenerationContext,
         call: FunctionHandleIndex,
     ) -> Option<FunctionHandleIndex> {
-        if let Some(call_size) = state
-            .call_graph
-            .call_depth(fn_context.function_handle_index, call)
+        if let Some(call_size) = state.call_graph.call_depth(fn_context.function_handle_index, call)
             && call_size + fn_context.starting_call_height <= CALL_STACK_LIMIT
         {
             return Some(call);
@@ -376,9 +326,7 @@ impl<'a> BytecodeGenerator<'a> {
                 }
                 BytecodeType::U256(instruction) => {
                     // Generate a random u256 constant to load
-                    Some(instruction(Box::new(
-                        self.rng.random_range(U256::zero()..U256::zero()),
-                    )))
+                    Some(instruction(Box::new(self.rng.random_range(U256::zero()..U256::zero()))))
                 }
                 BytecodeType::ConstantPoolIndex(instruction) => {
                     // Select a random address from the module's address pool
@@ -457,11 +405,8 @@ impl<'a> BytecodeGenerator<'a> {
     ) -> Result<Bytecode, String> {
         debug!("Candidates: {:?}", candidates);
         let stack_len = state.stack_len();
-        let prob_add = if stack_len > return_len {
-            MUTATION_TOLERANCE / (stack_len as f32)
-        } else {
-            1.0
-        };
+        let prob_add =
+            if stack_len > return_len { MUTATION_TOLERANCE / (stack_len as f32) } else { 1.0 };
         let prob_add = Self::value_backpressure(state, prob_add);
         debug!("Pr[add] = {:?}", prob_add);
         let next_instruction_index;
@@ -509,10 +454,7 @@ impl<'a> BytecodeGenerator<'a> {
         exact: bool,
     ) -> (AbstractState, Bytecode) {
         let summary = summaries::instruction_summary(instruction.clone(), exact);
-        let should_error = summary
-            .preconditions
-            .iter()
-            .any(|precondition| !precondition(&state));
+        let should_error = summary.preconditions.iter().any(|precondition| !precondition(&state));
         if should_error {
             debug!("Reached abort state");
             state.abort();
@@ -533,10 +475,8 @@ impl<'a> BytecodeGenerator<'a> {
             summaries::Effects::TyParams(instantiation, effect, instantiation_application) => {
                 let (struct_idx, instantiation) = instantiation(&state);
                 let index = state.module.add_instantiation(instantiation);
-                let struct_inst = StructDefInstantiation {
-                    def: struct_idx,
-                    type_parameters: index,
-                };
+                let struct_inst =
+                    StructDefInstantiation { def: struct_idx, type_parameters: index };
                 let str_inst_idx = state.module.add_struct_instantiation(struct_inst);
                 let effects = effect(str_inst_idx);
                 let instruction = instantiation_application(str_inst_idx);
@@ -545,10 +485,7 @@ impl<'a> BytecodeGenerator<'a> {
             summaries::Effects::TyParamsCall(instantiation, effect, instantiation_application) => {
                 let (fh_idx, instantiation) = instantiation(&state);
                 let index = state.module.add_instantiation(instantiation);
-                let func_inst = FunctionInstantiation {
-                    handle: fh_idx,
-                    type_parameters: index,
-                };
+                let func_inst = FunctionInstantiation { handle: fh_idx, type_parameters: index };
                 let func_inst_idx = state.module.add_function_instantiation(func_inst);
                 let effects = effect(func_inst_idx);
                 let instruction = instantiation_application(func_inst_idx);
@@ -579,9 +516,7 @@ impl<'a> BytecodeGenerator<'a> {
         debug!("Affected: {}", state);
         debug!("Actual instr: {:?}", instruction);
         if let Bytecode::Call(index) = instruction {
-            state
-                .call_graph
-                .add_call(fn_context.function_handle_index, index);
+            state.call_graph.add_call(fn_context.function_handle_index, index);
         }
         bytecode.push(instruction);
         fn_context.incr_instruction_count()?;
@@ -661,17 +596,15 @@ impl<'a> BytecodeGenerator<'a> {
                         return None;
                     }
                     state =
-                        next_instructions
-                            .into_iter()
-                            .try_fold(state, |state, instruction| {
-                                self.apply_instruction(
-                                    fn_context,
-                                    state,
-                                    &mut bytecode,
-                                    instruction,
-                                    true,
-                                )
-                            })?;
+                        next_instructions.into_iter().try_fold(state, |state, instruction| {
+                            self.apply_instruction(
+                                fn_context,
+                                state,
+                                &mut bytecode,
+                                instruction,
+                                true,
+                            )
+                        })?;
                     state = self.apply_instruction(
                         fn_context,
                         state,
@@ -729,10 +662,7 @@ impl<'a> BytecodeGenerator<'a> {
         );
         let cfg_copy = cfg.clone();
         for (block_id, block) in cfg.get_basic_blocks_mut().iter_mut() {
-            debug!(
-                "+++++++++++++++++ Starting new block: {} +++++++++++++++++",
-                block_id
-            );
+            debug!("+++++++++++++++++ Starting new block: {} +++++++++++++++++", block_id);
             let state1 = AbstractState::from_locals(
                 module.clone(),
                 block.get_locals_in().clone(),
@@ -889,9 +819,7 @@ impl<'a> BytecodeGenerator<'a> {
                         Self::inhabit_with_bytecode_seq(module, field_sig_tok)
                     })
                     .collect();
-                bytecodes.push(Bytecode::Pack(StructDefinitionIndex(
-                    struct_def_idx as TableIndex,
-                )));
+                bytecodes.push(Bytecode::Pack(StructDefinitionIndex(struct_def_idx as TableIndex)));
                 bytecodes
             }
             SignatureToken::StructInstantiation(struct_inst) => {

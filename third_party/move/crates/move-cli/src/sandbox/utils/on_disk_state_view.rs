@@ -133,11 +133,7 @@ impl OnDiskStateView {
     }
 
     fn get_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
-        Ok(if path.exists() {
-            Some(fs::read(path)?)
-        } else {
-            None
-        })
+        Ok(if path.exists() { Some(fs::read(path)?) } else { None })
     }
 
     fn view_bytecode(path: &Path) -> Result<Option<String>> {
@@ -304,11 +300,8 @@ impl fmt::Display for Generics {
         if self.0.is_empty() {
             Ok(())
         } else {
-            let generics: Vec<String> = self
-                .0
-                .iter()
-                .map(|t| TypeID(t.clone()).to_string())
-                .collect();
+            let generics: Vec<String> =
+                self.0.iter().map(|t| TypeID(t.clone()).to_string()).collect();
             write!(f, "<{}>", generics.join(","))
         }
     }

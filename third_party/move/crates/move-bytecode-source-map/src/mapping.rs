@@ -28,19 +28,11 @@ pub struct SourceMapping<'a> {
 
 impl<'a> SourceMapping<'a> {
     pub fn new(source_map: SourceMap, bytecode: &'a CompiledModule) -> Self {
-        Self {
-            source_map,
-            bytecode,
-            source_code: None,
-            marks: None,
-        }
+        Self { source_map, bytecode, source_code: None, marks: None }
     }
 
     pub fn new_without_source_map(bytecode: &'a CompiledModule, default_loc: Loc) -> Result<Self> {
-        Ok(Self::new(
-            SourceMap::dummy_from_view(bytecode, default_loc)?,
-            bytecode,
-        ))
+        Ok(Self::new(SourceMap::dummy_from_view(bytecode, default_loc)?, bytecode))
     }
 
     pub fn with_marks(&mut self, marks: MarkedSourceMapping) {

@@ -53,10 +53,8 @@ fn assert_fixture_does_not_compile(
     failure_message: &str,
 ) -> Result<()> {
     let sentinel = format!("{package}-compile-child");
-    let package_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("move_packages")
-        .join(package);
+    let package_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("move_packages").join(package);
 
     if is_child(&sentinel) {
         // Child: exit 0 only if the fixture compiles (which means it leaked).
@@ -92,10 +90,7 @@ fn assert_fixture_does_not_compile(
         "child for fixture {package} did not report a visibility rejection; \
          the negative test is not exercising what it claims. stderr:\n{stderr}"
     );
-    assert!(
-        !status.status.success(),
-        "{failure_message} (fixture: {package})"
-    );
+    assert!(!status.status.success(), "{failure_message} (fixture: {package})");
     Ok(())
 }
 

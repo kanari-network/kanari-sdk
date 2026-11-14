@@ -142,7 +142,16 @@ exceptions = [
     { allow = [
         "CDLA-Permissive-2.0",
     ], crate = "webpki-root-certs@1.0.11" },
+    { allow = [
+        "CDLA-Permissive-2.0",
+    ], crate = "webpki-root-certs@1.0.12" },
 ]
+
+# Crates that ship a `LICENSE` file instead of a SPDX expression.
+[[licenses.clarify]]
+name = "allo-isolate"
+expression = "Apache-2.0"
+license-files = [{ path = "LICENSE", hash = 0x0000000000000000000000000000000000000000000000000000000000000000 }]
 
 [sources]
 unknown-registry = "warn"
