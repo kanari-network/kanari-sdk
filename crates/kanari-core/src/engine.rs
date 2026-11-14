@@ -343,7 +343,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     fn snapshot_entries_hash(entries: &[SnapshotEntry]) -> Result<String> {
-        Ok(hex::encode(blake3::hash(&bcs::to_bytes(entries)?).as_bytes()))
+        Ok(hex::encode(kanari_crypto::hash_data_blake3(&bcs::to_bytes(entries)?)))
     }
 
     /// Exports the current blockchain state to a JSON snapshot file.
