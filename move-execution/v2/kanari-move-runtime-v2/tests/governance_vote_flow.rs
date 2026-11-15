@@ -7,7 +7,7 @@
 //! a thin wrapper module (`tester::governance_e2e` at `@0x43`), then drives a
 //! full token-weighted vote:
 //!
-//! 1. claim `TEST_COIN` via `coin::create_currency`,
+//! 1. claim Kanari treasury cap from genesis,
 //! 2. escrow a deposit and create a proposal,
 //! 3. two distinct voters stake `TEST_COIN` coins for/against,
 //! 4. execution after the voting window records the quorum/majority result,
@@ -24,6 +24,7 @@ use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
 use kanari_move_runtime_v2::move_runtime::{EntryFunctionObjectContext, MoveRuntime};
 use kanari_move_runtime_v2::state::StateManager;
 use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
+use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::{ObjectInput, ObjectOwnerKind, ObjectRef};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::identifier::Identifier;
@@ -39,6 +40,8 @@ use tempfile::tempdir;
 mod move_manifest;
 
 const TESTER_ADDR: &str = "0x43";
+const TREASURY_CAP_OWNER: &str = KanariAddress::KANARI_SYSTEM_ADDRESS;
+const KANARI_COIN_TYPE: &str = kanari_types::gas_coin::GAS_COIN;
 const MODULE_NAME: &str = "governance_e2e";
 const MOVE_SOURCE: &str = include_str!("move_packages/governance_e2e/sources/governance_e2e.move");
 
@@ -64,49 +67,75 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     // Genesis must have shared the GovernanceState singleton and transferred
     // the admin GovernanceCap to the init sender.
     let all_objects = state.query_objects(None, None, None, None, None)?;
-    let (state_id, _) = single_object(&all_objects, "::governance::GovernanceState")
-        .context("genesis must share exactly one GovernanceState")?;
-    let (admin_cap_id, cap_object) = single_object(&all_objects, "::governance::GovernanceCap")
-        .context("genesis must transfer exactly one GovernanceCap")?;
+    let (state_id, _) = single_object(
+        &all_objects,
+        kanari_types::governance::GovernanceModule::GOVERNANCE_STATE_TYPE,
+    )
+    .context("genesis must share exactly one GovernanceState")?;
+    let (admin_cap_id, cap_object) = single_object(
+        &all_objects,
+        kanari_types::governance::GovernanceModule::GOVERNANCE_CAP_TYPE,
+    )
+    .context("genesis must transfer exactly one GovernanceCap")?;
     let cap_owner = cap_object.owner.to_hex_literal();
 
     let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish governance_e2e module")?;
 
-    // --- claim TEST_COIN ---------------------------------------------------
-    let changes =
-        call_entry(&runtime, &module_id, "create_currency", vec![], vec![], PROPOSAL_TS, VOTER_A)
-            .context("create_currency")?;
-    let (cap_id, _) = find_created(&changes, "::coin::TreasuryCap<", "::governance_e2e::TEST_COIN")
-        .context("TreasuryCap<TEST_COIN> should be created")?;
-    state.apply_changeset(&changes)?;
-    state.commit()?;
-
-    let cap_input = |state: &StateManager, mutable: bool| -> Result<ObjectInput> {
-        owned_object_input(state, &cap_id, mutable)
-    };
+    // --- use the genesis Kanari treasury cap (owned by the system address) ---
+    let treasury_cap_entry = all_objects
+        .iter()
+        .find(|(_, o)| {
+            o.type_.contains("::coin::TreasuryCap<") && o.type_.contains(KANARI_COIN_TYPE)
+        })
+        .context("genesis must contain a TreasuryCap<0x2::kanari::KANARI>")?;
+    let (treasury_cap_id, _) = (treasury_cap_entry.0.clone(), treasury_cap_entry.1.clone());
 
     // --- proposal 1: majority wins (quorum trivially met, supply = 0) ------
+    // Mint the deposit coin to VOTER_A (sender = treasury cap owner).
     let changes = call_entry(
         &runtime,
         &module_id,
-        "mint_and_propose",
+        "mint_to",
         vec![
-            object_arg(&cap_id)?,
-            object_arg(&state_id)?,
+            object_arg(&treasury_cap_id)?,
             bcs::to_bytes(&DEPOSIT)?,
+            bcs::to_bytes(&AccountAddress::from_hex_literal(VOTER_A)?)?,
+        ],
+        vec![owned_object_input(&state, &treasury_cap_id, true)?],
+        PROPOSAL_TS,
+        TREASURY_CAP_OWNER,
+    )
+    .context("mint deposit coin 1")?;
+    let (deposit_coin_1, _) = find_created(&changes, "::coin::Coin<", KANARI_COIN_TYPE)
+        .context("deposit coin should be created")?;
+    state.apply_changeset(&changes)?;
+    state.commit()?;
+
+    // VOTER_A creates the proposal with the minted deposit coin.
+    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let changes = call_entry(
+        &runtime,
+        &module_id,
+        "create_proposal_with_coin",
+        vec![
+            object_arg(&deposit_coin_1)?,
+            object_arg(&state_id)?,
             bcs::to_bytes(&b"Treasury diversification".to_vec())?,
             bcs::to_bytes(&b"Move 5% of the treasury into stables".to_vec())?,
             bcs::to_bytes(&VOTING_PERIOD)?,
         ],
-        vec![cap_input(&state, true)?, shared_object_input(&state_id, true)],
+        vec![
+            owned_object_input(&state, &deposit_coin_1, true)?,
+            shared_object_input(&state_id, true),
+        ],
         PROPOSAL_TS,
         VOTER_A,
     )
-    .context("mint_and_propose 1")?;
+    .context("create_proposal 1")?;
     let (proposal_1, _) =
-        find_created(&changes, "::governance::Proposal<", "::governance_e2e::TEST_COIN")
+        find_created(&changes, kanari_types::governance::GovernanceModule::PROPOSAL_TYPE, "")
             .context("shared Proposal 1 should be created")?;
     state.apply_changeset(&changes)?;
     state.commit()?;
@@ -119,7 +148,7 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &store,
         &module_id,
         &mut state,
-        &cap_id,
+        &treasury_cap_id,
         600,
         VOTER_A,
         &state_id,
@@ -130,7 +159,7 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &store,
         &module_id,
         &mut state,
-        &cap_id,
+        &treasury_cap_id,
         300,
         VOTER_B,
         &state_id,
@@ -260,25 +289,48 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         "total_supply maintained by admin",
     )?;
 
+    // Mint the deposit coin to VOTER_A (sender = treasury cap owner).
     let changes = call_entry(
         &rt_supply,
         &module_id,
-        "mint_and_propose",
+        "mint_to",
         vec![
-            object_arg(&cap_id)?,
-            object_arg(&state_id)?,
+            object_arg(&treasury_cap_id)?,
             bcs::to_bytes(&DEPOSIT)?,
+            bcs::to_bytes(&AccountAddress::from_hex_literal(VOTER_A)?)?,
+        ],
+        vec![owned_object_input(&state, &treasury_cap_id, true)?],
+        PROPOSAL_TS,
+        TREASURY_CAP_OWNER,
+    )
+    .context("mint deposit coin 2")?;
+    let (deposit_coin_2, _) = find_created(&changes, "::coin::Coin<", KANARI_COIN_TYPE)
+        .context("deposit coin 2 should be created")?;
+    state.apply_changeset(&changes)?;
+    state.commit()?;
+
+    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let changes = call_entry(
+        &runtime,
+        &module_id,
+        "create_proposal_with_coin",
+        vec![
+            object_arg(&deposit_coin_2)?,
+            object_arg(&state_id)?,
             bcs::to_bytes(&b"Mint more supply".to_vec())?,
             bcs::to_bytes(&b"Increase emissions by 2%".to_vec())?,
             bcs::to_bytes(&VOTING_PERIOD)?,
         ],
-        vec![owned_object_input(&state, &cap_id, true)?, shared_object_input(&state_id, true)],
+        vec![
+            owned_object_input(&state, &deposit_coin_2, true)?,
+            shared_object_input(&state_id, true),
+        ],
         PROPOSAL_TS,
         VOTER_A,
     )
-    .context("mint_and_propose 2")?;
+    .context("create_proposal 2")?;
     let (proposal_2, _) =
-        find_created(&changes, "::governance::Proposal<", "::governance_e2e::TEST_COIN")
+        find_created(&changes, kanari_types::governance::GovernanceModule::PROPOSAL_TYPE, "")
             .context("shared Proposal 2 should be created")?;
     state.apply_changeset(&changes)?;
     state.commit()?;
@@ -287,7 +339,7 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &store,
         &module_id,
         &mut state,
-        &cap_id,
+        &treasury_cap_id,
         100,
         VOTER_A,
         &state_id,
@@ -337,7 +389,7 @@ fn vote_with_coin(
     store: &Arc<PersistentStore>,
     module_id: &ModuleId,
     state: &mut StateManager,
-    cap_id: &str,
+    treasury_cap_id: &str,
     amount: u64,
     voter: &str,
     state_id: &str,
@@ -351,16 +403,16 @@ fn vote_with_coin(
         module_id,
         "mint_to",
         vec![
-            object_arg(cap_id)?,
+            object_arg(treasury_cap_id)?,
             bcs::to_bytes(&amount)?,
             bcs::to_bytes(&AccountAddress::from_hex_literal(voter)?)?,
         ],
-        vec![owned_object_input(state, cap_id, true)?],
+        vec![owned_object_input(state, treasury_cap_id, true)?],
         PROPOSAL_TS,
-        VOTER_A,
+        TREASURY_CAP_OWNER,
     )
     .context("mint stake coin")?;
-    let (coin_id, _) = find_created(&changes, "::coin::Coin<", "::governance_e2e::TEST_COIN")
+    let (coin_id, _) = find_created(&changes, "::coin::Coin<", KANARI_COIN_TYPE)
         .context("stake coin should be created")?;
     state.apply_changeset(&changes)?;
     state.commit()?;

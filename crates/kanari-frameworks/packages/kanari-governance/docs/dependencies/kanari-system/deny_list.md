@@ -11,8 +11,8 @@ keyed by coin type, so they persist across transactions and are visible to
 every participant. Writes are authorized by a <code><a href="../../dependencies/kanari-system/deny_list.md#0x2_deny_list_DenyCap">DenyCap</a>&lt;T&gt;</code> minted by
 <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin_create_regulated_currency">coin::create_regulated_currency</a></code>; membership reads are open to everyone.
 
-Regulated transfer paths (<code>pay::split_and_transfer_checked</code>,
-<code>pay::join_vec_and_transfer_checked</code>, <code>multisig::execute_transfer_checked</code>)
+Regulated transfer paths (<code><a href="../../dependencies/kanari-system/pay.md#0x2_pay_split_and_transfer_checked">pay::split_and_transfer_checked</a></code>,
+<code><a href="../../dependencies/kanari-system/pay.md#0x2_pay_join_vec_and_transfer_checked">pay::join_vec_and_transfer_checked</a></code>, <code>multisig::execute_transfer_checked</code>)
 consult this list via <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin_deny_list_contains">coin::deny_list_contains</a></code>.
 
 

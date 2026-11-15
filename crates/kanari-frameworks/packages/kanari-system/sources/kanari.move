@@ -89,4 +89,22 @@ module kanari_system::kanari {
         coin::burn(treasury_cap, coin);
     }
 
+    #[test_only]
+    /// Mint a fresh `TreasuryCap<KANARI>` for tests. The currency witness can
+    /// only be constructed inside this module, so tests obtain the capability
+    /// through this helper instead of calling `coin::create_currency` directly.
+    public fun new_treasury_for_testing(ctx: &mut TxContext): TreasuryCap<KANARI> {
+        let (treasury, metadata) = coin::create_currency<KANARI>(
+            KANARI {},
+            9,
+            b"KANARI",
+            b"Kanari Network Coin",
+            b"",
+            option::none<url::Url>(),
+            ctx
+        );
+        transfer::public_freeze_object<kanari_system::coin::CoinMetadata<KANARI>>(metadata);
+        treasury
+    }
+
 }

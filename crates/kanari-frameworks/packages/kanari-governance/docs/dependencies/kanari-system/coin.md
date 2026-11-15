@@ -462,11 +462,11 @@ Enforcement model: this creates the *capability* to maintain deny
 entries in the shared <code><a href="../../dependencies/kanari-system/deny_list.md#0x2_deny_list_DenyList">deny_list::DenyList</a></code> singleton; it does not by
 itself block transfers. Entries are managed with the returned
 <code>DenyCap&lt;T&gt;</code> via <code>deny_list_add</code>/<code>deny_list_remove</code> and enforced by
-the <code>*_checked</code> transfer paths (<code>pay::split_and_transfer_checked</code>,
-<code>pay::join_vec_and_transfer_checked</code>,
+the <code>*_checked</code> transfer paths (<code><a href="../../dependencies/kanari-system/pay.md#0x2_pay_split_and_transfer_checked">pay::split_and_transfer_checked</a></code>,
+<code><a href="../../dependencies/kanari-system/pay.md#0x2_pay_join_vec_and_transfer_checked">pay::join_vec_and_transfer_checked</a></code>,
 <code>multisig::execute_transfer_checked</code>), which consult the shared list
 through <code>deny_list_contains</code>. The plain <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin">coin</a>::*</code> and
-<code>pay::split_and_transfer</code>/<code>join_vec_and_transfer</code> paths stay
+<code><a href="../../dependencies/kanari-system/pay.md#0x2_pay_split_and_transfer">pay::split_and_transfer</a></code>/<code>join_vec_and_transfer</code> paths stay
 permissionless and skip the check, so a regulated coin must be moved
 through the checked paths to be enforceable.
 

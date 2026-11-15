@@ -21,28 +21,17 @@ module kanari_governance::governance_tests {
     use kanari_system::coin::{Self, TreasuryCap};
     use kanari_system::transfer;
     use kanari_system::tx_context::{Self, TxContext};
+    use kanari_system::kanari::KANARI;
 
     const ALICE: address = @0xA11CE;
     const BOB: address = @0xB0B;
 
-    #[test_only]
-    struct TESTCOIN has drop {}
 
     #[test_only]
     /// One canonical currency per test run: mint coins as needed, then the
     /// treasury must be disposed of (it has no `drop`).
-    fun new_treasury(ctx: &mut TxContext): TreasuryCap<TESTCOIN> {
-        let (treasury, metadata) = coin::create_currency<TESTCOIN>(
-            TESTCOIN {},
-            9,
-            b"TEST",
-            b"Test Coin",
-            b"Governance test coin",
-            option::none(),
-            ctx
-        );
-        transfer::public_freeze_object(metadata);
-        treasury
+    fun new_treasury(ctx: &mut TxContext): TreasuryCap<KANARI> {
+        kanari_system::kanari::new_treasury_for_testing(ctx)
     }
 
     // ========================================================================
@@ -55,7 +44,7 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
 
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         governance::create_proposal(
             &mut state,
             deposit,
@@ -78,7 +67,7 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
 
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 9_999, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 9_999, &mut ctx);
         governance::create_proposal(
             &mut state,
             deposit,
@@ -101,7 +90,7 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
 
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         governance::create_proposal(
             &mut state,
             deposit,
@@ -124,7 +113,7 @@ module kanari_governance::governance_tests {
         let treasury = new_treasury(&mut ctx);
 
         governance::pause(&cap, &mut state);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         governance::create_proposal(
             &mut state,
             deposit,
@@ -146,7 +135,7 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
 
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         governance::create_proposal(
             &mut state,
             deposit,
@@ -172,8 +161,8 @@ module kanari_governance::governance_tests {
         let bob_ctx = tx_context::new_from_hint(BOB, 1, 0, 0, 0);
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -186,14 +175,14 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
         governance::cast_vote(
             &mut state,
             &mut proposal,
             false,
-            coin::mint<TESTCOIN>(&mut treasury, 40, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 40, &mut ctx),
             &mut bob_ctx
         );
 
@@ -218,8 +207,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::new_from_hint(ALICE, 0, 0, 0, 0);
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -232,14 +221,14 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
         governance::cast_vote(
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 50, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 50, &mut ctx),
             &mut ctx
         );
 
@@ -260,8 +249,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -274,7 +263,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
         // Same voter flips to "no": aborts instead of silently moving weight.
@@ -282,7 +271,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             false,
-            coin::mint<TESTCOIN>(&mut treasury, 10, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 10, &mut ctx),
             &mut ctx
         );
 
@@ -297,8 +286,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -312,7 +301,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::zero<TESTCOIN>(&mut ctx),
+            coin::zero<KANARI>(&mut ctx),
             &mut ctx
         );
 
@@ -327,10 +316,10 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         // `voting_period = 0` means the window closed at creation time, since
         // the test clock (`dummy` context) never advances past 0.
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -343,7 +332,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
 
@@ -359,8 +348,8 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let cap = governance::new_cap_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -374,7 +363,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
 
@@ -393,9 +382,9 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         let bob_ctx = tx_context::new_from_hint(BOB, 1, 0, 0, 0);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -408,14 +397,14 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 600, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 600, &mut ctx),
             &mut ctx
         );
         governance::cast_vote(
             &mut state,
             &mut proposal,
             false,
-            coin::mint<TESTCOIN>(&mut treasury, 300, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 300, &mut ctx),
             &mut bob_ctx
         );
 
@@ -436,9 +425,9 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         let bob_ctx = tx_context::new_from_hint(BOB, 1, 0, 0, 0);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -451,14 +440,14 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
         governance::cast_vote(
             &mut state,
             &mut proposal,
             false,
-            coin::mint<TESTCOIN>(&mut treasury, 600, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 600, &mut ctx),
             &mut bob_ctx
         );
 
@@ -480,10 +469,10 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
         // Created in the future relative to the (0) test clock, with a long
         // window: execution must wait for the voting period to end.
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -505,8 +494,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -529,8 +518,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -548,7 +537,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 500, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 500, &mut ctx),
             &mut ctx
         );
 
@@ -574,8 +563,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::new_from_hint(ALICE, 0, 0, 0, 0);
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -588,7 +577,7 @@ module kanari_governance::governance_tests {
             &mut state,
             &mut proposal,
             true,
-            coin::mint<TESTCOIN>(&mut treasury, 100, &mut ctx),
+            coin::mint<KANARI>(&mut treasury, 100, &mut ctx),
             &mut ctx
         );
         let (yes, _no, _total) = governance::vote_tally(&proposal);
@@ -618,8 +607,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -641,8 +630,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,
@@ -668,8 +657,8 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
         let sender = tx_context::sender(&ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             sender,
             deposit,
@@ -695,8 +684,8 @@ module kanari_governance::governance_tests {
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
         let sender = tx_context::sender(&ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             sender,
             deposit,
@@ -718,8 +707,8 @@ module kanari_governance::governance_tests {
         let ctx = tx_context::dummy();
         let state = governance::new_state_for_testing(&mut ctx);
         let treasury = new_treasury(&mut ctx);
-        let deposit = coin::mint<TESTCOIN>(&mut treasury, 10_000, &mut ctx);
-        let proposal = governance::new_proposal_for_testing<TESTCOIN>(
+        let deposit = coin::mint<KANARI>(&mut treasury, 10_000, &mut ctx);
+        let proposal = governance::new_proposal_for_testing(
             1,
             ALICE,
             deposit,

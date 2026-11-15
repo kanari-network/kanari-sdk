@@ -16,13 +16,12 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use kanari_rpc_api::BuildCallFunctionRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::address::Address as KanariAddress;
 
-const MULTISIG_MODULE: &str = "multisig";
+const MULTISIG_MODULE: &str = kanari_types::multisig::MultisigModule::MULTISIG_MODULE;
 const KANARI_COIN_TYPE: &str = kanari_types::gas_coin::GAS_COIN;
 
 fn system_package() -> String {
-    KanariAddress::KANARI_SYSTEM_ADDRESS.to_string()
+    kanari_types::multisig::MultisigModule::MULTISIG_PACKAGE.to_string()
 }
 
 fn parse_addr(addr_normalized: &str) -> Result<move_core_types::account_address::AccountAddress> {
@@ -568,7 +567,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "create_wallet_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().create_wallet_entry,
                     vec![coin_type.clone()],
                     vec![
                         bcs_address_vec(&parsed_owners)?,
@@ -610,7 +609,8 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "propose_transfer_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions()
+                        .propose_transfer_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -647,7 +647,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "approve_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().approve_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -683,7 +683,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "execute_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().execute_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -719,7 +719,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "cancel_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().cancel_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -765,7 +765,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "deposit_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().deposit_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,

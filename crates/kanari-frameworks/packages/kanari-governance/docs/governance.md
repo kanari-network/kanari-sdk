@@ -58,6 +58,7 @@ so participation costs time, not principal.
 <b>use</b> <a href="dependencies/kanari-system/balance.md#0x2_balance">0x2::balance</a>;
 <b>use</b> <a href="dependencies/kanari-system/coin.md#0x2_coin">0x2::coin</a>;
 <b>use</b> <a href="dependencies/kanari-system/event.md#0x2_event">0x2::event</a>;
+<b>use</b> <a href="dependencies/kanari-system/kanari.md#0x2_kanari">0x2::kanari</a>;
 <b>use</b> <a href="dependencies/kanari-system/object.md#0x2_object">0x2::object</a>;
 <b>use</b> <a href="dependencies/kanari-system/transfer.md#0x2_transfer">0x2::transfer</a>;
 <b>use</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context">0x2::tx_context</a>;
@@ -334,7 +335,7 @@ Proposal details. <code>COIN</code> is the governed token type; the escrowed
 deposit and every vote stake are held in this object.
 
 
-<pre><code><b>struct</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt; <b>has</b> store, key
+<pre><code><b>struct</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a> <b>has</b> store, key
 </code></pre>
 
 
@@ -399,7 +400,7 @@ deposit and every vote stake are held in this object.
  Per-voter escrowed stakes.
 </dd>
 <dt>
-<code>escrow: <a href="dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;COIN&gt;</code>
+<code>escrow: <a href="dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;<a href="dependencies/kanari-system/kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;</code>
 </dt>
 <dd>
  Escrowed deposit + vote stakes, all withdrawable after the window.
@@ -700,7 +701,7 @@ Create a proposal, escrowing <code>deposit</code> (at least <code><a href="gover
 until the proposal is executed. Permissionless: no capability needed.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_create_proposal">create_proposal</a>&lt;COIN&gt;(state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, deposit: <a href="dependencies/kanari-system/coin.md#0x2_coin_Coin">coin::Coin</a>&lt;COIN&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>, title: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, voting_period: u64)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_create_proposal">create_proposal</a>(state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, deposit: <a href="dependencies/kanari-system/coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="dependencies/kanari-system/kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>, title: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, description: <a href="dependencies/move-stdlib/string.md#0x1_string_String">string::String</a>, voting_period: u64)
 </code></pre>
 
 
@@ -709,9 +710,9 @@ until the proposal is executed. Permissionless: no capability needed.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_create_proposal">create_proposal</a>&lt;COIN&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_create_proposal">create_proposal</a>(
     state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">GovernanceState</a>,
-    deposit: Coin&lt;COIN&gt;,
+    deposit: Coin&lt;KANARI&gt;,
     ctx: &<b>mut</b> TxContext,
     title: String,
     description: String,
@@ -739,7 +740,7 @@ until the proposal is executed. Permissionless: no capability needed.
 
     // Proposals are shared: any token holder can read and vote on them.
     <a href="dependencies/kanari-system/transfer.md#0x2_transfer_share_object">transfer::share_object</a>(
-        <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt; {
+        <a href="governance.md#0x3_governance_Proposal">Proposal</a> {
             id: <a href="dependencies/kanari-system/object.md#0x2_object_new">object::new</a>(ctx),
             proposal_id,
             creator: sender,
@@ -786,7 +787,7 @@ becomes the voter's weight; it is withdrawable once the window closes.
 A voter may top up the same side, but cannot switch sides.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_cast_vote">cast_vote</a>&lt;COIN&gt;(state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;, support: bool, <a href="dependencies/kanari-system/coin.md#0x2_coin">coin</a>: <a href="dependencies/kanari-system/coin.md#0x2_coin_Coin">coin::Coin</a>&lt;COIN&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_cast_vote">cast_vote</a>(state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>, support: bool, <a href="dependencies/kanari-system/coin.md#0x2_coin">coin</a>: <a href="dependencies/kanari-system/coin.md#0x2_coin_Coin">coin::Coin</a>&lt;<a href="dependencies/kanari-system/kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -795,11 +796,11 @@ A voter may top up the same side, but cannot switch sides.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_cast_vote">cast_vote</a>&lt;COIN&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_cast_vote">cast_vote</a>(
     state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">GovernanceState</a>,
-    proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;,
+    proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>,
     support: bool,
-    <a href="dependencies/kanari-system/coin.md#0x2_coin">coin</a>: Coin&lt;COIN&gt;,
+    <a href="dependencies/kanari-system/coin.md#0x2_coin">coin</a>: Coin&lt;KANARI&gt;,
     ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(!state.is_paused, <a href="governance.md#0x3_governance_E_GOVERNANCE_PAUSED">E_GOVERNANCE_PAUSED</a>);
@@ -861,7 +862,7 @@ A voter may top up the same side, but cannot switch sides.
 Reclaim one's escrowed stake after the voting window has closed.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_stake">withdraw_stake</a>&lt;COIN&gt;(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_stake">withdraw_stake</a>(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -870,7 +871,7 @@ Reclaim one's escrowed stake after the voting window has closed.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_stake">withdraw_stake</a>&lt;COIN&gt;(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;, ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_stake">withdraw_stake</a>(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>, ctx: &<b>mut</b> TxContext) {
     <b>assert</b>!(
         <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_epoch_timestamp_ms">tx_context::epoch_timestamp_ms</a>(ctx) &gt;= proposal.created_at + proposal.voting_period,
         <a href="governance.md#0x3_governance_E_VOTING_NOT_ENDED">E_VOTING_NOT_ENDED</a>
@@ -905,7 +906,7 @@ yes-majority and quorum (<code>total_staked &gt;= total_supply * threshold</code
 in basis points). Marks the proposal executed so voters can withdraw.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_execute_proposal">execute_proposal</a>&lt;COIN&gt;(state: &<a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_execute_proposal">execute_proposal</a>(state: &<a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -914,9 +915,9 @@ in basis points). Marks the proposal executed so voters can withdraw.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_execute_proposal">execute_proposal</a>&lt;COIN&gt;(
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_execute_proposal">execute_proposal</a>(
     state: &<a href="governance.md#0x3_governance_GovernanceState">GovernanceState</a>,
-    proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;,
+    proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>,
     ctx: &<b>mut</b> TxContext
 ) {
     <b>assert</b>!(!proposal.executed, <a href="governance.md#0x3_governance_E_PROPOSAL_ALREADY_EXECUTED">E_PROPOSAL_ALREADY_EXECUTED</a>);
@@ -955,7 +956,7 @@ in basis points). Marks the proposal executed so voters can withdraw.
 Reclaim the creator's escrowed deposit once the proposal is executed.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_deposit">withdraw_deposit</a>&lt;COIN&gt;(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_deposit">withdraw_deposit</a>(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>, ctx: &<b>mut</b> <a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_TxContext">tx_context::TxContext</a>)
 </code></pre>
 
 
@@ -964,7 +965,7 @@ Reclaim the creator's escrowed deposit once the proposal is executed.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_deposit">withdraw_deposit</a>&lt;COIN&gt;(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;, ctx: &<b>mut</b> TxContext) {
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_withdraw_deposit">withdraw_deposit</a>(proposal: &<b>mut</b> <a href="governance.md#0x3_governance_Proposal">Proposal</a>, ctx: &<b>mut</b> TxContext) {
     <b>assert</b>!(<a href="dependencies/kanari-system/tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx) == proposal.creator, <a href="governance.md#0x3_governance_E_NOT_CREATOR">E_NOT_CREATOR</a>);
     <b>assert</b>!(proposal.executed, <a href="governance.md#0x3_governance_E_PROPOSAL_NOT_EXECUTED">E_PROPOSAL_NOT_EXECUTED</a>);
     <b>assert</b>!(!proposal.deposit_returned, <a href="governance.md#0x3_governance_E_DEPOSIT_RETURNED">E_DEPOSIT_RETURNED</a>);
@@ -1106,7 +1107,7 @@ Reclaim the creator's escrowed deposit once the proposal is executed.
 Vote tallies as <code>(yes, no, total_staked)</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_vote_tally">vote_tally</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;): (u64, u64, u64)
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_vote_tally">vote_tally</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>): (u64, u64, u64)
 </code></pre>
 
 
@@ -1115,7 +1116,7 @@ Vote tallies as <code>(yes, no, total_staked)</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_vote_tally">vote_tally</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;): (u64, u64, u64) {
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_vote_tally">vote_tally</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>): (u64, u64, u64) {
     (proposal.yes_votes, proposal.no_votes, proposal.total_staked)
 }
 </code></pre>
@@ -1131,7 +1132,7 @@ Vote tallies as <code>(yes, no, total_staked)</code>.
 A voter's currently escrowed stake, or <code>none</code>.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_stake_of">stake_of</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;, voter: <b>address</b>): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_stake_of">stake_of</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>, voter: <b>address</b>): <a href="dependencies/move-stdlib/option.md#0x1_option_Option">option::Option</a>&lt;u64&gt;
 </code></pre>
 
 
@@ -1140,7 +1141,7 @@ A voter's currently escrowed stake, or <code>none</code>.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_stake_of">stake_of</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;, voter: <b>address</b>): Option&lt;u64&gt; {
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_stake_of">stake_of</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>, voter: <b>address</b>): Option&lt;u64&gt; {
     <b>let</b> idx = <a href="governance.md#0x3_governance_find_stake_index">find_stake_index</a>(&proposal.stakes, voter);
     <b>if</b> (idx &lt; <a href="dependencies/move-stdlib/vector.md#0x1_vector_length">vector::length</a>(&proposal.stakes)) {
         <b>let</b> stake = <a href="dependencies/move-stdlib/vector.md#0x1_vector_borrow">vector::borrow</a>(&proposal.stakes, idx);
@@ -1162,7 +1163,7 @@ A voter's currently escrowed stake, or <code>none</code>.
 Whether the proposal has been executed (pass or fail).
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_is_executed">is_executed</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_is_executed">is_executed</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>): bool
 </code></pre>
 
 
@@ -1171,7 +1172,7 @@ Whether the proposal has been executed (pass or fail).
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_is_executed">is_executed</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;): bool {
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_is_executed">is_executed</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>): bool {
     proposal.executed
 }
 </code></pre>
@@ -1187,7 +1188,7 @@ Whether the proposal has been executed (pass or fail).
 The recorded execution outcome (<code><b>true</b></code> = passed quorum and majority).
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_execution_result">execution_result</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;): bool
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_execution_result">execution_result</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>): bool
 </code></pre>
 
 
@@ -1196,7 +1197,7 @@ The recorded execution outcome (<code><b>true</b></code> = passed quorum and maj
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_execution_result">execution_result</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;): bool {
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_execution_result">execution_result</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>): bool {
     proposal.execution_result
 }
 </code></pre>
@@ -1212,7 +1213,7 @@ The recorded execution outcome (<code><b>true</b></code> = passed quorum and maj
 The creator's escrowed deposit amount for this proposal.
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_deposit_of">deposit_of</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>&lt;COIN&gt;): u64
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_deposit_of">deposit_of</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">governance::Proposal</a>): u64
 </code></pre>
 
 
@@ -1221,7 +1222,7 @@ The creator's escrowed deposit amount for this proposal.
 <summary>Implementation</summary>
 
 
-<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_deposit_of">deposit_of</a>&lt;COIN&gt;(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>&lt;COIN&gt;): u64 {
+<pre><code><b>public</b> <b>fun</b> <a href="governance.md#0x3_governance_deposit_of">deposit_of</a>(proposal: &<a href="governance.md#0x3_governance_Proposal">Proposal</a>): u64 {
     proposal.deposit
 }
 </code></pre>

@@ -211,7 +211,7 @@ once_cell = "1.21.4"
 # ============================================================================
 # Randomness & Testing
 # ============================================================================
-rand = "0.10.3"
+rand = "0.10.4"
 tempfile = "3.27.0"                                                                 # Temporary files for tests
 proptest = "1.12.0"                                                                 # Property-based testing
 arbitrary = { version = "1.5.0", features = ["derive"] }                            # Fuzzing support
@@ -268,7 +268,7 @@ tikv-jemallocator = { git = "https://github.com/jamesatomc/jemallocator.git", fe
 # ============================================================================
 # Database
 # ============================================================================
-rusqlite = { version = "0.42.0", features = ["bundled", "chrono", "serde_json"] }
+rusqlite = { version = "0.43.0", features = ["bundled", "chrono", "serde_json"] }
 
 # ============================================================================
 # Proc Macro Dependencies

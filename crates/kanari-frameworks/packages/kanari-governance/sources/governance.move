@@ -27,6 +27,7 @@ module kanari_governance::governance {
     use kanari_system::transfer;
     use kanari_system::event;
     use kanari_system::tx_context::{Self, TxContext};
+    use kanari_system::kanari::KANARI;
 
 
     // ========================================================================
@@ -102,7 +103,7 @@ module kanari_governance::governance {
 
     /// Proposal details. `COIN` is the governed token type; the escrowed
     /// deposit and every vote stake are held in this object.
-    struct Proposal<phantom COIN> has key, store {
+    struct Proposal has key, store {
         id: UID,
         /// Sequential proposal number assigned by `GovernanceState`.
         proposal_id: u64,
@@ -116,7 +117,7 @@ module kanari_governance::governance {
         /// Per-voter escrowed stakes.
         stakes: vector<VoteStake>,
         /// Escrowed deposit + vote stakes, all withdrawable after the window.
-        escrow: Balance<COIN>,
+        escrow: Balance<KANARI>,
         /// The creator's escrowed deposit amount.
         deposit: u64,
         /// Set once the creator has reclaimed the deposit.
@@ -161,9 +162,9 @@ module kanari_governance::governance {
 
     /// Create a proposal, escrowing `deposit` (at least `MIN_PROPOSAL_BALANCE`)
     /// until the proposal is executed. Permissionless: no capability needed.
-    public entry fun create_proposal<COIN>(
+    public entry fun create_proposal(
         state: &mut GovernanceState,
-        deposit: Coin<COIN>,
+        deposit: Coin<KANARI>,
         ctx: &mut TxContext,
         title: String,
         description: String,
@@ -191,7 +192,7 @@ module kanari_governance::governance {
 
         // Proposals are shared: any token holder can read and vote on them.
         transfer::share_object(
-            Proposal<COIN> {
+            Proposal {
                 id: object::new(ctx),
                 proposal_id,
                 creator: sender,
@@ -227,11 +228,11 @@ module kanari_governance::governance {
     /// Cast a vote by staking tokens. The coin is escrowed in the proposal and
     /// becomes the voter's weight; it is withdrawable once the window closes.
     /// A voter may top up the same side, but cannot switch sides.
-    public entry fun cast_vote<COIN>(
+    public entry fun cast_vote(
         state: &mut GovernanceState,
-        proposal: &mut Proposal<COIN>,
+        proposal: &mut Proposal,
         support: bool,
-        coin: Coin<COIN>,
+        coin: Coin<KANARI>,
         ctx: &mut TxContext
     ) {
         assert!(!state.is_paused, E_GOVERNANCE_PAUSED);
@@ -282,7 +283,7 @@ module kanari_governance::governance {
     }
 
     /// Reclaim one's escrowed stake after the voting window has closed.
-    public entry fun withdraw_stake<COIN>(proposal: &mut Proposal<COIN>, ctx: &mut TxContext) {
+    public entry fun withdraw_stake(proposal: &mut Proposal, ctx: &mut TxContext) {
         assert!(
             tx_context::epoch_timestamp_ms(ctx) >= proposal.created_at + proposal.voting_period,
             E_VOTING_NOT_ENDED
@@ -307,9 +308,9 @@ module kanari_governance::governance {
     /// Execute a proposal after the voting period ends. Passing requires a
     /// yes-majority and quorum (`total_staked >= total_supply * threshold`
     /// in basis points). Marks the proposal executed so voters can withdraw.
-    public entry fun execute_proposal<COIN>(
+    public entry fun execute_proposal(
         state: &GovernanceState,
-        proposal: &mut Proposal<COIN>,
+        proposal: &mut Proposal,
         ctx: &mut TxContext
     ) {
         assert!(!proposal.executed, E_PROPOSAL_ALREADY_EXECUTED);
@@ -337,7 +338,7 @@ module kanari_governance::governance {
     }
 
     /// Reclaim the creator's escrowed deposit once the proposal is executed.
-    public entry fun withdraw_deposit<COIN>(proposal: &mut Proposal<COIN>, ctx: &mut TxContext) {
+    public entry fun withdraw_deposit(proposal: &mut Proposal, ctx: &mut TxContext) {
         assert!(tx_context::sender(ctx) == proposal.creator, E_NOT_CREATOR);
         assert!(proposal.executed, E_PROPOSAL_NOT_EXECUTED);
         assert!(!proposal.deposit_returned, E_DEPOSIT_RETURNED);
@@ -372,12 +373,12 @@ module kanari_governance::governance {
     }
 
     /// Vote tallies as `(yes, no, total_staked)`.
-    public fun vote_tally<COIN>(proposal: &Proposal<COIN>): (u64, u64, u64) {
+    public fun vote_tally(proposal: &Proposal): (u64, u64, u64) {
         (proposal.yes_votes, proposal.no_votes, proposal.total_staked)
     }
 
     /// A voter's currently escrowed stake, or `none`.
-    public fun stake_of<COIN>(proposal: &Proposal<COIN>, voter: address): Option<u64> {
+    public fun stake_of(proposal: &Proposal, voter: address): Option<u64> {
         let idx = find_stake_index(&proposal.stakes, voter);
         if (idx < vector::length(&proposal.stakes)) {
             let stake = vector::borrow(&proposal.stakes, idx);
@@ -388,17 +389,17 @@ module kanari_governance::governance {
     }
 
     /// Whether the proposal has been executed (pass or fail).
-    public fun is_executed<COIN>(proposal: &Proposal<COIN>): bool {
+    public fun is_executed(proposal: &Proposal): bool {
         proposal.executed
     }
 
     /// The recorded execution outcome (`true` = passed quorum and majority).
-    public fun execution_result<COIN>(proposal: &Proposal<COIN>): bool {
+    public fun execution_result(proposal: &Proposal): bool {
         proposal.execution_result
     }
 
     /// The creator's escrowed deposit amount for this proposal.
-    public fun deposit_of<COIN>(proposal: &Proposal<COIN>): u64 {
+    public fun deposit_of(proposal: &Proposal): u64 {
         proposal.deposit
     }
 
@@ -521,15 +522,15 @@ module kanari_governance::governance {
     /// A fresh `Proposal` for tests. `create_proposal` shares the object, which
     /// a unit test cannot fetch back, so tests build proposals directly. The
     /// `deposit` coin is escrowed as the proposal deposit.
-    public fun new_proposal_for_testing<COIN>(
+    public fun new_proposal_for_testing(
         proposal_id: u64,
         creator: address,
-        deposit: Coin<COIN>,
+        deposit: Coin<KANARI>,
         created_at: u64,
         voting_period: u64,
         ctx: &mut TxContext
-    ): Proposal<COIN> {
-        Proposal<COIN> {
+    ): Proposal {
+        Proposal {
             id: object::new(ctx),
             proposal_id,
             creator,
