@@ -74,16 +74,20 @@ fn main() {
     let frameworks = root.join("crates/kanari-frameworks/packages");
     let stdlib = frameworks.join("move-stdlib");
     let system = frameworks.join("kanari-system");
+    let governance = frameworks.join("kanari-governance");
     watch_package_sources(&stdlib);
     watch_package_sources(&system);
+    watch_package_sources(&governance);
 
     let output = PathBuf::from(env::var("OUT_DIR").unwrap());
     let stdlib_modules = compile_modules(&stdlib, &output.join("move-stdlib"));
     let system_modules = compile_modules(&system, &output.join("kanari-system"));
+    let governance_modules = compile_modules(&governance, &output.join("kanari-governance"));
 
     let mut generated = String::new();
     emit_modules(&mut generated, "EMBEDDED_MOVE_STDLIB_MODULES", &stdlib_modules);
     emit_modules(&mut generated, "EMBEDDED_KANARI_SYSTEM_MODULES", &system_modules);
+    emit_modules(&mut generated, "EMBEDDED_KANARI_GOVERNANCE_MODULES", &governance_modules);
     fs::write(output.join("embedded_framework_modules.rs"), generated)
         .expect("cannot write embedded framework module manifest");
 }

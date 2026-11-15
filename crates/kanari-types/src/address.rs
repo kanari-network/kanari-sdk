@@ -28,6 +28,11 @@ lazy_static! {
         AccountAddress::from_hex_literal(Address::KANARI_SYSTEM_ADDRESS)
             .expect("KANARI_SYSTEM_ADDRESS constant is invalid");
 
+    /// Kanari Governance address (0x3)
+    static ref KANARI_GOVERNANCE_ACCOUNT_ADDRESS: AccountAddress =
+        AccountAddress::from_hex_literal(Address::KANARI_GOVERNANCE_ADDRESS)
+            .expect("KANARI_GOVERNANCE_ADDRESS constant is invalid");
+
     /// Genesis/System address (0x0)
     static ref GENESIS_ACCOUNT_ADDRESS: AccountAddress =
         AccountAddress::from_hex_literal(Address::GENESIS_ADDRESS)
@@ -78,6 +83,9 @@ impl Address {
     /// Kanari System address (0x2)
     pub const KANARI_SYSTEM_ADDRESS: &'static str = "0x2";
 
+    /// Kanari Governance address (0x3)
+    pub const KANARI_GOVERNANCE_ADDRESS: &'static str = "0x3";
+
     /// Genesis/System address (0x0)
     pub const GENESIS_ADDRESS: &'static str = "0x0";
 
@@ -100,6 +108,12 @@ impl Address {
     /// Uses lazy_static for zero-cost after initialization
     pub fn kanari_system_account_address() -> AccountAddress {
         *KANARI_SYSTEM_ACCOUNT_ADDRESS
+    }
+
+    /// Helper to get AccountAddress for Kanari Governance (0x3) - cached at first use
+    /// Uses lazy_static for zero-cost after initialization
+    pub fn kanari_governance_account_address() -> AccountAddress {
+        *KANARI_GOVERNANCE_ACCOUNT_ADDRESS
     }
 
     /// Helper to get AccountAddress for Genesis (0x0) - cached at first use

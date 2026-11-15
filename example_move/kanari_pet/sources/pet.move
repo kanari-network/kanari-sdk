@@ -318,7 +318,7 @@ module kanari_pet::pet {
             ctx
         );
         table::add(&mut stats.levels, krc_721::nft_address(&pet), 0);
-        krc_721::transfer(pet, recipient);
+        krc_721::transfer(pet, recipient, ctx);
     }
 
     /// Destroy a pet and return its supply unit to the cap.
@@ -351,7 +351,7 @@ module kanari_pet::pet {
         if (table::contains(&stats.levels, pet_address)) {
             let _ = table::remove(&mut stats.levels, pet_address);
         };
-        krc_721::burn(pet_cap, collection, pet);
+        krc_721::burn(pet_cap, collection, pet, ctx);
     }
 
     /// Transfer the pet to another address.
@@ -365,8 +365,8 @@ module kanari_pet::pet {
     /// Only the current owner can call this: the pet arrives as a declared
     /// owned object input, and the runtime rejects mutable owned inputs whose
     /// stored owner is not the sender.
-    public entry fun transfer(pet: Nft, recipient: address, _ctx: &mut TxContext) {
-        krc_721::transfer(pet, recipient);
+    public entry fun transfer(pet: Nft, recipient: address, ctx: &mut TxContext) {
+        krc_721::transfer(pet, recipient, ctx);
     }
 
     /// Insert or overwrite one attribute, taking raw bytes for the CLI.
@@ -632,7 +632,7 @@ module kanari_pet::pet {
             ctx
         );
         table::add(&mut stats.levels, krc_721::nft_address(&pet), initial_level);
-        krc_721::transfer(pet, recipient);
+        krc_721::transfer(pet, recipient, ctx);
     }
 
     /// Power for `level`: purely a function of level, so two pets at the same
@@ -752,8 +752,8 @@ module kanari_pet::pet {
     /// No `TransferRequest` is created: a direct transfer has no sale price for
     /// a royalty rule to charge against. If the owner wants rules on every
     /// movement, route through `trade` instead.
-    public entry fun transfer_pet(pet: Nft, recipient: address, _ctx: &mut TxContext) {
-        krc_721::transfer(pet, recipient);
+    public entry fun transfer_pet(pet: Nft, recipient: address, ctx: &mut TxContext) {
+        krc_721::transfer(pet, recipient, ctx);
     }
 
     /// Sell a pet: open a request, let the royalty rule take its cut, confirm.
@@ -779,7 +779,7 @@ module kanari_pet::pet {
             policy,
             request
         );
-        krc_721::transfer(pet, recipient);
+        krc_721::transfer(pet, recipient, ctx);
     }
 
     /// `royalty_rule::pay` needs a `&mut TransferRequest`, and this edition has

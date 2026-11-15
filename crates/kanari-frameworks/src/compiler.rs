@@ -78,7 +78,7 @@ pub fn compile_package(
     let package_name = get_package_name(package_dir)?;
     let source_files = collect_move_files(&sources_dir)?;
     let dependencies =
-        if is_stdlib(address)? { Vec::new() } else { load_stdlib_dependencies(package_dir)? };
+        if is_stdlib(address)? { Vec::new() } else { load_dependency_sources(package_dir)? };
 
     info!(
         "  Package: {} | Sources: {} | Deps: {}",
@@ -164,16 +164,18 @@ fn compile_move_source(
         .collect()
 }
 
-/// Get package name from Move.toml or directory name
+/// Get package name from `Move.toml`.
+///
+/// A framework package without a readable `Move.toml` (or without a `name`
+/// field) is a misconfiguration and fails instead of producing a package
+/// with a guessed name.
 fn get_package_name(package_dir: &Path) -> Result<String> {
     let move_toml = package_dir.join("Move.toml");
-    if move_toml.exists() {
-        let content = fs::read_to_string(&move_toml)?;
-        if let Some(name) = parse_package_name(&content) {
-            return Ok(name);
-        }
+    if !move_toml.exists() {
+        anyhow::bail!("Move.toml not found: {:?}", move_toml);
     }
-    Ok(package_dir.file_name().and_then(|s| s.to_str()).unwrap_or("unknown").to_string())
+    let content = fs::read_to_string(&move_toml)?;
+    parse_package_name(&content).with_context(|| format!("Missing package name in {:?}", move_toml))
 }
 
 /// Collect all .move files from directory, recursing into subdirectories.
@@ -213,10 +215,35 @@ fn is_stdlib(address: &str) -> Result<bool> {
     Ok(addr == stdlib_addr)
 }
 
-/// Load stdlib dependencies
-fn load_stdlib_dependencies(package_dir: &Path) -> Result<Vec<PathBuf>> {
-    let stdlib_dir = package_dir.join("../move-stdlib/sources");
-    if stdlib_dir.exists() { collect_move_files(&stdlib_dir) } else { Ok(Vec::new()) }
+/// Load dependency package sources for a non-stdlib package.
+///
+/// Dependencies come from `packages_config` (e.g. `kanari-governance` depends
+/// on `move-stdlib` and `kanari-system`); only loading the sibling
+/// `move-stdlib/sources` left framework dependencies unresolved and failed the
+/// build with `E03002 unbound module` in files that `use` them.
+///
+/// A package without a `packages_config` entry or with a missing dependency
+/// directory is an error, so silent half-configured builds cannot produce
+/// incomplete bytecode.
+fn load_dependency_sources(package_dir: &Path) -> Result<Vec<PathBuf>> {
+    let directory = package_dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .with_context(|| format!("Cannot determine package directory name from {package_dir:?}"))?;
+    let config =
+        get_package_configs().into_iter().find(|c| c.directory == directory).with_context(
+            || format!("No packages_config entry for framework package directory {directory:?}"),
+        )?;
+
+    let mut dependencies = Vec::new();
+    for dep in config.get_dependencies() {
+        let dep_sources = package_dir.join("..").join(dep).join("sources");
+        if !dep_sources.exists() {
+            anyhow::bail!("Dependency sources not found: {:?}", dep_sources);
+        }
+        dependencies.extend(collect_move_files(&dep_sources)?);
+    }
+    Ok(dependencies)
 }
 
 /// Get standard named addresses from packages_config

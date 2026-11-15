@@ -41,10 +41,11 @@ impl MoveRuntime {
                 continue;
             }
             if !self.has_module(&dep)? {
-                // Allow dependencies on stdlib (0x1) and system (0x2)
+                // Allow dependencies on stdlib (0x1), system (0x2) and governance (0x3)
                 let addr = dep.address();
                 if addr != &KanariAddress::std_account_address()
                     && addr != &KanariAddress::kanari_system_account_address()
+                    && addr != &KanariAddress::kanari_governance_account_address()
                 {
                     anyhow::bail!(
                         "Missing dependency: {}::{}",
@@ -67,10 +68,11 @@ impl MoveRuntime {
 
     /// Check if a module is available in storage
     fn has_module(&self, module_id: &ModuleId) -> Result<bool> {
-        // Check by assuming stdlib/system modules are always available
+        // Check by assuming stdlib/system/governance modules are always available
         let addr = module_id.address();
         if addr == &KanariAddress::std_account_address()
             || addr == &KanariAddress::kanari_system_account_address()
+            || addr == &KanariAddress::kanari_governance_account_address()
         {
             return Ok(true);
         }

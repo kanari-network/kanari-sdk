@@ -75,7 +75,7 @@ module james::nft {
             attribute_values,
             ctx
         );
-        krc_721::transfer(nft, kanari_system::tx_context::sender(ctx));
+        krc_721::transfer(nft, kanari_system::tx_context::sender(ctx), ctx);
     }
 
     /// Burn a token through the framework so its collection and supply cap are
@@ -84,9 +84,9 @@ module james::nft {
         cap: &mut collection::NftCap,
         coll: &collection::Collection,
         nft: Nft,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
-        krc_721::burn(cap, coll, nft);
+        krc_721::burn(cap, coll, nft, ctx);
     }
 
     /// Regulated transfer through the shared framework deny list.
@@ -104,7 +104,7 @@ module james::nft {
         nft: Nft,
         recipient: address,
         deny_list: &DenyList,
-        _ctx: &mut TxContext
+        ctx: &mut TxContext
     ) {
         let collection_id = krc_721::collection_of(&nft);
         assert!(
@@ -112,7 +112,7 @@ module james::nft {
             EDENIED
         );
         assert!(!krc_721::is_paused(deny_list, collection_id), EDENIED);
-        krc_721::transfer(nft, recipient);
+        krc_721::transfer(nft, recipient, ctx);
     }
 
     /// Replace token attributes using the framework's validation and limits.

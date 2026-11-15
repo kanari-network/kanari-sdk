@@ -10,6 +10,16 @@ pub fn kanari_system_package_path() -> Result<String> {
     Ok(move_manifest_local_path(&canonical))
 }
 
+#[allow(dead_code)]
+pub fn kanari_governance_package_path() -> Result<String> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let package = manifest_dir.join("../../../crates/kanari-frameworks/packages/kanari-governance");
+    let canonical = package.canonicalize().with_context(|| {
+        format!("resolve KanariGovernance package path from {}", package.display())
+    })?;
+    Ok(move_manifest_local_path(&canonical))
+}
+
 fn move_manifest_local_path(path: &Path) -> String {
     let normalized = path.display().to_string().replace('\\', "/");
     normalized.strip_prefix("//?/").unwrap_or(&normalized).to_string()

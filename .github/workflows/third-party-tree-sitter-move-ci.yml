@@ -63,6 +63,7 @@ jobs:
           for pkg in \
             crates/kanari-frameworks/packages/move-stdlib \
             crates/kanari-frameworks/packages/kanari-system \
+            crates/kanari-frameworks/packages/kanari-governance \
             example_move/dex_v1 \
             example_move/escrow; do
             echo "==> kanari move fmt --check in ${pkg}"

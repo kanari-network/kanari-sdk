@@ -10,6 +10,8 @@ pub struct PackageConfig {
     pub directory: &'static str,
     pub address: &'static str,
     pub address_name: &'static str,
+    /// Framework package directories this package depends on (besides itself).
+    pub dependencies: &'static [&'static str],
 }
 
 impl PackageConfig {
@@ -20,7 +22,7 @@ impl PackageConfig {
 
     /// Get dependencies for this package
     pub fn get_dependencies(&self) -> Vec<&'static str> {
-        if self.is_stdlib() { Vec::new() } else { vec!["move-stdlib"] }
+        if self.is_stdlib() { Vec::new() } else { self.dependencies.to_vec() }
     }
 }
 
@@ -31,15 +33,23 @@ const PACKAGES: &[PackageConfig] = &[
         directory: "move-stdlib",
         address: Address::STD_ADDRESS,
         address_name: "std",
+        dependencies: &[],
     },
     PackageConfig {
         name: "KanariSystem",
         directory: "kanari-system",
         address: Address::KANARI_SYSTEM_ADDRESS,
         address_name: "kanari_system",
+        dependencies: &["move-stdlib"],
     },
-    // Add new packages here:
-    // PackageConfig { name: "MyPackage", directory: "my-package", address: "0x3", address_name: "my_package" },
+    PackageConfig {
+        name: "KanariGovernance",
+        directory: "kanari-governance",
+        address: Address::KANARI_GOVERNANCE_ADDRESS,
+        address_name: "kanari_governance",
+        dependencies: &["move-stdlib", "kanari-system"],
+    },
+    // Add new packages here.
 ];
 
 pub fn get_package_configs() -> Vec<PackageConfig> {
@@ -53,7 +63,7 @@ mod tests {
     #[test]
     fn test_package_configs() {
         let configs = get_package_configs();
-        assert!(configs.len() >= 2);
+        assert!(configs.len() >= 3);
 
         let stdlib = configs.iter().find(|p| p.name == "MoveStdlib").unwrap();
         assert_eq!(stdlib.directory, "move-stdlib");
@@ -62,5 +72,10 @@ mod tests {
         let system = configs.iter().find(|p| p.name == "KanariSystem").unwrap();
         assert_eq!(system.directory, "kanari-system");
         assert_eq!(system.address, Address::KANARI_SYSTEM_ADDRESS);
+
+        let governance = configs.iter().find(|p| p.name == "KanariGovernance").unwrap();
+        assert_eq!(governance.directory, "kanari-governance");
+        assert_eq!(governance.address, Address::KANARI_GOVERNANCE_ADDRESS);
+        assert!(governance.get_dependencies().contains(&"kanari-system"));
     }
 }

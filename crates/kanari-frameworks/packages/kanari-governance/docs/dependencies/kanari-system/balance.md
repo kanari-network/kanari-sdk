@@ -1,0 +1,607 @@
+
+<a name="0x2_balance"></a>
+
+# Module `0x2::balance`
+
+
+
+-  [Struct `Balance`](#0x2_balance_Balance)
+-  [Struct `Supply`](#0x2_balance_Supply)
+-  [Constants](#@Constants_0)
+-  [Function `zero`](#0x2_balance_zero)
+-  [Function `create`](#0x2_balance_create)
+-  [Function `value`](#0x2_balance_value)
+-  [Function `increase`](#0x2_balance_increase)
+-  [Function `decrease`](#0x2_balance_decrease)
+-  [Function `transfer`](#0x2_balance_transfer)
+-  [Function `has_sufficient`](#0x2_balance_has_sufficient)
+-  [Function `destroy`](#0x2_balance_destroy)
+-  [Function `destroy_zero`](#0x2_balance_destroy_zero)
+-  [Function `burn`](#0x2_balance_burn)
+-  [Function `new_supply`](#0x2_balance_new_supply)
+-  [Function `increase_supply`](#0x2_balance_increase_supply)
+-  [Function `decrease_supply`](#0x2_balance_decrease_supply)
+-  [Function `supply_total`](#0x2_balance_supply_total)
+-  [Function `merge`](#0x2_balance_merge)
+-  [Function `split`](#0x2_balance_split)
+
+
+<pre><code><b>use</b> <a href="../../dependencies/kanari-system/types.md#0x2_types">0x2::types</a>;
+</code></pre>
+
+
+
+<a name="0x2_balance_Balance"></a>
+
+## Struct `Balance`
+
+Balance resource - Stores the balance value (generic per token type)
+REMOVED <code>drop</code> ability to enforce explicit destruction via <code><a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>()</code>
+
+
+<pre><code><b>struct</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; <b>has</b> store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>value: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="0x2_balance_Supply"></a>
+
+## Struct `Supply`
+
+Supply: mutable minting handle consumed to create balances
+REMOVED <code>drop</code> ability to prevent accidental loss of minting authority
+
+
+<pre><code><b>struct</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; <b>has</b> store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>total: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a name="@Constants_0"></a>
+
+## Constants
+
+
+<a name="0x2_balance_ERR_INSUFFICIENT_BALANCE"></a>
+
+Error codes
+
+
+<pre><code><b>const</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>: u64 = 1;
+</code></pre>
+
+
+
+<a name="0x2_balance_ERR_INSUFFICIENT_SUPPLY"></a>
+
+
+
+<pre><code><b>const</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_INSUFFICIENT_SUPPLY">ERR_INSUFFICIENT_SUPPLY</a>: u64 = 4;
+</code></pre>
+
+
+
+<a name="0x2_balance_ERR_OVERFLOW"></a>
+
+
+
+<pre><code><b>const</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>: u64 = 2;
+</code></pre>
+
+
+
+<a name="0x2_balance_ERR_ZERO_AMOUNT"></a>
+
+
+
+<pre><code><b>const</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>: u64 = 3;
+</code></pre>
+
+
+
+<a name="0x2_balance_zero"></a>
+
+## Function `zero`
+
+Create a new zero-value Balance
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_zero">zero</a>&lt;T&gt;(): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_zero">zero</a>&lt;T&gt;(): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+        value: 0
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_create"></a>
+
+## Function `create`
+
+Create a new Balance with an initial value.
+Friend-only: arbitrary public minting would forge value. <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin_mint">coin::mint</a></code>
+is the production path (backed by <code>TreasuryCap</code>).
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_create">create</a>&lt;T&gt;(value: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+        value
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_value"></a>
+
+## Function `value`
+
+Get the current balance value
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_value">value</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_value">value</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_increase"></a>
+
+## Function `increase`
+
+Friend-only for the same reason as <code>create</code>: only the <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin">coin</a></code> module
+may conjure value. Value-conserving callers use <code>merge</code>.
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
+    <b>assert</b>!(amount &gt; 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>); // FIXED: Added zero check
+    // Pre-check: `+` traps <b>as</b> an arithmetic error before the <b>assert</b> below runs.
+    <b>assert</b>!(
+        amount &lt;= 18446744073709551615 - <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>
+    );
+    <b>let</b> new_value = <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value + amount;
+    <b>assert</b>!(new_value &gt;= <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value = new_value;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_decrease"></a>
+
+## Function `decrease`
+
+Friend-only: an unpaired public <code>decrease</code> would let callers shave
+value out of the ledger without the paired supply bookkeeping. The
+paired burn path is <code>burn</code> (below).
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64) {
+    <b>assert</b>!(amount &gt; 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
+    <b>assert</b>!(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value &gt;= amount, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value = <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value - amount;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_transfer"></a>
+
+## Function `transfer`
+
+Transfer value from one Balance to another
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(from: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, <b>to</b>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/transfer.md#0x2_transfer">transfer</a>&lt;T&gt;(
+    from: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
+    <b>to</b>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;,
+    amount: u64
+) {
+    <b>assert</b>!(amount &gt; 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(from, amount);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(<b>to</b>, amount);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_has_sufficient"></a>
+
+## Function `has_sufficient`
+
+Check if the balance is sufficient for a given amount
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_has_sufficient">has_sufficient</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64): bool
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_has_sufficient">has_sufficient</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64): bool {
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>.value &gt;= amount
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_destroy"></a>
+
+## Function `destroy`
+
+Destroy the Balance and return its value.
+Friend-only: a public destroy of a non-zero balance removes value
+with no paired supply decrement — supply accounting drifts. The
+paired production path is <code>burn</code> (below); frameworks' <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin_burn">coin::burn</a></code>
+pairs it with its own <code>TreasuryCap</code> total. Use <code>destroy_zero</code> for
+valueless balances.
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b>(<b>friend</b>) <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
+    <b>let</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a> { value } = <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>;
+    value
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_destroy_zero"></a>
+
+## Function `destroy_zero`
+
+Destroy a valueless <code><a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;</code>. Public and safe: nothing leaves
+the ledger.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy_zero">destroy_zero</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;) {
+    <b>assert</b>!(<a href="../../dependencies/kanari-system/balance.md#0x2_balance_value">value</a>&lt;T&gt;(&<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>) == 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_INSUFFICIENT_BALANCE">ERR_INSUFFICIENT_BALANCE</a>);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>);
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_burn"></a>
+
+## Function `burn`
+
+The only public way to destroy a non-zero balance: the destroyed
+value is paired with a supply decrement on the <code><a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;</code> handle,
+so the ledger stays conserved. The handle is the caller's burn
+authority — only whoever owns it may burn this coin type.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_burn">burn</a>&lt;T&gt;(supply: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_burn">burn</a>&lt;T&gt;(supply: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, <a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;): u64 {
+    <b>let</b> value = <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>);
+    <b>if</b> (value &gt; 0) {
+        <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(supply, value);
+    };
+    value
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_new_supply"></a>
+
+## Function `new_supply`
+
+Create a new (empty) supply handle. Requires a <code>witness: T</code>: only the
+module defining <code>T</code> can construct one (structs pack module-locally),
+so a supply for a foreign coin type cannot be forged. The witness
+type is additionally claimed once chain-wide (same registry as
+<code><a href="../../dependencies/kanari-system/coin.md#0x2_coin_create_currency">coin::create_currency</a></code>): one canonical supply per coin type, so
+per-pool LP patterns should track shares with plain counters (see
+the <code>uniswap_amm</code> test package) instead of one <code><a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a></code> per pool.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_new_supply">new_supply</a>&lt;T: drop&gt;(witness: T): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_new_supply">new_supply</a>&lt;T: drop&gt;(witness: T): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
+    kanari_system::types::claim_witness(&witness);
+    <b>let</b> _ = witness;
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt; {
+        total: 0
+    }
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_increase_supply"></a>
+
+## Function `increase_supply`
+
+Increase supply: add <code>amount</code> to <code>s</code> and return a <code><a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a></code> for the newly minted amount.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase_supply">increase_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, amount: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase_supply">increase_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, amount: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+    <b>assert</b>!(amount &gt; 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
+    // Pre-check: `+` traps <b>as</b> an arithmetic error before the <b>assert</b> below runs.
+    <b>assert</b>!(
+        amount &lt;= 18446744073709551615 - s.total, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>
+    );
+    <b>let</b> new_total = s.total + amount;
+    <b>assert</b>!(new_total &gt;= s.total, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_OVERFLOW">ERR_OVERFLOW</a>);
+    s.total = new_total;
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_create">create</a>&lt;T&gt;(amount)
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_decrease_supply"></a>
+
+## Function `decrease_supply`
+
+Decrease supply by <code>amount</code>. Useful for burning coins.
+Made internal logic tighter. Consider making this <code><b>public</b>(<b>friend</b>)</code>
+if only <code><a href="../../dependencies/kanari-system/coin.md#0x2_coin">coin</a></code> module should call it.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;, amount: u64)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease_supply">decrease_supply</a>&lt;T&gt;(s: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;, amount: u64) {
+    <b>assert</b>!(amount &gt; 0, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_ZERO_AMOUNT">ERR_ZERO_AMOUNT</a>);
+    <b>assert</b>!(s.total &gt;= amount, <a href="../../dependencies/kanari-system/balance.md#0x2_balance_ERR_INSUFFICIENT_SUPPLY">ERR_INSUFFICIENT_SUPPLY</a>); // FIXED: Specific error code
+    s.total = s.total - amount;
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_supply_total"></a>
+
+## Function `supply_total`
+
+Read the current total supply value from a supply handle.
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_supply_total">supply_total</a>&lt;T&gt;(s: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">balance::Supply</a>&lt;T&gt;): u64
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_supply_total">supply_total</a>&lt;T&gt;(s: &<a href="../../dependencies/kanari-system/balance.md#0x2_balance_Supply">Supply</a>&lt;T&gt;): u64 {
+    s.total
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_merge"></a>
+
+## Function `merge`
+
+Merge two Balances together
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_merge">merge</a>&lt;T&gt;(dst: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, src: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;)
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_merge">merge</a>&lt;T&gt;(dst: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, src: <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;) {
+    <b>let</b> value = <a href="../../dependencies/kanari-system/balance.md#0x2_balance_destroy">destroy</a>&lt;T&gt;(src);
+    // Zero-amount merge is a no-op: `increase` rejects 0, but joining
+    // empty coins (e.g. `<a href="../../dependencies/kanari-system/coin.md#0x2_coin_join">coin::join</a>` of zero coins) must stay legal.
+    <b>if</b> (value &gt; 0) {
+        <a href="../../dependencies/kanari-system/balance.md#0x2_balance_increase">increase</a>&lt;T&gt;(dst, value);
+    };
+}
+</code></pre>
+
+
+
+</details>
+
+<a name="0x2_balance_split"></a>
+
+## Function `split`
+
+Split the Balance into two
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_split">split</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;, amount: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">balance::Balance</a>&lt;T&gt;
+</code></pre>
+
+
+
+<details>
+<summary>Implementation</summary>
+
+
+<pre><code><b>public</b> <b>fun</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_split">split</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>: &<b>mut</b> <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt;, amount: u64): <a href="../../dependencies/kanari-system/balance.md#0x2_balance_Balance">Balance</a>&lt;T&gt; {
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_decrease">decrease</a>&lt;T&gt;(<a href="../../dependencies/kanari-system/balance.md#0x2_balance">balance</a>, amount);
+    <a href="../../dependencies/kanari-system/balance.md#0x2_balance_create">create</a>&lt;T&gt;(amount)
+}
+</code></pre>
+
+
+
+</details>
+
+
+[//]: # ("File containing references which can be used from documentation")
+
+[Move Language]: https://github.com/move-language/move
+[Kanari]: https://github.com/kanari-network/kanari-sdk
+[Move Book]: https://move-language.github.io/move/
+[Governance Module]: governance.md
