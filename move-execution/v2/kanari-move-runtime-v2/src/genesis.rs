@@ -20,7 +20,7 @@ use std::format;
 /// One-time framework initializer executed right after its module is published.
 struct GenesisInit {
     /// Published module file that triggers this init (e.g. `"kanari.mv"`).
-    file_name: &'static str,
+    file_name: String,
     /// Module name of the `init` function (e.g. `"kanari"`).
     module_name: &'static str,
     /// Pre-context entry arguments: empty witness encoding, or nothing.
@@ -34,14 +34,14 @@ struct GenesisInit {
 fn system_inits() -> Vec<GenesisInit> {
     vec![
         GenesisInit {
-            file_name: "kanari.mv",
-            module_name: "kanari",
+            file_name: format!("{}.mv", kanari_types::gas_coin::GasModule::GAS_MODULE),
+            module_name: kanari_types::gas_coin::GasModule::GAS_MODULE,
             args: vec![Vec::new()],
             tx_hash_seed: b"KANARI::GENESIS::INIT::KANARI",
         },
         GenesisInit {
-            file_name: "usd.mv",
-            module_name: "usd",
+            file_name: format!("{}.mv", kanari_types::usd_coin::UsdModule::USD_MODULE),
+            module_name: kanari_types::usd_coin::UsdModule::USD_MODULE,
             args: vec![Vec::new()],
             tx_hash_seed: b"KANARI::GENESIS::INIT::USD",
         },
@@ -51,8 +51,8 @@ fn system_inits() -> Vec<GenesisInit> {
 /// `governance::init(ctx)` takes no witness, hence empty args.
 fn governance_inits() -> Vec<GenesisInit> {
     vec![GenesisInit {
-        file_name: "governance.mv",
-        module_name: "governance",
+        file_name: format!("{}.mv", kanari_types::governance::GovernanceModule::GOVERNANCE_MODULE),
+        module_name: kanari_types::governance::GovernanceModule::GOVERNANCE_MODULE,
         args: vec![],
         tx_hash_seed: b"KANARI::GENESIS::INIT::GOVERNANCE",
     }]

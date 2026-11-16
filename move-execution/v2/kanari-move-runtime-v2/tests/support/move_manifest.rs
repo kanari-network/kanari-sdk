@@ -1,23 +1,36 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-pub fn kanari_system_package_path() -> Result<String> {
+/// Resolve the on-disk path of a framework package by name, searching upward
+/// from the crate manifest so the test helper does not depend on a fixed
+/// relative layout.
+fn find_package_dir(package_name: &str) -> Result<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let package = manifest_dir.join("../../../crates/kanari-frameworks/packages/kanari-system");
-    let canonical = package
-        .canonicalize()
-        .with_context(|| format!("resolve KanariSystem package path from {}", package.display()))?;
-    Ok(move_manifest_local_path(&canonical))
+    let mut dir = Some(manifest_dir.as_path());
+    while let Some(d) = dir {
+        let candidate =
+            d.join("crates").join("kanari-frameworks").join("packages").join(package_name);
+        if candidate.is_dir() {
+            return candidate.canonicalize().with_context(|| {
+                format!("resolve {package_name} package path from {}", candidate.display())
+            });
+        }
+        dir = d.parent();
+    }
+    // Fall back to the conventional relative location for error reporting.
+    anyhow::bail!(
+        "Could not locate {package_name} package directory (tried ancestors of {})",
+        manifest_dir.display()
+    )
+}
+
+pub fn kanari_system_package_path() -> Result<String> {
+    Ok(move_manifest_local_path(&find_package_dir("kanari-system")?))
 }
 
 #[allow(dead_code)]
 pub fn kanari_governance_package_path() -> Result<String> {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let package = manifest_dir.join("../../../crates/kanari-frameworks/packages/kanari-governance");
-    let canonical = package.canonicalize().with_context(|| {
-        format!("resolve KanariGovernance package path from {}", package.display())
-    })?;
-    Ok(move_manifest_local_path(&canonical))
+    Ok(move_manifest_local_path(&find_package_dir("kanari-governance")?))
 }
 
 fn move_manifest_local_path(path: &Path) -> String {

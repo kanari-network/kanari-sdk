@@ -10,7 +10,13 @@ use move_command_line_common::{
     address::NumericalAddress,
     files::{MOVE_EXTENSION, extension_equals, find_filenames},
 };
+use move_compiler::editions::Edition;
+use move_compiler::shared::PackageConfig;
+use move_compiler::shared::PackagePaths;
+use move_model::{parse_addresses_from_options, run_model_builder_with_options};
+use move_symbol_pool::Symbol;
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
+use termcolor::{ColorChoice, StandardStream};
 
 /// Configuration for a Move package documentation
 #[derive(Debug, Clone)]
@@ -28,6 +34,8 @@ pub struct PackageDocConfig {
     pub references_template: Option<String>,
     pub named_addresses: BTreeMap<String, NumericalAddress>,
     pub dependencies: Vec<String>,
+    /// Move edition to compile the package under (read from `Move.toml`).
+    pub edition: move_compiler::editions::Edition,
 }
 
 impl PackageDocConfig {
@@ -43,6 +51,7 @@ impl PackageDocConfig {
             references_template: Some(format!("{}/doc_templates/references.md", base_dir)),
             named_addresses: BTreeMap::new(),
             dependencies: vec![],
+            edition: Edition::LEGACY,
         }
     }
 
@@ -99,12 +108,12 @@ pub fn generate_documentation(config: &PackageDocConfig) -> Result<()> {
 
     time_it(&format!("Generating {} documentation", config.name), || {
         std::fs::remove_dir_all(&config.docs_dir).ok();
-        run_prover(make_docgen_options(config, &source_files)?)
+        run_prover(make_docgen_options(config, &source_files)?, config.edition)
     })?;
 
     time_it(&format!("Generating {} error map", config.name), || {
         std::fs::remove_file(&config.errmap_file).ok();
-        run_prover(make_errmap_options(config, &source_files))
+        run_prover(make_errmap_options(config, &source_files), config.edition)
     })?;
 
     info!("Documentation generated successfully!");
@@ -183,8 +192,37 @@ fn make_errmap_options(config: &PackageDocConfig, sources: &[String]) -> move_pr
 /// of panicking: a failing package aborts `docs` with a proper error message
 /// and non-zero exit code (previously an `unwrap()` panicked and skipped the
 /// remaining packages without a summary).
-fn run_prover(options: move_prover::cli::Options) -> Result<()> {
+///
+/// The model is built with the 2024 edition so that `public struct` (and
+/// other 2024-only features used by the framework sources) are accepted; the
+/// prover defaults to the legacy edition when no package config is supplied.
+fn run_prover(options: move_prover::cli::Options, edition: Edition) -> Result<()> {
     options.setup_logging_for_test();
-    move_prover::run_move_prover_errors_to_stderr(options)
+    let mut error_writer = StandardStream::stderr(ColorChoice::Auto);
+    let now = Instant::now();
+
+    let addrs = parse_addresses_from_options(options.move_named_address_values.clone())?;
+
+    let package_config = PackageConfig { edition, ..Default::default() };
+    let dep_package_config = PackageConfig { edition: Edition::LEGACY, ..Default::default() };
+    let src_name = Symbol::from("docgen_src");
+    let dep_name = Symbol::from("docgen_dep");
+
+    let env = run_model_builder_with_options(
+        vec![PackagePaths {
+            name: Some((src_name, package_config)),
+            paths: options.move_sources.clone(),
+            named_address_map: addrs.clone(),
+        }],
+        vec![PackagePaths {
+            name: Some((dep_name, dep_package_config)),
+            paths: options.move_deps.clone(),
+            named_address_map: addrs,
+        }],
+        options.model_builder.clone(),
+        None,
+    )?;
+
+    move_prover::run_move_prover_with_model(&env, &mut error_writer, options, Some(now))
         .with_context(|| "Move model building failed".to_string())
 }

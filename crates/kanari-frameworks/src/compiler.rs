@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use kanari_types::address::Address;
 use log::info;
 use move_command_line_common::address::NumericalAddress;
-use move_compiler::{Compiler, Flags};
+use move_compiler::{Compiler, Flags, editions::Edition};
 use move_symbol_pool::Symbol;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -76,6 +76,7 @@ pub fn compile_package(
     }
 
     let package_name = get_package_name(package_dir)?;
+    let target_edition = read_move_edition(package_dir);
     let source_files = collect_move_files(&sources_dir)?;
     let dependencies =
         if is_stdlib(address)? { Vec::new() } else { load_dependency_sources(package_dir)? };
@@ -88,7 +89,8 @@ pub fn compile_package(
     );
 
     // Compile Move sources
-    let compiled_modules = compile_move_source(source_files, dependencies, get_named_addresses())?;
+    let compiled_modules =
+        compile_move_source(source_files, target_edition, dependencies, get_named_addresses())?;
 
     info!("Compiled {} modules", compiled_modules.len());
 
@@ -130,22 +132,43 @@ fn encode_rpd_package(package: &KanariPackage) -> Result<Vec<u8>> {
 /// Compile Move source files to bytecode
 fn compile_move_source(
     source_files: Vec<PathBuf>,
-    dependencies: Vec<PathBuf>,
+    target_edition: Edition,
+    dependencies: Vec<(PathBuf, Edition)>,
     named_addresses: BTreeMap<Symbol, NumericalAddress>,
 ) -> Result<Vec<ModuleData>> {
+    use move_compiler::shared::PackageConfig;
+    use move_compiler::shared::PackagePaths;
+
     let to_symbols = |paths: &[PathBuf]| {
         paths.iter().map(|p| Symbol::from(p.to_string_lossy().as_ref())).collect()
     };
 
-    let (_files, compiled_units) = Compiler::from_files(
-        None,
-        to_symbols(&source_files),
-        to_symbols(&dependencies),
-        named_addresses,
-    )
-    .set_flags(Flags::empty())
-    .build_and_report()
-    .context("Move compilation failed")?;
+    let target_config = PackageConfig { edition: target_edition, ..Default::default() };
+    let target_name = Symbol::from("target");
+
+    let targets = vec![PackagePaths {
+        name: Some((target_name, target_config)),
+        paths: to_symbols(&source_files),
+        named_address_map: named_addresses.clone(),
+    }];
+
+    let mut deps = Vec::new();
+    for (dep_dir, dep_edition) in &dependencies {
+        let dep_sources = collect_move_files(&dep_dir.join("sources"))?;
+        let dep_config = PackageConfig { edition: *dep_edition, ..Default::default() };
+        let dep_name = Symbol::from(dep_dir.file_name().and_then(|s| s.to_str()).unwrap_or("dep"));
+        deps.push(PackagePaths {
+            name: Some((dep_name, dep_config)),
+            paths: to_symbols(&dep_sources),
+            named_address_map: named_addresses.clone(),
+        });
+    }
+    // If no deps, still pass empty vec (from_package_paths handles empty).
+
+    let (_files, compiled_units) = Compiler::from_package_paths(None, targets, deps)?
+        .set_flags(Flags::empty())
+        .build_and_report()
+        .context("Move compilation failed")?;
 
     compiled_units
         .into_iter()
@@ -225,7 +248,7 @@ fn is_stdlib(address: &str) -> Result<bool> {
 /// A package without a `packages_config` entry or with a missing dependency
 /// directory is an error, so silent half-configured builds cannot produce
 /// incomplete bytecode.
-fn load_dependency_sources(package_dir: &Path) -> Result<Vec<PathBuf>> {
+fn load_dependency_sources(package_dir: &Path) -> Result<Vec<(PathBuf, Edition)>> {
     let directory = package_dir
         .file_name()
         .and_then(|s| s.to_str())
@@ -237,17 +260,29 @@ fn load_dependency_sources(package_dir: &Path) -> Result<Vec<PathBuf>> {
 
     let mut dependencies = Vec::new();
     for dep in config.get_dependencies() {
-        let dep_sources = package_dir.join("..").join(dep).join("sources");
+        let dep_dir = package_dir.join("..").join(dep);
+        if !dep_dir.exists() {
+            anyhow::bail!("Dependency directory not found: {:?}", dep_dir);
+        }
+        let dep_sources = dep_dir.join("sources");
         if !dep_sources.exists() {
             anyhow::bail!("Dependency sources not found: {:?}", dep_sources);
         }
-        dependencies.extend(collect_move_files(&dep_sources)?);
+        let dep_edition = read_move_edition(&dep_dir);
+        dependencies.push((dep_dir, dep_edition));
     }
     Ok(dependencies)
 }
 
+/// Read the `edition` field from a package's `Move.toml`, defaulting to
+/// legacy when unspecified or unreadable.
+fn read_move_edition(package_dir: &Path) -> Edition {
+    let content = std::fs::read_to_string(package_dir.join("Move.toml")).unwrap_or_default();
+    super::packages_config::parse_move_edition(&content)
+}
+
 /// Get standard named addresses from packages_config
-fn get_named_addresses() -> BTreeMap<Symbol, NumericalAddress> {
+pub fn get_named_addresses() -> BTreeMap<Symbol, NumericalAddress> {
     get_package_configs()
         .iter()
         .filter_map(|config| {
@@ -290,5 +325,35 @@ mod tests {
         let mut files = collect_move_files(dir.path()).unwrap();
         files.sort();
         assert_eq!(files, vec![dir.path().join("a.move"), nested.join("b.move")]);
+    }
+
+    /// Strictness: a package directory without a `packages_config` entry must
+    /// error instead of silently producing incomplete bytecode.
+    #[test]
+    fn load_dependency_sources_requires_config_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let bogus = dir.path().join("not-a-real-package");
+        fs::create_dir_all(&bogus).unwrap();
+        assert!(load_dependency_sources(&bogus).is_err());
+    }
+
+    /// Strictness: a missing dependency directory must error.
+    #[test]
+    fn load_dependency_sources_errors_on_missing_dep_dir() {
+        // Use a real configured package (kanari-governance) but point it at a
+        // temp dir so its declared deps (move-stdlib, kanari-system) are absent.
+        let dir = tempfile::tempdir().unwrap();
+        let fake_gov = dir.path().join("kanari-governance");
+        fs::create_dir_all(&fake_gov).unwrap();
+        // Mimic a config entry by using the real package name via a sibling
+        // layout is not possible here; instead just assert that an unknown
+        // directory errors.
+        assert!(load_dependency_sources(&fake_gov).is_err());
+    }
+
+    #[test]
+    fn read_move_edition_defaults_to_legacy() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(read_move_edition(dir.path()), Edition::LEGACY);
     }
 }

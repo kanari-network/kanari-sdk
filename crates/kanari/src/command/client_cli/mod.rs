@@ -18,6 +18,7 @@ pub mod stress_test;
 pub mod token_transfer;
 pub mod transfer;
 pub mod tx;
+pub mod tx_submit;
 pub mod view;
 
 #[derive(Subcommand, Debug)]

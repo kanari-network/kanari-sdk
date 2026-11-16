@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use doc_generator::{PackageDocConfig, generate_documentation};
 use log::{info, warn};
+use move_compiler::editions::Edition;
 use packages_config::get_package_configs;
 use std::{
     env,
@@ -127,27 +128,28 @@ fn build_packages(packages_dir: &Path, version: String) -> Result<()> {
     info!("Packages: {:?}", packages_dir);
     info!("Output: {:?}\n", output_dir);
 
-    let (success, failed) = process_packages(|config| {
-        let package_dir = packages_dir.join(config.directory);
-        if !package_dir.exists() {
-            warn!("Not found: {:?}\n", package_dir);
-            return Err(anyhow::anyhow!("Directory not found"));
-        }
+    let configs = get_package_configs();
+    run_and_report(
+        &configs,
+        |config| {
+            let package_dir = packages_dir.join(config.directory);
+            if !package_dir.exists() {
+                warn!("Not found: {:?}\n", package_dir);
+                return Err(anyhow::anyhow!("Directory not found"));
+            }
 
-        info!("Compiling {} ({})...", config.name, config.address);
-        compiler::compile_package(&package_dir, &output_dir, &version, config.address).map(|file| {
-            info!("{}", config.name);
-            info!("   {:?}\n", file);
-        })
-    });
-
-    print_summary("Compilation", success, failed);
-
-    // Surface failures via the exit code. Previously this always returned
-    // `Ok`, so a failed package build still exited 0 and CI kept going.
-    if failed > 0 {
-        anyhow::bail!("Compilation failed for {failed} package(s)");
-    }
+            info!("Compiling {} ({})...", config.name, config.address);
+            compiler::compile_package(&package_dir, &output_dir, &version, config.address).map(
+                |file| {
+                    info!("{}", config.name);
+                    info!("   {:?}\n", file);
+                },
+            )
+        },
+        |config| config.name,
+        "Compilation",
+        "Compilation",
+    )?;
     Ok(())
 }
 
@@ -176,32 +178,34 @@ fn generate_docs(packages_dir: &Path, specific_package: Option<String>) -> Resul
 
     info!("Generating docs for {} package(s)\n", doc_configs.len());
 
-    let (success, failed) = process_doc_configs(doc_configs);
-    print_summary("Documentation", success, failed);
-
-    // Surface failures via the exit code, like the build subcommand.
-    if failed > 0 {
-        anyhow::bail!("Documentation generation failed for {failed} package(s)");
-    }
+    run_and_report(
+        &doc_configs,
+        generate_documentation,
+        |config| config.name.as_str(),
+        "Documentation",
+        "Documentation",
+    )?;
     Ok(())
 }
 
-/// Process packages with a given function
-fn process_packages<F>(mut process_fn: F) -> (usize, usize)
+/// Run `process` over every item, printing failures to stderr and returning
+/// `(successes, failures)`. Shared by the build and docs subcommands so the
+/// bookkeeping (and the "print failures visibly" policy) lives in one place.
+fn run_items<T, F>(items: &[T], mut process: F, name_of: impl Fn(&T) -> &str) -> (usize, usize)
 where
-    F: FnMut(&packages_config::PackageConfig) -> Result<()>,
+    F: FnMut(&T) -> Result<()>,
 {
     let mut success = 0;
     let mut failed = 0;
 
-    for config in get_package_configs() {
-        match process_fn(&config) {
+    for item in items {
+        match process(item) {
             Ok(_) => success += 1,
             Err(e) => {
-                // NOTE: `log` has no logger initialized in this binary, so
-                // `error!` would be silently dropped. Print to stderr so
-                // failures are always visible (exit code alone hid them).
-                eprintln!("{}: {:#}\n", config.name, e);
+                // `log` has no logger initialized in this binary, so `error!`
+                // would be silently dropped. Print to stderr so failures are
+                // always visible (exit code alone hid them).
+                eprintln!("{}: {:#}\n", name_of(item), e);
                 failed += 1;
             }
         }
@@ -210,38 +214,36 @@ where
     (success, failed)
 }
 
-/// Process documentation configurations
-fn process_doc_configs(configs: Vec<PackageDocConfig>) -> (usize, usize) {
-    let mut success = 0;
-    let mut failed = 0;
+/// Run `process` over every item, printing a summary and failing on any
+/// error. Shared by the build and docs subcommands so the bookkeeping, the
+/// "print failures visibly" policy, and the "surface failures via exit code"
+/// policy all live in one place.
+fn run_and_report<T, F>(
+    items: &[T],
+    mut process: F,
+    name_of: impl Fn(&T) -> &str,
+    operation: &str,
+    failure_label: &str,
+) -> Result<()>
+where
+    F: FnMut(&T) -> Result<()>,
+{
+    let (success, failed) = run_items(items, &mut process, name_of);
+    print_summary(operation, success, failed);
 
-    for config in configs {
-        match generate_documentation(&config) {
-            Ok(_) => success += 1,
-            Err(e) => {
-                // See note in `process_packages`: keep failures visible.
-                eprintln!("{}: {:#}", config.name, e);
-                failed += 1;
-            }
-        }
+    if failed > 0 {
+        anyhow::bail!("{failure_label} failed for {failed} package(s)");
     }
-
-    (success, failed)
+    Ok(())
 }
 
 fn get_doc_configs(packages_dir: &Path) -> Result<Vec<PackageDocConfig>> {
     let package_configs = get_package_configs();
     let mut doc_configs = Vec::new();
 
-    // Every framework named address, resolved strictly from packages_config.
-    // Documenting a package compiles its dependency sources too, so those
-    // dependencies' named addresses must be assigned as well; assigning only
-    // the package's own address made `kanari_system::*` unbound when
-    // documenting `kanari-governance` and failed the whole docs run.
-    let mut all_addresses = Vec::new();
-    for config in &package_configs {
-        all_addresses.push((config.address_name, config.address));
-    }
+    // Reuse the same named-address set as the build path so docs and build
+    // cannot drift apart (single source of truth in packages_config).
+    let named_addresses = compiler::get_named_addresses();
 
     for config in package_configs {
         let package_path = packages_dir.join(config.directory);
@@ -251,12 +253,21 @@ fn get_doc_configs(packages_dir: &Path) -> Result<Vec<PackageDocConfig>> {
 
         let mut doc_config = PackageDocConfig::new(config.name, package_path.to_str().unwrap());
 
-        // Assign every framework address, then record which package owns
-        // this config for `--package` filtering.
-        for (name, address) in &all_addresses {
-            doc_config = doc_config.with_address(name, address)?;
+        for (name, address) in &named_addresses {
+            doc_config = doc_config.with_address(name.as_str(), &address.to_string())?;
         }
         doc_config.directory = config.directory.to_string();
+
+        // Resolve the Move edition from the package's Move.toml (defaults to
+        // legacy when unspecified), so 2024-only sources (e.g. `public struct`)
+        // are compiled correctly by the doc generator.
+        let move_toml_path = package_path.join("Move.toml");
+        let edition = if let Ok(content) = std::fs::read_to_string(&move_toml_path) {
+            packages_config::parse_move_edition(&content)
+        } else {
+            Edition::LEGACY
+        };
+        doc_config.edition = edition;
 
         // Add dependency source paths for non-stdlib packages. A missing
         // dependency directory is an error, mirroring the build path

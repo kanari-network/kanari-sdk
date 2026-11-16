@@ -2,6 +2,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use kanari_types::address::Address;
+use move_compiler::editions::Edition;
+
+/// Parse the `edition` field from a `Move.toml`, defaulting to legacy.
+pub fn parse_move_edition(content: &str) -> Edition {
+    for line in content.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("edition") {
+            let rest = rest.trim_start();
+            if let Some(rest) = rest.strip_prefix('=') {
+                let value = rest.trim().trim_matches('"').trim_matches('\'');
+                return match value {
+                    "2024" => Edition::E2024,
+                    "2024.beta" => Edition::E2024_BETA,
+                    "2024.alpha" => Edition::E2024_ALPHA,
+                    "2024.migration" => Edition::E2024_MIGRATION,
+                    "development" => Edition::DEVELOPMENT,
+                    _ => Edition::LEGACY,
+                };
+            }
+        }
+    }
+    Edition::LEGACY
+}
 
 /// Package configuration
 #[derive(Debug, Clone)]
@@ -77,5 +100,28 @@ mod tests {
         assert_eq!(governance.directory, "kanari-governance");
         assert_eq!(governance.address, Address::KANARI_GOVERNANCE_ADDRESS);
         assert!(governance.get_dependencies().contains(&"kanari-system"));
+    }
+
+    #[test]
+    fn parse_move_edition_defaults_to_legacy() {
+        assert_eq!(parse_move_edition(""), Edition::LEGACY);
+        assert_eq!(parse_move_edition("[package]\nname = \"X\"\n"), Edition::LEGACY);
+        assert_eq!(parse_move_edition("edition = \"legacy\""), Edition::LEGACY);
+        assert_eq!(parse_move_edition("edition = \"unknown\""), Edition::LEGACY);
+    }
+
+    #[test]
+    fn parse_move_edition_recognizes_2024_variants() {
+        assert_eq!(parse_move_edition("edition = \"2024\""), Edition::E2024);
+        assert_eq!(parse_move_edition("edition = \"2024.beta\""), Edition::E2024_BETA);
+        assert_eq!(parse_move_edition("edition = \"2024.alpha\""), Edition::E2024_ALPHA);
+        assert_eq!(parse_move_edition("edition = \"2024.migration\""), Edition::E2024_MIGRATION);
+        assert_eq!(parse_move_edition("edition = \"development\""), Edition::DEVELOPMENT);
+    }
+
+    #[test]
+    fn parse_move_edition_handles_whitespace_and_quotes() {
+        assert_eq!(parse_move_edition("  edition   =   \"2024\"  "), Edition::E2024);
+        assert_eq!(parse_move_edition("edition='2024'"), Edition::E2024);
     }
 }

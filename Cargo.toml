@@ -291,6 +291,7 @@ lsp-types = "0.97.0"
 vfs = "0.13.0"
 url = "2.5.8"
 tree-sitter-move = { path = "third_party/tree-sitter-move" }
+termcolor = "1.4.1"
 
 # ============================================================================
 # Workspace Members (Internal Crates)
@@ -340,7 +341,7 @@ move-docgen = { path = "third_party/move/crates/move-docgen" }
 move-errmapgen = { path = "third_party/move/crates/move-errmapgen" }
 move-bytecode-viewer = { path = "third_party/move/crates/move-bytecode-viewer" }
 move-stdlib-natives = { path = "third_party/move/crates/move-stdlib-natives" }
-
+move-model = { path = "third_party/move/crates/move-model" }
 move-vm-runtime = { path = "third_party/move/crates/move-vm-runtime" }
 move-coverage = { path = "third_party/move/crates/move-coverage" }
 move-bytecode-verifier = { path = "third_party/move/crates/move-bytecode-verifier" }
