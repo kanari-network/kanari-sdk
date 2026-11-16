@@ -448,7 +448,7 @@ module kanari_governance::governance {
     public entry fun set_total_supply(
         cap: &GovernanceCap,
         state: &mut GovernanceState,
-        treasury_cap: &TreasuryCap<KANARI>,
+        treasury_cap: &TreasuryCap<KANARI>
     ) {
         state.total_supply = coin::total_supply<KANARI>(treasury_cap);
     }

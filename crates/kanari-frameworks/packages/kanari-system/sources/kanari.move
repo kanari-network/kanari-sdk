@@ -110,4 +110,3 @@ module kanari_system::kanari {
     }
 
 }
-

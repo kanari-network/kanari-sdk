@@ -1362,7 +1362,7 @@ total supply directly instead of trusting a manually entered value.
 <pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_set_total_supply">set_total_supply</a>(
     cap: &<a href="governance.md#0x3_governance_GovernanceCap">GovernanceCap</a>,
     state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">GovernanceState</a>,
-    treasury_cap: &TreasuryCap&lt;KANARI&gt;,
+    treasury_cap: &TreasuryCap&lt;KANARI&gt;
 ) {
     state.total_supply = <a href="dependencies/kanari-system/coin.md#0x2_coin_total_supply">coin::total_supply</a>&lt;KANARI&gt;(treasury_cap);
 }
