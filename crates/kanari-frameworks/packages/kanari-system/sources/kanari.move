@@ -9,7 +9,7 @@ module kanari_system::kanari {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::pay;
-    use kanari_system::tx_context::{Self, TxContext};
+    use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
     use kanari_system::url;
 
@@ -67,8 +67,10 @@ module kanari_system::kanari {
         transfer::public_transfer(primary_coin, dev_address);
         transfer::public_transfer(gas_coin, dev_address);
 
-        // Transfer the treasury cap to the sender (deployer)
-        transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
+        // Transfer the treasury cap to the dev address (deployer/admin) so that
+        // minting authority lives with a real account that holds a private key,
+        // rather than the framework address 0x2 which has no signer.
+        transfer::public_transfer(treasury_cap, dev_address);
     }
 
     /// Transfer a specific amount of KANARI using the same Move coin path as other tokens.
@@ -108,3 +110,4 @@ module kanari_system::kanari {
     }
 
 }
+

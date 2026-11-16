@@ -22,7 +22,7 @@ module kanari_governance::governance {
     use std::string::{Self, String};
     use std::vector;
     use kanari_system::balance::{Self, Balance};
-    use kanari_system::coin::{Self, Coin};
+    use kanari_system::coin::{Self, Coin, TreasuryCap};
     use kanari_system::object::{Self, UID};
     use kanari_system::transfer;
     use kanari_system::event;
@@ -442,13 +442,15 @@ module kanari_governance::governance {
     }
 
     #[allow(unused_variable)]
-    /// Maintain `total_supply` for quorum math until a supply oracle exists.
+    /// Sync `total_supply` from the Kanari treasury cap (supply oracle). The
+    /// admin supplies the treasury cap; governance reads the authoritative
+    /// total supply directly instead of trusting a manually entered value.
     public entry fun set_total_supply(
         cap: &GovernanceCap,
         state: &mut GovernanceState,
-        supply: u64
+        treasury_cap: &TreasuryCap<KANARI>,
     ) {
-        state.total_supply = supply;
+        state.total_supply = coin::total_supply<KANARI>(treasury_cap);
     }
 
     // ========================================================================

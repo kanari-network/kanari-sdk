@@ -146,8 +146,10 @@ The total supply of Kanari denominated in Mist (11 Million * 10^9)
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(primary_coin, dev_address);
     <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(gas_coin, dev_address);
 
-    // Transfer the treasury cap <b>to</b> the sender (deployer)
-    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(treasury_cap, <a href="tx_context.md#0x2_tx_context_sender">tx_context::sender</a>(ctx));
+    // Transfer the treasury cap <b>to</b> the dev <b>address</b> (deployer/admin) so that
+    // minting authority lives <b>with</b> a real account that holds a private key,
+    // rather than the framework <b>address</b> 0x2 which <b>has</b> no <a href="dependencies/move-stdlib/signer.md#0x1_signer">signer</a>.
+    <a href="transfer.md#0x2_transfer_public_transfer">transfer::public_transfer</a>(treasury_cap, dev_address);
 }
 </code></pre>
 

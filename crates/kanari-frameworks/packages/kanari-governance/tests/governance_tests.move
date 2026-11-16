@@ -532,7 +532,14 @@ module kanari_governance::governance_tests {
         // 100_000 staked; a lopsided 500 vs 0 still misses quorum, so the
         // proposal executes as *failed* despite winning the vote count.
         let cap = governance::new_cap_for_testing(&mut ctx);
-        governance::set_total_supply(&cap, &mut state, 1_000_000);
+        // Mint enough to bring total_supply to 1_000_000 so the quorum gate
+        // (10% = 100_000) is meaningful; governance reads it via the supply
+        // oracle instead of a manually entered value. (Only one TreasuryCap
+        // per coin type may exist, so reuse `treasury`.)
+        let _extra = coin::mint<KANARI>(&mut treasury, 989_500, &mut ctx);
+        transfer::public_transfer(_extra, ALICE);
+        governance::set_total_supply(&cap, &mut state, &treasury);
+
         governance::cast_vote(
             &mut state,
             &mut proposal,

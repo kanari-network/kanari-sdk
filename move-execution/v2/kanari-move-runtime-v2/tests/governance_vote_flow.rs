@@ -40,7 +40,7 @@ use tempfile::tempdir;
 mod move_manifest;
 
 const TESTER_ADDR: &str = "0x43";
-const TREASURY_CAP_OWNER: &str = KanariAddress::KANARI_SYSTEM_ADDRESS;
+const TREASURY_CAP_OWNER: &str = KanariAddress::DEV_ADDRESS;
 const KANARI_COIN_TYPE: &str = kanari_types::gas_coin::GAS_COIN;
 const MODULE_NAME: &str = "governance_e2e";
 const MOVE_SOURCE: &str = include_str!("move_packages/governance_e2e/sources/governance_e2e.move");
@@ -268,10 +268,11 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &rt_withdrawn,
         &module_id,
         "set_total_supply",
-        vec![object_arg(&admin_cap_id)?, object_arg(&state_id)?, bcs::to_bytes(&1_000_000u64)?],
+        vec![object_arg(&admin_cap_id)?, object_arg(&state_id)?, object_arg(&treasury_cap_id)?],
         vec![
             owned_object_input(&state, &admin_cap_id, false)?,
             shared_object_input(&state_id, true),
+            owned_object_input(&state, &treasury_cap_id, false)?,
         ],
         AFTER_VOTE_TS,
         &cap_owner,
@@ -285,8 +286,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &rt_supply,
         "state_total_supply",
         &state_id,
-        JsonValue::from(1_000_000u64),
-        "total_supply maintained by admin",
+        JsonValue::from(11000000000010900u64),
+        "total_supply synced from treasury cap (supply oracle)",
     )?;
 
     // Mint the deposit coin to VOTER_A (sender = treasury cap owner).
@@ -352,8 +353,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         &rt_final,
         "state_total_supply",
         &state_id,
-        JsonValue::from(1_000_000u64),
-        "total_supply still 1_000_000 before executing p2",
+        JsonValue::from(11000000000010900u64),
+        "total_supply synced from treasury cap (supply oracle) before p2",
     )?;
     assert_view(&rt_final, "total_staked", &proposal_2, JsonValue::from(100u64), "p2 stake sum")?;
     let changes = call_entry(

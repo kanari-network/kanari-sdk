@@ -78,13 +78,13 @@ module tester::governance_e2e {
         governance::withdraw_deposit(proposal, ctx);
     }
 
-    /// Admin: set the `total_supply` figure used for quorum math.
+    /// Admin: sync `total_supply` from the Kanari treasury cap (supply oracle).
     public entry fun set_total_supply(
         cap: &GovernanceCap,
         state: &mut GovernanceState,
-        supply: u64
+        treasury_cap: &kanari_system::coin::TreasuryCap<KANARI>
     ) {
-        governance::set_total_supply(cap, state, supply)
+        governance::set_total_supply(cap, state, treasury_cap)
     }
 
     // ---- views ------------------------------------------------------------

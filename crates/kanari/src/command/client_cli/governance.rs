@@ -184,14 +184,14 @@ pub enum GovernanceCommand {
         #[arg(long = "rpc")]
         rpc_endpoint: Option<String>,
     },
-    /// Admin: set the total supply used for quorum (mist)
+    /// Admin: sync total_supply from the Kanari treasury cap (supply oracle)
     SetTotalSupply {
         #[arg(long)]
         cap: String,
         #[arg(long)]
         state: String,
         #[arg(long)]
-        supply: u64,
+        treasury_cap: String,
         #[arg(long)]
         from: Option<String>,
         #[arg(long)]
@@ -458,7 +458,7 @@ impl Governance {
             GovernanceCommand::SetTotalSupply {
                 cap,
                 state,
-                supply,
+                treasury_cap,
                 from,
                 password,
                 rpc_endpoint,
@@ -471,16 +471,21 @@ impl Governance {
                     self.gas_price,
                 )
                 .await?;
-                eprintln!("Setting total supply...");
+                eprintln!("Syncing total supply from treasury cap...");
                 submit_entry(
                     &tx,
                     &client,
                     kanari_types::governance::GovernanceModule::entry_functions().set_total_supply,
                     vec![],
-                    vec![bcs_u64(*supply)?],
+                    vec![],
                     vec![
                         EntryObject { id: cap.clone(), mutable: false, owner_check: true },
                         EntryObject { id: state.clone(), mutable: true, owner_check: false },
+                        EntryObject {
+                            id: treasury_cap.clone(),
+                            mutable: false,
+                            owner_check: false,
+                        },
                     ],
                 )
                 .await

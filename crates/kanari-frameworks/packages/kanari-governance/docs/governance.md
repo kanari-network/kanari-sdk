@@ -1345,10 +1345,12 @@ Update the quorum threshold (basis points, at most 100%)
 
 ## Function `set_total_supply`
 
-Maintain <code>total_supply</code> for quorum math until a supply oracle exists.
+Sync <code>total_supply</code> from the Kanari treasury cap (supply oracle). The
+admin supplies the treasury cap; governance reads the authoritative
+total supply directly instead of trusting a manually entered value.
 
 
-<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_set_total_supply">set_total_supply</a>(cap: &<a href="governance.md#0x3_governance_GovernanceCap">governance::GovernanceCap</a>, state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, supply: u64)
+<pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_set_total_supply">set_total_supply</a>(cap: &<a href="governance.md#0x3_governance_GovernanceCap">governance::GovernanceCap</a>, state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">governance::GovernanceState</a>, treasury_cap: &<a href="dependencies/kanari-system/coin.md#0x2_coin_TreasuryCap">coin::TreasuryCap</a>&lt;<a href="dependencies/kanari-system/kanari.md#0x2_kanari_KANARI">kanari::KANARI</a>&gt;)
 </code></pre>
 
 
@@ -1360,9 +1362,9 @@ Maintain <code>total_supply</code> for quorum math until a supply oracle exists.
 <pre><code><b>public</b> entry <b>fun</b> <a href="governance.md#0x3_governance_set_total_supply">set_total_supply</a>(
     cap: &<a href="governance.md#0x3_governance_GovernanceCap">GovernanceCap</a>,
     state: &<b>mut</b> <a href="governance.md#0x3_governance_GovernanceState">GovernanceState</a>,
-    supply: u64
+    treasury_cap: &TreasuryCap&lt;KANARI&gt;,
 ) {
-    state.total_supply = supply;
+    state.total_supply = <a href="dependencies/kanari-system/coin.md#0x2_coin_total_supply">coin::total_supply</a>&lt;KANARI&gt;(treasury_cap);
 }
 </code></pre>
 
