@@ -6,10 +6,10 @@ use zeroize::Zeroizing;
 use crate::SignatureError;
 
 pub const FALCON512_PUBLIC_KEY_BYTES: usize = 897;
-pub const FALCON512_PRIVATE_KEY_BYTES: usize = 1_281;
+pub const FALCON512_PRIVATE_KEY_BYTES: usize = 1_345;
 pub const FALCON512_MAX_SIGNATURE_BYTES: usize = 1_024;
 pub const FALCON1024_PUBLIC_KEY_BYTES: usize = 1_793;
-pub const FALCON1024_PRIVATE_KEY_BYTES: usize = 2_305;
+pub const FALCON1024_PRIVATE_KEY_BYTES: usize = 2_369;
 pub const FALCON1024_MAX_SIGNATURE_BYTES: usize = 2_048;
 
 #[cfg(feature = "falcon")]
