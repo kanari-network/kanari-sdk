@@ -158,7 +158,7 @@ ethnum = { version = "1.5.3", default-features = true }                         
 # ============================================================================
 ml-dsa = { version = "0.1.2", features = ["zeroize"] }                              # Pure Rust FIPS 204 ML-DSA signatures
 slh-dsa = { version = "0.2.0-rc.5", features = ["zeroize"] }                        # Pure Rust FIPS 205 SLH-DSA signatures
-falcon = { package = "falcon-rs", version = "0.3.1", features = ["std"] }           # Pure Rust FIPS 206 FN-DSA/Falcon signatures
+falcon = { package = "falcon-rs", version = "0.4.0", features = ["std"] }           # Pure Rust FIPS 206 FN-DSA/Falcon signatures
 
 # ============================================================================
 # Memory Security & Timing Attack Prevention
@@ -240,7 +240,7 @@ ark-crypto-primitives = { version = "0.6.0", features = ["constraints", "crh"] }
 # Time & Date Handling
 # ============================================================================
 chrono = { version = "0.4.45", features = ["serde"] }
-uuid = { version = "1.29.2", features = ["v4", "serde"] }
+uuid = { version = "1.29.3", features = ["v4", "serde"] }
 
 # ============================================================================
 # Mathematics & Numerics
