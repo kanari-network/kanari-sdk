@@ -136,6 +136,7 @@ pub mod cryptos;
 pub mod encryption;
 pub mod hashs;
 pub mod hd_wallet;
+pub mod kem;
 pub mod key_rotation;
 pub mod keys;
 pub mod keystore;

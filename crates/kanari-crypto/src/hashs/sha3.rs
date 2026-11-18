@@ -1,6 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+/// Cryptographic hash using SHA3-256 (quantum-resistant).
+#[must_use]
+pub fn hash_data_sha3_256(data: &[u8]) -> Vec<u8> {
+    hash_data_sha3_256_chunks(&[data])
+}
+
 /// Cryptographic hash using SHA3-256 over multiple input chunks.
 #[must_use]
 pub fn hash_data_sha3_256_chunks(chunks: &[&[u8]]) -> Vec<u8> {

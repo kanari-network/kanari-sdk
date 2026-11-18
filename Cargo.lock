@@ -605,6 +605,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
+ "untrusted 0.7.1",
  "zeroize",
 ]
 
@@ -3564,9 +3565,11 @@ dependencies = [
  "ark-serialize",
  "ark-snark",
  "ark-std",
+ "aws-lc-rs",
  "base64",
  "bip32",
  "bip39",
+ "blake2 0.11.0",
  "blake3",
  "chrono",
  "ed25519-dalek",
@@ -3585,6 +3588,7 @@ dependencies = [
  "proptest",
  "rand 0.10.4",
  "rayon",
+ "ripemd",
  "rsa",
  "secp256k1",
  "serde",
@@ -6485,7 +6489,7 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.17",
  "libc",
- "untrusted",
+ "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
 
@@ -6749,7 +6753,7 @@ dependencies = [
  "aws-lc-rs",
  "ring",
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -8262,6 +8266,12 @@ name = "unsigned-varint"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb066959b24b5196ae73cb057f45598450d2c5f71460e98c49b738086eff9c06"
+
+[[package]]
+name = "untrusted"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
 
 [[package]]
 name = "untrusted"
