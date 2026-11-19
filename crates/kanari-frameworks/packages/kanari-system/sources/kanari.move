@@ -9,7 +9,7 @@ module kanari_system::kanari {
     use kanari_system::coin;
     use kanari_system::coin::{Coin, TreasuryCap};
     use kanari_system::pay;
-    use kanari_system::tx_context::{Self, TxContext};
+    use kanari_system::tx_context::TxContext;
     use kanari_system::transfer;
     use kanari_system::url;
 
@@ -67,8 +67,10 @@ module kanari_system::kanari {
         transfer::public_transfer(primary_coin, dev_address);
         transfer::public_transfer(gas_coin, dev_address);
 
-        // Transfer the treasury cap to the sender (deployer)
-        transfer::public_transfer(treasury_cap, tx_context::sender(ctx));
+        // Transfer the treasury cap to the dev address (deployer/admin) so that
+        // minting authority lives with a real account that holds a private key,
+        // rather than the framework address 0x2 which has no signer.
+        transfer::public_transfer(treasury_cap, dev_address);
     }
 
     /// Transfer a specific amount of KANARI using the same Move coin path as other tokens.
@@ -87,6 +89,24 @@ module kanari_system::kanari {
         coin: Coin<KANARI>
     ) {
         coin::burn(treasury_cap, coin);
+    }
+
+    #[test_only]
+    /// Mint a fresh `TreasuryCap<KANARI>` for tests. The currency witness can
+    /// only be constructed inside this module, so tests obtain the capability
+    /// through this helper instead of calling `coin::create_currency` directly.
+    public fun new_treasury_for_testing(ctx: &mut TxContext): TreasuryCap<KANARI> {
+        let (treasury, metadata) = coin::create_currency<KANARI>(
+            KANARI {},
+            9,
+            b"KANARI",
+            b"Kanari Network Coin",
+            b"",
+            option::none<url::Url>(),
+            ctx
+        );
+        transfer::public_freeze_object<kanari_system::coin::CoinMetadata<KANARI>>(metadata);
+        treasury
     }
 
 }

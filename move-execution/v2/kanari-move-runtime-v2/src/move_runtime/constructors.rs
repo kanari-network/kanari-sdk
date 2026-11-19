@@ -351,6 +351,7 @@ impl MoveRuntime {
     pub(super) fn load_system_modules_with_source(&self, use_embedded: bool) -> Result<()> {
         self.load_move_stdlib(use_embedded)?;
         self.load_kanari_system(use_embedded)?;
+        self.load_kanari_governance(use_embedded)?;
         Ok(())
     }
 }

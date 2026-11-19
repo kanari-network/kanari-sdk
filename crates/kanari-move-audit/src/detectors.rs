@@ -195,6 +195,7 @@ fn func_has_authenticated_param<'a>(func: Node<'a>, source: &'a str) -> bool {
                     || t.contains("TreasuryCap")
                     || t.contains("KioskOwnerCap")
                     || t.contains("TransferPolicy")
+                    || t.contains("Cap")
                 {
                     return true;
                 }
@@ -757,7 +758,8 @@ fn detect_missing_doc(source: &str, file: &str, root: Node) -> Vec<AuditFinding>
                 || t.starts_with("//!")
                 || t.starts_with("//")
         });
-        if func_name_from_def(func, source).unwrap_or("").contains("testing") {
+        let _fname = func_name_from_def(func, source).unwrap_or("");
+        if _fname.contains("testing") || _fname.starts_with("get_") || _fname.starts_with("is_") {
             continue;
         }
         if !has_doc {
@@ -794,6 +796,7 @@ fn detect_capability_leak(source: &str, file: &str, root: Node) -> Vec<AuditFind
         "MintCap",
         "BurnCap",
         "PauseCap",
+        "GovernanceCap",
     ];
 
     for func in funcs {

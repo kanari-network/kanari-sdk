@@ -1,0 +1,13 @@
+[package]
+name = "KanariGovernance"
+
+[dependencies]
+# Use local Move standard library
+KanariSystem = { local = "../kanari-system" }
+MoveStdlib = { local = "../move-stdlib" }
+
+[addresses]
+kanari_governance = "0x3"
+kanari_system = "0x2"
+std = "0x1"
+

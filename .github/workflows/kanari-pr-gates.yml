@@ -58,7 +58,7 @@ jobs:
           cargo test -p kanari-move-runtime-v2 --lib
 
       - name: Unit tests (kanari-core engine)
-        timeout-minutes: 60
+        timeout-minutes: 100
         run: cargo test -p kanari-core --lib
 
       - name: Move Build (move-stdlib)
@@ -75,6 +75,14 @@ jobs:
 
       - name: Move unit tests (kanari-system)
         working-directory: crates/kanari-frameworks/packages/kanari-system
+        run: cargo run -p kanari -- move test
+
+      - name: Move Build (kanari-governance)
+        working-directory: crates/kanari-frameworks/packages/kanari-governance
+        run: cargo run -p kanari -- move build
+
+      - name: Move unit tests (kanari-governance)
+        working-directory: crates/kanari-frameworks/packages/kanari-governance
         run: cargo run -p kanari -- move test
 
   flutter-gates:

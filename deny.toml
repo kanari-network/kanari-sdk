@@ -38,6 +38,14 @@ ignore = [
     # crypto-bigint 0.5.5 timing sidechannel (RUSTSEC-2026-0387), unpatched in
     # elliptic-curve 0.13.x chain via jsonwebtoken. Upgrade blocked by EC deps.
     { id = "RUSTSEC-2026-0387", reason = "transitive via elliptic-curve/jsonwebtoken; no patched release available" },
+    # chrono 0.4.45 is unmaintained (RUSTSEC-2026-0543); all versions affected.
+    # The advisory recommends migrating to `jiff` or `time`, but there is no
+    # drop-in replacement: chrono backs `DateTime<Utc>` serde fields across
+    # kanari-auth/kanari-indexer/kanari-crypto/run-auth, rusqlite's `chrono`
+    # feature, and RFC3339 timestamp formatting. Migrating to `time` is a
+    # large, breaking refactor across multiple crates and is tracked separately.
+    # No safe upgrade is available per the advisory.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; no drop-in replacement; migration to time/jiff is a large multi-crate refactor tracked separately" },
 ]
 
 [bans]

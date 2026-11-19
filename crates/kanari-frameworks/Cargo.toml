@@ -22,7 +22,9 @@ hex = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 kanari-types.workspace = true
 move-compiler.workspace = true
-move-command-line-common.workspace = true 
+move-command-line-common.workspace = true
+move-model.workspace = true
+termcolor.workspace = true
 move-symbol-pool.workspace = true
 move-docgen.workspace = true
 move-errmapgen.workspace = true

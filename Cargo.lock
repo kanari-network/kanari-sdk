@@ -605,6 +605,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
 dependencies = [
  "aws-lc-sys",
+ "untrusted 0.7.1",
  "zeroize",
 ]
 
@@ -1025,9 +1026,9 @@ dependencies = [
 
 [[package]]
 name = "bstr"
-version = "1.13.1"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+checksum = "a680398c10c7bc0488067c4612226ea905a85f607134b69f3068d505d58c4214"
 dependencies = [
  "memchr",
  "serde_core",
@@ -1091,9 +1092,9 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 
 [[package]]
 name = "bytes"
-version = "1.12.1"
+version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "bzip2-sys"
@@ -1261,9 +1262,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.7"
+version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
+checksum = "ac230478587d0269d8d6998b82ae69ea51509d55df66d9e92edd1f986904cd4a"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1283,9 +1284,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.7"
+version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
+checksum = "895c9d8d2ac2dd8b8a29f3724a14e72aaaa6debcf8c38c82f97305c6a172767a"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1295,9 +1296,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "1.1.1"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
+checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 
 [[package]]
 name = "client-ip"
@@ -2257,6 +2258,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "falcon-rs"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7efd548cc428112069ef69eb36713d1e9a7bd577aa2b500742777bcb9d3a1d26"
+dependencies = [
+ "falcon-rs 0.3.1",
+ "getrandom 0.2.17",
+ "zeroize",
+]
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2298,9 +2310,9 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "filetime"
-version = "0.2.29"
+version = "0.2.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+checksum = "e1255e7a9f1902190d4c10a75f2f7f495d3d3ce13e9ba26e6c48683a0f4dbed7"
 dependencies = [
  "cfg-if",
  "libc",
@@ -3253,9 +3265,9 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "jiff"
-version = "0.2.44"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac63a5a611e9d720726d6ab6ee2ee19e6f620503554ea5d303c7cb294ff40c12"
+checksum = "175dc66334db3b9ab9985bf8b61cfed50dc16d20964bb47f9e479adcae984a7f"
 dependencies = [
  "jiff-core",
  "jiff-static",
@@ -3269,18 +3281,18 @@ dependencies = [
 
 [[package]]
 name = "jiff-core"
-version = "0.1.6"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48e9635854583b49ce3c6c43a071f70b0a49e79ad3c261c7b3aa76b2280416d2"
+checksum = "e599b80292e597019b8b3e392de3f4bea2959ddfb8c7dff60e035e9e311a2c1b"
 dependencies = [
  "log",
 ]
 
 [[package]]
 name = "jiff-static"
-version = "0.2.44"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f9c27796c21cc8b33ce490f148d53fe41d679b887885bf0ef8f662cdb9b35c0"
+checksum = "c7b1af7547d47354bc438d797e3854601bde8f8d185780c5ba4ab27afa54f1ba"
 dependencies = [
  "jiff-core",
  "proc-macro2",
@@ -3410,7 +3422,7 @@ dependencies = [
 
 [[package]]
 name = "kanari"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "ark-std",
@@ -3452,7 +3464,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-auth"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "anyhow",
@@ -3463,7 +3475,7 @@ dependencies = [
  "kanari-types",
  "log",
  "move-core-types",
- "rand 0.10.3",
+ "rand 0.10.4",
  "regex",
  "rusqlite",
  "serde",
@@ -3477,7 +3489,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-benchmarks"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "ed25519-dalek",
@@ -3492,7 +3504,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-common"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "dirs",
  "serde_yaml",
@@ -3501,7 +3513,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-core"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3540,7 +3552,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-crypto"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "aes-gcm 0.11.1",
  "argon2",
@@ -3553,13 +3565,15 @@ dependencies = [
  "ark-serialize",
  "ark-snark",
  "ark-std",
+ "aws-lc-rs",
  "base64",
  "bip32",
  "bip39",
+ "blake2 0.11.0",
  "blake3",
  "chrono",
  "ed25519-dalek",
- "falcon-rs",
+ "falcon-rs 0.4.0",
  "fs2",
  "hex",
  "hmac",
@@ -3572,8 +3586,9 @@ dependencies = [
  "move-core-types",
  "p256",
  "proptest",
- "rand 0.10.3",
+ "rand 0.10.4",
  "rayon",
+ "ripemd",
  "rsa",
  "secp256k1",
  "serde",
@@ -3592,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-db-common"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "dirs",
@@ -3602,7 +3617,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-e2e-tests"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3635,7 +3650,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-faucet"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "dotenvy",
@@ -3648,14 +3663,14 @@ dependencies = [
 
 [[package]]
 name = "kanari-framework-builder"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "move-package",
 ]
 
 [[package]]
 name = "kanari-frameworks"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3667,15 +3682,17 @@ dependencies = [
  "move-compiler",
  "move-docgen",
  "move-errmapgen",
+ "move-model",
  "move-prover",
  "move-symbol-pool",
  "serde",
  "tempfile",
+ "termcolor",
 ]
 
 [[package]]
 name = "kanari-indexer"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -3690,7 +3707,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-kotlin"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "hex",
  "kanari-crypto",
@@ -3701,7 +3718,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-analyzer"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3719,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-audit"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "serde",
  "tree-sitter",
@@ -3728,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-fmt"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "pretty",
@@ -3738,7 +3755,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v1"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3770,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-move-runtime-v2"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -3802,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-node"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bincode 2.0.1",
@@ -3842,7 +3859,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "kanari-open-rpc-macros",
  "serde",
@@ -3851,7 +3868,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-macros"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3860,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "kanari-open-rpc",
@@ -3870,7 +3887,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-open-rpc-spec-builder"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3882,7 +3899,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-api"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "hex",
  "kanari-open-rpc",
@@ -3893,7 +3910,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-client"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "kanari-rpc-api",
@@ -3906,7 +3923,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-loadgen"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -3917,7 +3934,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-rpc-server"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3942,7 +3959,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-system-natives"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "ark-std",
  "base64",
@@ -3961,7 +3978,7 @@ dependencies = [
  "num-integer",
  "p256",
  "primitive-types",
- "rand 0.10.3",
+ "rand 0.10.4",
  "rsa",
  "secp256k1",
  "serde_json",
@@ -3972,7 +3989,7 @@ dependencies = [
 
 [[package]]
 name = "kanari-types"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bcs",
@@ -4073,7 +4090,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "pin-project",
  "prost",
- "rand 0.10.3",
+ "rand 0.10.4",
  "rw-stream-sink",
  "thiserror 2.0.21",
  "tracing",
@@ -4126,7 +4143,7 @@ dependencies = [
  "libp2p-swarm",
  "prost",
  "prost-codec",
- "rand 0.10.3",
+ "rand 0.10.4",
  "regex",
  "sha2 0.11.1",
  "tracing",
@@ -4165,7 +4182,7 @@ dependencies = [
  "hkdf",
  "multihash",
  "prost",
- "rand 0.10.3",
+ "rand 0.10.4",
  "sha2 0.11.1",
  "thiserror 2.0.21",
  "tracing",
@@ -4190,7 +4207,7 @@ dependencies = [
  "libp2p-swarm",
  "prost",
  "prost-codec",
- "rand 0.10.3",
+ "rand 0.10.4",
  "sha2 0.11.1",
  "smallvec",
  "thiserror 2.0.21",
@@ -4214,7 +4231,7 @@ dependencies = [
  "multiaddr",
  "multihash",
  "prost",
- "rand 0.10.3",
+ "rand 0.10.4",
  "snow",
  "static_assertions",
  "thiserror 2.0.21",
@@ -4234,7 +4251,7 @@ dependencies = [
  "libp2p-core",
  "libp2p-identity",
  "libp2p-swarm",
- "rand 0.10.3",
+ "rand 0.10.4",
  "tracing",
  "web-time",
 ]
@@ -4256,7 +4273,7 @@ dependencies = [
  "libp2p-swarm",
  "prost",
  "prost-codec",
- "rand 0.10.3",
+ "rand 0.10.4",
  "static_assertions",
  "thiserror 2.0.21",
  "tracing",
@@ -4279,7 +4296,7 @@ dependencies = [
  "libp2p-identity",
  "libp2p-swarm-derive",
  "multistream-select",
- "rand 0.10.3",
+ "rand 0.10.4",
  "smallvec",
  "tokio",
  "tracing",
@@ -4784,7 +4801,7 @@ dependencies = [
  "num",
  "once_cell",
  "primitive-types",
- "rand 0.10.3",
+ "rand 0.10.4",
  "ref-cast",
  "serde",
  "serde_bytes",
@@ -5769,29 +5786,29 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.1.13"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2466b2336ed02bcdca6b294417127b90ec92038d1d5c4fbeac971a922e0e0924"
+checksum = "a6c2123f4708bbd422630a6dae7c03f678b1ce1f1c99e4c4b3beac69c8174cc9"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.1.13"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c96395f0a926bc13b1c17622aaddda1ecb55d49c8f1bf9777e4d877800a43f8b"
+checksum = "358938fd6df944c1e44bb328b60fb275f13c804aac47ba26a1165d45a3f87756"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "pin-project-lite"
-version = "0.2.17"
+version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
+checksum = "c938015719552d665fd0553b90d96cd7ff58e83e4c061ca99e6bb78865a72752"
 
 [[package]]
 name = "pkcs1"
@@ -6020,7 +6037,7 @@ dependencies = [
  "chacha20 0.10.2",
  "core_detect",
  "num-traits",
- "rand 0.10.3",
+ "rand 0.10.4",
  "rand_xorshift",
  "regex-syntax",
  "rusty-fork",
@@ -6102,9 +6119,9 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qrcode"
-version = "0.14.1"
+version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+checksum = "ace1a365f55004297f2cf24acfd96d02966246ca423385273b58a7dc873ee14d"
 dependencies = [
  "image",
 ]
@@ -6145,7 +6162,7 @@ dependencies = [
  "bytes",
  "getrandom 0.4.3",
  "lru-slab",
- "rand 0.10.3",
+ "rand 0.10.4",
  "rand_pcg",
  "ring",
  "rustc-hash",
@@ -6222,9 +6239,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+checksum = "8f6fa277c67e6ea590466f04c3fe82cb509f0864fe470643e5570de9514a9b11"
 dependencies = [
  "chacha20 0.10.2",
  "getrandom 0.4.3",
@@ -6277,9 +6294,9 @@ checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
 
 [[package]]
 name = "rand_pcg"
-version = "0.10.2"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
+checksum = "eb95882a1e14462c69aea9984bb261293ccfe6022ef8de0eda18bd5afb0052df"
 dependencies = [
  "rand_core 0.10.1",
 ]
@@ -6383,9 +6400,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.13.1"
+version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+checksum = "9807af0e638c12e753aa1b4e601791bf2a8f71274023c8bbeec12fc149950857"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -6395,9 +6412,9 @@ dependencies = [
 
 [[package]]
 name = "regex-automata"
-version = "0.4.18"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+checksum = "41d60ef07df457506a0a1a2073112eb4aae5733dbd2813c3da77d1b0fd441158"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -6406,9 +6423,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
 name = "reqwest"
@@ -6472,7 +6489,7 @@ dependencies = [
  "cfg-if",
  "getrandom 0.2.17",
  "libc",
- "untrusted",
+ "untrusted 0.9.0",
  "windows-sys 0.52.0",
 ]
 
@@ -6566,7 +6583,7 @@ dependencies = [
 
 [[package]]
 name = "run-auth"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6577,7 +6594,7 @@ dependencies = [
  "kanari-auth",
  "kanari-crypto",
  "qrcode",
- "rand 0.10.3",
+ "rand 0.10.4",
  "reqwest",
  "serde",
  "serde_json",
@@ -6592,9 +6609,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4edff0039f148731aee2fd80f76dbfeb12d204ab3d1c544838d34e02151049b"
+checksum = "f172c4812a19b26d1c23cdb0070e69db335503dfa378b910eb857386e5b8beba"
 dependencies = [
  "bitflags 2.13.2",
  "chrono",
@@ -6609,7 +6626,7 @@ dependencies = [
 
 [[package]]
 name = "rust"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "flutter_rust_bridge",
  "hex",
@@ -6736,7 +6753,7 @@ dependencies = [
  "aws-lc-rs",
  "ring",
  "rustls-pki-types",
- "untrusted",
+ "untrusted 0.9.0",
 ]
 
 [[package]]
@@ -6926,9 +6943,9 @@ dependencies = [
 
 [[package]]
 name = "serde-reflection"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af0fdf9c543af37502581e3d6cf4e6cd1628d6616d6a1f8f4ca88aae3a405f5c"
+checksum = "1b5da1e701056e29fcd3508529fda5cc3df8b5299d56a89dee0deb048e733b9a"
 dependencies = [
  "erased-discriminant",
  "once_cell",
@@ -7296,9 +7313,9 @@ dependencies = [
 
 [[package]]
 name = "smallvec"
-version = "1.16.5"
+version = "1.16.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
+checksum = "3244542535d5de959d90ec55d1b5ff0fd2bb7b1310223907d5f11932847f7b59"
 
 [[package]]
 name = "smawk"
@@ -7308,7 +7325,7 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 
 [[package]]
 name = "smt"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "kanari-crypto",
@@ -7822,7 +7839,7 @@ dependencies = [
  "constant_time_eq",
  "hmac",
  "percent-encoding",
- "rand 0.10.3",
+ "rand 0.10.4",
  "serde",
  "sha1",
  "sha2 0.11.1",
@@ -8252,6 +8269,12 @@ checksum = "eb066959b24b5196ae73cb057f45598450d2c5f71460e98c49b738086eff9c06"
 
 [[package]]
 name = "untrusted"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
@@ -8297,9 +8320,9 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "uuid"
-version = "1.29.2"
+version = "1.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bed99139f7dac9b5cfe5f17be4d66dc7079a34dee1d74bcc77217119240e267c"
+checksum = "3c14b15dffa2f4bd712103e857140aa04a4f2ff6e955c77d7eb8e53ee02a3b64"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
@@ -8372,7 +8395,7 @@ dependencies = [
 
 [[package]]
 name = "wallet"
-version = "0.3.9"
+version = "0.4.0"
 dependencies = [
  "kanari-crypto",
 ]
@@ -8998,9 +9021,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+checksum = "85ccff8a4805aba1eaa4cd4afcd49f7557dd2cf5fd79ffc37f8959466effc5aa"
 dependencies = [
  "zeroize_derive",
 ]

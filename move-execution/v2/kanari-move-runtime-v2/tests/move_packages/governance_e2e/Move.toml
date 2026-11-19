@@ -1,0 +1,9 @@
+[package]
+name = "GovernanceE2E"
+
+[dependencies]
+KanariSystem = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-system" }
+KanariGovernance = { local = "../../../../../../crates/kanari-frameworks/packages/kanari-governance" }
+
+[addresses]
+tester = "0x43"

@@ -115,9 +115,9 @@ impl Fanout {
         let prepared = client
             .build_call_function(BuildCallFunctionRequest {
                 sender: sender_for_tx,
-                package: "0x2".to_string(),
-                module: "pay".to_string(),
-                function: "split_vec".to_string(),
+                package: kanari_types::address::Address::KANARI_SYSTEM_ADDRESS.to_string(),
+                module: kanari_types::pay::PayModule::PAY_MODULE.to_string(),
+                function: kanari_types::pay::PayModule::function_names().split_vec.to_string(),
                 type_args: vec![GAS_COIN.to_string()],
                 args: vec![source_object_id.to_vec(), bcs::to_bytes(&amounts)?],
                 object_inputs: Some(vec![source_input]),

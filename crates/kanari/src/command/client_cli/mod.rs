@@ -9,6 +9,7 @@ pub mod burn;
 pub mod envs;
 pub mod fanout;
 pub mod faucet;
+pub mod governance;
 pub mod multisig;
 pub mod objects;
 pub mod owner;
@@ -17,6 +18,7 @@ pub mod stress_test;
 pub mod token_transfer;
 pub mod transfer;
 pub mod tx;
+pub mod tx_submit;
 pub mod view;
 
 #[derive(Subcommand, Debug)]
@@ -52,6 +54,8 @@ pub enum ClientCommand {
     StressTest(stress_test::StressTest),
     /// Multisig wallet: create/propose/approve/execute/cancel/deposit
     Multisig(multisig::Multisig),
+    /// Governance (0x3): propose/vote/execute/withdraw/admin
+    Governance(governance::Governance),
 }
 
 impl ClientCommand {
@@ -71,6 +75,7 @@ impl ClientCommand {
             ClientCommand::View(cmd) => cmd.execute().await,
             ClientCommand::StressTest(cmd) => cmd.execute().await,
             ClientCommand::Multisig(cmd) => cmd.execute().await,
+            ClientCommand::Governance(cmd) => cmd.execute().await,
         }
     }
 }

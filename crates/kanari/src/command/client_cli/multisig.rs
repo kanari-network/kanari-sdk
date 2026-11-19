@@ -6,39 +6,26 @@
 //! builds one Move entry call (`multisig::*_entry`) with object inputs
 //! resolved from on-chain state.
 
-use crate::command::common::{
-    check_node_connection, get_rpc_endpoint, get_sender_for_tx, load_wallet_for, normalize_addr,
-    resolve_sender, resolve_transaction_gas,
+use crate::command::client_cli::tx_submit::{
+    self, EntryObject, ResolvedTx, bcs_addr, bcs_string, bcs_u64, resolve_tx,
 };
-use crate::command::rpc_helpers::{object_input_from_object_id, sign_and_call_function};
-use crate::command::tx_output::print_transaction_status;
+use crate::command::common::{
+    check_node_connection, get_rpc_endpoint, normalize_addr, resolve_sender,
+};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use kanari_rpc_api::BuildCallFunctionRequest;
 use kanari_rpc_client::RpcClient;
-use kanari_types::address::Address as KanariAddress;
 
-const MULTISIG_MODULE: &str = "multisig";
+const MULTISIG_MODULE: &str = kanari_types::multisig::MultisigModule::MULTISIG_MODULE;
 const KANARI_COIN_TYPE: &str = kanari_types::gas_coin::GAS_COIN;
 
 fn system_package() -> String {
-    KanariAddress::KANARI_SYSTEM_ADDRESS.to_string()
+    kanari_types::multisig::MultisigModule::MULTISIG_PACKAGE.to_string()
 }
 
 fn parse_addr(addr_normalized: &str) -> Result<move_core_types::account_address::AccountAddress> {
     move_core_types::account_address::AccountAddress::from_hex_literal(addr_normalized)
         .map_err(|e| anyhow::anyhow!("Invalid address {}: {:?}", addr_normalized, e))
-}
-
-fn bcs_addr(addr_normalized: &str) -> Result<Vec<u8>> {
-    // Object/reference args must be full BCS (the runtime test-suite passes
-    // `bcs::to_bytes(&AccountAddress)`); raw 32 bytes fail with
-    // FAILED_TO_DESERIALIZE_ARGUMENT.
-    bcs::to_bytes(&parse_addr(addr_normalized)?).context("Failed to BCS-encode address")
-}
-
-fn bcs_u64(v: u64) -> Result<Vec<u8>> {
-    bcs::to_bytes(&v).context("Failed to BCS-encode u64")
 }
 
 /// Parse a human amount into base units using the coin's decimals
@@ -129,10 +116,6 @@ async fn coin_decimals(client: &RpcClient, owner_normalized: &str, coin_type: &s
         coin_type,
         owner_normalized
     )
-}
-
-fn bcs_string(s: &str) -> Result<Vec<u8>> {
-    bcs::to_bytes(&s.as_bytes().to_vec()).context("Failed to BCS-encode string")
 }
 
 fn bcs_address_vec(addrs: &[String]) -> Result<Vec<u8>> {
@@ -305,32 +288,6 @@ pub struct Multisig {
     pub gas_price: Option<u64>,
 }
 
-struct ResolvedTx {
-    sender_normalized: String,
-    sender_tagged: String,
-    wallet: kanari_crypto::wallet::Wallet,
-    gas_limit: u64,
-    gas_price: u64,
-}
-
-async fn resolve_tx(
-    from: Option<String>,
-    password: Option<String>,
-    rpc_endpoint: Option<String>,
-    gas_limit: Option<u64>,
-    gas_price: Option<u64>,
-) -> Result<(ResolvedTx, RpcClient)> {
-    let rpc = get_rpc_endpoint(rpc_endpoint);
-    let sender_normalized = resolve_sender(from)?;
-    // Password prompt is sync; do it before creating the async client.
-    let wallet = load_wallet_for(&sender_normalized, password)?;
-    let (gas_limit, gas_price) = resolve_transaction_gas(gas_limit, gas_price);
-    let client = RpcClient::new(&rpc);
-    check_node_connection(&client, &rpc).await?;
-    let sender_tagged = get_sender_for_tx(&wallet, &sender_normalized)?;
-    Ok((ResolvedTx { sender_normalized, sender_tagged, wallet, gas_limit, gas_price }, client))
-}
-
 /// A coin object with its decoded balance, listed from the API.
 struct ListedCoin {
     id: String,
@@ -454,12 +411,6 @@ async fn resolve_coin_arg(
 /// An object used by a multisig entry call, with the mutability the Move
 /// signature actually needs. Marking an immutable-borrowed object as mutable
 /// makes the runtime demand sender-ownership and fail co-owner calls with
-/// "Ownership verification failed".
-struct EntryObject {
-    id: String,
-    mutable: bool,
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn submit_entry(
     tx: &ResolvedTx,
@@ -469,61 +420,17 @@ async fn submit_entry(
     args: Vec<Vec<u8>>,
     objects: Vec<EntryObject>,
 ) -> Result<()> {
-    // Resolve object inputs (wallet/proposal/coin refs with version+digest).
-    // Multisig is cross-owner by design: the wallet/proposal are owned by
-    // whoever created them, while any owner can approve/execute. Enforcing
-    // sender-ownership here would block co-owners, so skip the check (the
-    // Move entry still enforces `is_owner` on-chain).
-    let mut object_inputs = Vec::with_capacity(objects.len());
-    for entry in &objects {
-        let normalized = normalize_addr(&entry.id)?;
-        let mut input = object_input_from_object_id(client, &normalized, None).await?;
-        input.mutable = entry.mutable;
-        object_inputs.push(input);
-    }
-
-    let prepared = client
-        .build_call_function(BuildCallFunctionRequest {
-            sender: tx.sender_tagged.clone(),
-            package: system_package(),
-            module: MULTISIG_MODULE.to_string(),
-            function: function.to_string(),
-            type_args,
-            args,
-            object_inputs: Some(object_inputs),
-            gas_limit: tx.gas_limit,
-            gas_price: tx.gas_price,
-            nonce: None,
-            execute_immediate: Some(true),
-        })
-        .await
-        .context("Failed to build call function transaction")?;
-
-    if let Some(inputs) = &prepared.object_inputs {
-        for input in inputs {
-            eprintln!("  Object input: {}", input.object_ref.object_id);
-        }
-    }
-    eprintln!("  Gas Limit: {}", prepared.gas_limit);
-    eprintln!("  Gas Price: {} Mist/gas", prepared.gas_price);
-
-    // Reuse the token-transfer submission path (async RpcClient, commit wait
-    // included) instead of the blocking reqwest client, which panics when
-    // dropped inside the async runtime.
-    let status = sign_and_call_function(client, &tx.wallet, prepared)
-        .await
-        .context("Failed to submit transaction")?;
-    print_transaction_status("  ", &status);
-    if !status.success {
-        // Preview failures don't land on chain (no tx to query), so surface
-        // the status verbatim and hint how to get the VM error.
-        anyhow::bail!(
-            "Transaction failed (status: {}, hash: {}). Preview did not commit; retry with --gas-limit higher or check node logs for the Move abort code.",
-            status.status,
-            status.hash
-        );
-    }
-    Ok(())
+    tx_submit::submit_entry(
+        tx,
+        client,
+        &system_package(),
+        MULTISIG_MODULE,
+        function,
+        type_args,
+        args,
+        objects,
+    )
+    .await
 }
 
 impl Multisig {
@@ -568,7 +475,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "create_wallet_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().create_wallet_entry,
                     vec![coin_type.clone()],
                     vec![
                         bcs_address_vec(&parsed_owners)?,
@@ -578,7 +485,7 @@ impl Multisig {
                     ],
                     // Coin stays owned: split off `amount`, remainder saved
                     // back. Declare mutable so the runtime binds &mut Coin.
-                    vec![EntryObject { id: coin_id, mutable: true }],
+                    vec![EntryObject { id: coin_id, mutable: true, owner_check: false }],
                 )
                 .await
             }
@@ -610,7 +517,8 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "propose_transfer_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions()
+                        .propose_transfer_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -621,7 +529,7 @@ impl Multisig {
                     ],
                     // propose takes &wallet (read-only): immutable so
                     // co-owners can propose without owning the wallet.
-                    vec![EntryObject { id: wallet.clone(), mutable: false }],
+                    vec![EntryObject { id: wallet.clone(), mutable: false, owner_check: false }],
                 )
                 .await
             }
@@ -647,7 +555,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "approve_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().approve_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -655,8 +563,8 @@ impl Multisig {
                     ],
                     // approve takes (&wallet, &mut proposal).
                     vec![
-                        EntryObject { id: wallet.clone(), mutable: false },
-                        EntryObject { id: proposal.clone(), mutable: true },
+                        EntryObject { id: wallet.clone(), mutable: false, owner_check: false },
+                        EntryObject { id: proposal.clone(), mutable: true, owner_check: false },
                     ],
                 )
                 .await
@@ -683,7 +591,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "execute_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().execute_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -691,8 +599,8 @@ impl Multisig {
                     ],
                     // execute consumes the proposal and mutates the wallet.
                     vec![
-                        EntryObject { id: wallet.clone(), mutable: true },
-                        EntryObject { id: proposal.clone(), mutable: true },
+                        EntryObject { id: wallet.clone(), mutable: true, owner_check: false },
+                        EntryObject { id: proposal.clone(), mutable: true, owner_check: false },
                     ],
                 )
                 .await
@@ -719,7 +627,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "cancel_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().cancel_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -727,8 +635,8 @@ impl Multisig {
                     ],
                     // cancel reads the wallet, consumes the proposal.
                     vec![
-                        EntryObject { id: wallet.clone(), mutable: false },
-                        EntryObject { id: proposal.clone(), mutable: true },
+                        EntryObject { id: wallet.clone(), mutable: false, owner_check: false },
+                        EntryObject { id: proposal.clone(), mutable: true, owner_check: false },
                     ],
                 )
                 .await
@@ -765,7 +673,7 @@ impl Multisig {
                 submit_entry(
                     &tx,
                     &client,
-                    "deposit_entry",
+                    kanari_types::multisig::MultisigModule::entry_functions().deposit_entry,
                     vec![resolved_coin_type],
                     vec![
                         bcs_addr(&normalize_addr(wallet)?)?,
@@ -774,8 +682,8 @@ impl Multisig {
                     ],
                     // deposit mutates both wallet and source coin.
                     vec![
-                        EntryObject { id: wallet.clone(), mutable: true },
-                        EntryObject { id: coin_id, mutable: true },
+                        EntryObject { id: wallet.clone(), mutable: true, owner_check: false },
+                        EntryObject { id: coin_id, mutable: true, owner_check: false },
                     ],
                 )
                 .await
