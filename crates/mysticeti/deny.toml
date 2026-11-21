@@ -9,9 +9,6 @@ ignore = [
   "RUSTSEC-2020-0095",
   # rust-yaml is not maintained, but is a dependency in many of our packages.
   "RUSTSEC-2024-0320",
-  # We have a vulnerable version of `rustls` in our dependency tree through the old version of
-  # jsonrpsee used by sui.
-  "RUSTSEC-2024-0336",
 ]
 
 # This section is considered when running `cargo deny check licenses`
