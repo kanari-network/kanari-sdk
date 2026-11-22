@@ -460,6 +460,59 @@ fn mode_parses_suite_sequence() {
 }
 
 #[test]
+fn same_seed_gives_identical_results() {
+    // Jitter reorders arrivals, so blocks reach a replica before their parents. The 40 s duration
+    // ends on a cleanup tick. Neither may change the outcome of a seeded run.
+    let full_mesh = SimulationConfig {
+        committee_size: 20,
+        duration_secs: 40,
+        jitter: Some(ExponentialJitter {
+            mean_ms: 75,
+            cap_ms: 400,
+        }),
+        ..Default::default()
+    };
+    // Overlapping partitions leave blocks missing long enough for replicas to fetch them.
+    let partition = SimulationConfig {
+        committee_size: 10,
+        topology: NetworkTopology::Partition(vec![
+            vec![0, 1, 2, 3, 4, 5, 6],
+            vec![0, 1, 2, 3, 7, 8, 9],
+        ]),
+        ..full_mesh.clone()
+    };
+    // Utilization timers measure the host's wall clock, and the global in-memory block gauges
+    // count every block alive in the test process, not just this simulation's.
+    let run = |config: &SimulationConfig| {
+        let results = SimulationRunner::new(config.clone()).run().unwrap();
+        results
+            .metrics
+            .iter()
+            .flat_map(|metrics| {
+                let text = metrics.to_prometheus_text();
+                text.lines().map(String::from).collect::<Vec<_>>()
+            })
+            .filter(|line| {
+                !line.starts_with('#') && !line.contains("util") && !line.contains("global_")
+            })
+            .collect::<Vec<_>>()
+    };
+    for config in [&full_mesh, &partition] {
+        let first = run(config);
+        assert!(!first.is_empty());
+        // Each repeat gets fresh hasher keys and `select!` RNG state, so lost determinism shows.
+        for attempt in 1..=5 {
+            let again = run(config);
+            let differing = first.iter().zip(&again).find(|(was, now)| was != now);
+            assert!(
+                again == first,
+                "run {attempt} differs from the first: {differing:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn network_partition() {
     let config = SimulationConfig {
         topology: NetworkTopology::Partition(vec![vec![0, 1], vec![2, 3, 4, 5, 6, 7, 8, 9]]),

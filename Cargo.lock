@@ -1766,7 +1766,7 @@ dependencies = [
  "libc",
  "memmap2",
  "minibytes",
- "parking_lot 0.12.5",
+ "parking_lot 0.13.0",
  "prometheus",
  "rand 0.8.8",
  "serde",

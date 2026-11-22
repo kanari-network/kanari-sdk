@@ -3,6 +3,7 @@
 
 use std::{fmt::Debug, future::Future, time::Duration};
 
+use rand::seq::SliceRandom;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::consensus::{CommittedSubDag, DagConsensus};
@@ -11,6 +12,9 @@ use crate::core::syncer::Syncer;
 use crate::storage::WalSyncer;
 
 pub trait Ctx: Sized + Send + Sync + 'static {
+    /// True when a run must be reproducible from its seed (the simulator).
+    const DETERMINISTIC: bool;
+
     fn timestamp_utc() -> Duration;
     fn sleep(duration: Duration) -> impl Future<Output = ()> + Send;
 
@@ -38,11 +42,31 @@ pub trait Ctx: Sized + Send + Sync + 'static {
     ) -> Self::Dispatcher<D>;
 
     fn start_wal_syncer(wal_syncer: WalSyncer, stop: mpsc::Sender<()>) -> oneshot::Receiver<()>;
+
+    /// Shuffles `items`; the simulator first sorts them by `key` so its seeded shuffle replays.
+    fn shuffle_by_key<T, K: Ord>(items: &mut [T], key: impl FnMut(&T) -> K);
+
+    /// Sorts `items` when a run must be reproducible (the simulator); a no-op otherwise.
+    fn canonical_order<T: Ord>(items: &mut [T]);
 }
+
+/// `tokio::select!`, biased (source order) when `C::DETERMINISTIC`; unbiased otherwise.
+macro_rules! ctx_select {
+    ($ctx:ty; $($branches:tt)*) => {
+        if <$ctx as $crate::context::Ctx>::DETERMINISTIC {
+            tokio::select! { biased; $($branches)* }
+        } else {
+            tokio::select! { $($branches)* }
+        }
+    };
+}
+pub(crate) use ctx_select;
 
 pub struct TokioCtx;
 
 impl Ctx for TokioCtx {
+    const DETERMINISTIC: bool = false;
+
     type Instant = tokio::time::Instant;
     type Interval = tokio::time::Interval;
     type JoinHandle<T: Send + 'static> = tokio::task::JoinHandle<T>;
@@ -98,6 +122,12 @@ impl Ctx for TokioCtx {
     fn start_wal_syncer(wal_syncer: WalSyncer, stop: mpsc::Sender<()>) -> oneshot::Receiver<()> {
         wal_syncer_tokio::start(wal_syncer, stop)
     }
+
+    fn shuffle_by_key<T, K: Ord>(items: &mut [T], _key: impl FnMut(&T) -> K) {
+        items.shuffle(&mut rand::thread_rng());
+    }
+
+    fn canonical_order<T: Ord>(_items: &mut [T]) {}
 }
 
 mod wal_syncer_tokio {

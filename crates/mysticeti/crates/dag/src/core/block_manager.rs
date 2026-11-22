@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -20,9 +20,8 @@ use crate::{
 pub struct BlockManager {
     /// Keeps all pending blocks.
     blocks_pending: HashMap<BlockReference, Data<Block>>,
-    /// Keeps all the blocks (`HashSet<BlockReference>`) waiting
-    /// for `BlockReference` to be processed.
-    block_references_waiting: HashMap<BlockReference, HashSet<BlockReference>>,
+    /// Blocks waiting for each `BlockReference`, ordered so they unblock in a fixed order.
+    block_references_waiting: HashMap<BlockReference, BTreeSet<BlockReference>>,
     /// Keeps all blocks that need to be synced in order to unblock the processing of other pending
     /// blocks. The indices of the vector correspond the authority indices.
     missing: Vec<HashSet<BlockReference>>,

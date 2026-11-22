@@ -4,14 +4,13 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use futures::future::join_all;
-use rand::{seq::SliceRandom, thread_rng};
 use tokio::sync::mpsc;
 
 use crate::{
     authority::Authority,
     block::{BlockReference, RoundNumber},
     consensus::DagConsensus,
-    context::Ctx,
+    context::{Ctx, ctx_select},
     core::core_thread::CoreDispatch,
     metrics::{Metrics, SyncRequestFulfilled},
     sync::{
@@ -251,7 +250,7 @@ impl<C: Ctx, D: DagConsensus + Send + 'static> BlockFetcherWorker<C, D> {
 
     async fn run(mut self) -> Option<()> {
         loop {
-            tokio::select! {
+            ctx_select! { C;
                 _ = C::sleep(self.parameters.sample_precision) => {
                     self.sync_strategy().await
                 }
@@ -275,7 +274,7 @@ impl<C: Ctx, D: DagConsensus + Send + 'static> BlockFetcherWorker<C, D> {
     }
 
     async fn sync_strategy(&mut self) {
-        if self.enable {
+        if !self.enable {
             return;
         }
 
@@ -297,6 +296,7 @@ impl<C: Ctx, D: DagConsensus + Send + 'static> BlockFetcherWorker<C, D> {
         self.missing.retain(|_, time| {
             now.checked_sub(*time).unwrap_or_default() < self.parameters.grace_period
         });
+        C::canonical_order(&mut to_request);
 
         for chunks in to_request.chunks(net_sync::MAXIMUM_BLOCK_REQUEST) {
             let Some((peer, permit)) = self.sample_peer(&[self.id]) else {
@@ -319,7 +319,7 @@ impl<C: Ctx, D: DagConsensus + Send + 'static> BlockFetcherWorker<C, D> {
             .filter(|&(index, _)| !except.contains(index))
             .collect::<Vec<_>>();
 
-        senders.shuffle(&mut thread_rng());
+        C::shuffle_by_key(&mut senders, |(authority, _)| **authority);
 
         for (peer, sender) in senders {
             if let Ok(permit) = sender.try_reserve() {
