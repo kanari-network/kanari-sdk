@@ -2,6 +2,10 @@ name = "kanari-move-runtime-v2"
 version = "0.1.0"
 defaultTargets = ["KanariMoveRuntime"]
 
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+
 [leanOptions]
 pp.unicode.fun = true
 relaxedAutoImplicit = false

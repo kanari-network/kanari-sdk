@@ -1,5 +1,7 @@
-import KanariMoveRuntime.Model.Balance
-import KanariMoveRuntime.Model.Treasury
+module
+
+public import KanariMoveRuntime.Model.Balance
+public import KanariMoveRuntime.Model.Treasury
 
 /-!
 # Kanari Move Runtime v2 — state model
@@ -29,6 +31,8 @@ where `wallet_visible_supply(T)` is the sum of `Coin` balances and
 `total_supply(T)` is the treasury-cap total. This is what
 `validate_cached_supply_invariants` checks in `validate_token_supply_bound`.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

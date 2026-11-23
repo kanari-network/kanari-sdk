@@ -5,27 +5,38 @@ Machine-checked Lean 4 model and proof of the supply invariant enforced by
 (`crates/kanari-move-runtime-v2/src/state/supply/supply_validation.rs`,
 called from `state/apply/mod.rs`).
 
+> **Scope of the claim.** The machine-checked result covers the
+> **supply-relevant apply path** and its Lean model, not the whole runtime.
+> See [VERIFICATION.md](VERIFICATION.md) for the bounded attestation,
+> preconditions, and the parts that are only modelled and tested.
+
 ```
 lake build
 ```
 
-The library uses only Lean 4 core (`omega`, `simp`, `decide`); it does not
-require mathlib, so it builds in seconds and in CI with
-`leanprover/lean-action`.
+The library is machine-checked Lean 4 with Mathlib (pinned toolchain
+`leanprover/lean4:v4.37.0-rc1`). The library files use the Lean 4.37 module
+system (`module`, `public import`, `@[expose] public section`). The
+apply-pipeline module uses Mathlib's `List.sum` big operator and
+`Multiset.foldl_induction`; the other modules use Lean core tactics
+(`omega`, `simp`, `decide`).
 
 ## Modules
 
-| Module | Role |
-| --- | --- |
-| `KanariMoveRuntime.Model.Balance` | `Address`, `TokenType`, `Coin`, `gasCoin` |
-| `KanariMoveRuntime.Model.Treasury` | `TreasuryCap` and its `mint` / `burn` field updates |
-| `KanariMoveRuntime.Model.State` | cached supply state, `State.mintCap` / `burnCap` |
-| `KanariMoveRuntime.Supply.Statement` | `walletVisibleSupply`, `totalSupply`, `SupplyInvariant`, executable `cachedSupplyCheck` |
-| `KanariMoveRuntime.Supply.Proof` | coin-sum lemmas, `mint_preserves`, checker soundness/completeness |
-| `KanariMoveRuntime.Supply.Trace` | abstract ledger, trace induction, negative result for out-of-treasury funding |
-| `KanariMoveRuntime.Supply.Counterexample` | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance |
-| `KanariMoveRuntime.Supply.Store` | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems |
-| `scripts/GenerateVectors.lean` | emits `testdata/token_bound_vectors.tsv` for the Rust differential test |
+| Module                                     | Role                                                                                                                                                                                |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KanariMoveRuntime.Model.Balance`          | `Address`, `TokenType`, `Coin`, `gasCoin`                                                                                                                                           |
+| `KanariMoveRuntime.Model.Treasury`         | `TreasuryCap` and its `mint` / `burn` field updates                                                                                                                                 |
+| `KanariMoveRuntime.Model.State`            | cached supply state, `State.mintCap` / `burnCap`                                                                                                                                    |
+| `KanariMoveRuntime.Supply.Statement`       | `walletVisibleSupply`, `totalSupply`, `SupplyInvariant`, executable `cachedSupplyCheck`                                                                                             |
+| `KanariMoveRuntime.Supply.Proof`           | coin-sum lemmas, `mint_preserves`, checker soundness/completeness                                                                                                                   |
+| `KanariMoveRuntime.Supply.Trace`           | abstract ledger, trace induction, negative result for out-of-treasury funding                                                                                                       |
+| `KanariMoveRuntime.Supply.Counterexample`  | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance                                                                                                                  |
+| `KanariMoveRuntime.Supply.Store`           | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems                                                                                              |
+| `KanariMoveRuntime.Runtime.Pipeline`       | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
+| `KanariMoveRuntime.Runtime.ApplyProof`     | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
+| `KanariMoveRuntime.Runtime.FullApplyProof` | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
+| `scripts/GenerateVectors.lean`             | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
 
 ## The statement, precisely
 
@@ -49,14 +60,34 @@ proves such a state exists and that the check rejects it. What is proved is:
    (`Supply.mint_preserves`); transfers between wallets do not change the
    sum (`Supply.coinSupplyOf_transfer_pair`); burning decreases both sides
    equally (`Supply.Ledger.burn_preserves`).
-2. **Trace induction.** Every state reachable from an invariant ledger by
+2. **Native apply preservation.** `Runtime.ApplyProof.applyChangesetNative_preserves`
+   proves that the composed native apply transition preserves the full bound
+   `wallet <= total && wallet + locked <= total`. The net delta is folded with
+   checked `i128` arithmetic, the total is updated **once** with checked `u64`
+   arithmetic, and owner debits must be covered; the check gate is modeled by
+   `applyChangesetValidated_safe`.
+3. **Full apply-pipeline preservation (supply-relevant phases only).**
+   `Runtime.FullApplyProof` extends the native proof to the remaining
+   supply-relevant phases of
+   `StateManager::apply_changeset`: created treasury-cap write-back, explicit
+   gas-object debit and owner recompute, object-locked coin reconciliation,
+   the candidate-clone legacy wallet repair, and the final
+   `validate_cached_supply_invariants` gate. The signed
+   reconciliation delta is `(issued_after - issued_before) -
+(visible_after - visible_before)`; `reconcileLocked_bound` proves that a
+   prestate bound is preserved when that delta is applied with checked
+   `u64` arithmetic. `applyFullCore_preserves` composes all phases, and
+   `applyFull_safe` proves that any state returned by the validated pipeline
+   passes the runtime check. Index / Move-write / access-version writes are
+   modeled explicitly and proved supply-neutral.
+4. **Trace induction.** Every state reachable from an invariant ledger by
    mint / burn / transfer steps is invariant
    (`Supply.reachable_invariant`).
-3. **Checker soundness / completeness.** Accepting a state implies the
+5. **Checker soundness / completeness.** Accepting a state implies the
    invariant (`Supply.cachedSupplyCheck_sound`, surfaced as `Supply.holds`);
    satisfying the accounted bound implies acceptance
    (`Supply.cachedSupplyCheck_complete`).
-4. **The bug is caught.** Funding a wallet outside the treasury cap breaks
+6. **The bug is caught.** Funding a wallet outside the treasury cap breaks
    the invariant (`Supply.Ledger.fundOutside_breaks`) and the concrete USD
    instance is rejected (`Counterexample.check_rejects`).
 
@@ -71,13 +102,14 @@ theorem holds ... : Statement st coins caps capOf isGas nativeTotal := by sorry
 for an unconstrained `st`. That statement is false (see above), so it could
 not be proved without `sorry`. This version:
 
-* drops the redundant `caps`, `isGas` and `nativeTotal` parameters — the gas
+- drops the redundant `caps`, `isGas` and `nativeTotal` parameters — the gas
   coin's total is the persisted `TreasuryCap` in `capOf`, matching
   `validate_persisted_native_supply`;
-* makes the invariant a *validated-state* property and proves preservation,
+- makes the invariant a _validated-state_ property and proves preservation,
   checker soundness, trace induction, and the rejection of the bug state;
-* removes the mathlib dependency (the previous toolchain pinned Lean 4.35.0
-  while mathlib was pinned to 4.33.0, and mathlib was not prebuilt).
+- keeps mathlib as a pinned dependency (`[[require]] mathlib` in
+  `lakefile.toml`, toolchain `v4.37.0-rc1`) and uses it in the apply-pipeline
+  model, while keeping the trusted core model small.
 
 The trusted audit surface is `Model/*` and `Supply/Statement.lean`; everything
 in `Proof.lean`, `Trace.lean`, `Counterexample.lean` and `Store.lean` is
@@ -101,22 +133,25 @@ otherwise                                 -> global_token_supplies[T]
 guard in `validate_token_supply_bound`) and the `tracked_fungible_token_types`
 loop. It proves:
 
-* `rustCachedSupplyCheck_sound` — acceptance implies
+- `rustCachedSupplyCheck_sound` — acceptance implies
   `walletCache T ≤ issuedSupply T` and `walletCache T + locked T ≤ issuedSupply T`;
-* `rustCachedSupplyCheck_no_overflow` — acceptance rules out accounted-supply
+- `rustCachedSupplyCheck_no_overflow` — acceptance rules out accounted-supply
   overflow for a `u64` total;
-* `reconciled_bound` — under the cache/canonical reconciliation performed by
+- `reconciled_bound` — under the cache/canonical reconciliation performed by
   `validate_supply_invariants`, the bound applies to the canonical coin scan;
-* `fallback_check_accepts` — the last-resort fallback is **not** a cap: with no
+- `fallback_check_accepts` — the last-resort fallback is **not** a cap: with no
   persisted record, `issuedSupply T = walletCache T` and any `u64` size is
   accepted, so uncapped tokens have no fixed maximum supply in this check;
-* `ofState_check_sound` — acceptance by the faithful checker implies
+- `ofState_check_sound` — acceptance by the faithful checker implies
   `SupplyInvariant` for states whose cap totals agree with the persisted caps.
 
 The remaining modelling assumption is `hcover`: every token reachable through
 `supply:...` must be tracked. In Rust, `tracked_fungible_token_types` unions the
 `treasury_index`, the wallet cache, the gas coin and all object-locked records;
 a treasury entry that is absent from all of those would escape the loop.
+
+The full precondition list, the explicit non-claims, and the reproduction
+commands are recorded in [VERIFICATION.md](VERIFICATION.md).
 
 ## Differential test against Rust
 

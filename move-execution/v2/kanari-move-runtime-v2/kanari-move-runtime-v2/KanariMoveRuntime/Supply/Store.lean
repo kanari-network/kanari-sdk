@@ -1,5 +1,7 @@
-import KanariMoveRuntime.Supply.Statement
-import KanariMoveRuntime.Supply.Proof
+module
+
+public import KanariMoveRuntime.Supply.Statement
+public import KanariMoveRuntime.Supply.Proof
 open KanariMoveRuntime
 
 /-
@@ -44,6 +46,8 @@ looked up through `supply:...` must appear in `tracked` (in Rust that is the
 `treasury_index`; `tracked_fungible_token_types` unions it with the cache,
 the gas coin and all coin records).
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

@@ -1,4 +1,6 @@
-import KanariMoveRuntime.Model.Balance
+module
+
+public import KanariMoveRuntime.Model.Balance
 
 /-!
 # Kanari Move Runtime v2 — treasury-cap model
@@ -19,6 +21,8 @@ what the invariant catches.
 `TreasuryCap.mint` / `TreasuryCap.burn` model the effect on the authoritative
 field; the runtime-side cache update is `State.mintCap` / `State.burnCap`.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

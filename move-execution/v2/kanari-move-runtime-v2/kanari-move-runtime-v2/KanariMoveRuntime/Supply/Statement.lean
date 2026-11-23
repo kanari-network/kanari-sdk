@@ -1,6 +1,8 @@
-import KanariMoveRuntime.Model.State
-import KanariMoveRuntime.Model.Balance
-import KanariMoveRuntime.Model.Treasury
+module
+
+public import KanariMoveRuntime.Model.State
+public import KanariMoveRuntime.Model.Balance
+public import KanariMoveRuntime.Model.Treasury
 open KanariMoveRuntime
 
 /-
@@ -23,6 +25,8 @@ total supply of USD.
 Statements and definitions only; proofs live in Proof.lean, Trace.lean and
 Counterexample.lean.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

@@ -1,5 +1,7 @@
-import KanariMoveRuntime.Supply.Statement
-import KanariMoveRuntime.Supply.Proof
+module
+
+public import KanariMoveRuntime.Supply.Statement
+public import KanariMoveRuntime.Supply.Proof
 open KanariMoveRuntime
 
 /-
@@ -21,6 +23,8 @@ Together with `Proof.lean` this pins down the exact contract: the invariant is
 not true of arbitrary states, it is true of states the runtime admits, and the
 checker rejects the bug state.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

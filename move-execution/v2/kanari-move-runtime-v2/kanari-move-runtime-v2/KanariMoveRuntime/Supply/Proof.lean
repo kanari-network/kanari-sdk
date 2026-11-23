@@ -1,7 +1,9 @@
-import KanariMoveRuntime.Model.State
-import KanariMoveRuntime.Model.Balance
-import KanariMoveRuntime.Model.Treasury
-import KanariMoveRuntime.Supply.Statement
+module
+
+public import KanariMoveRuntime.Model.State
+public import KanariMoveRuntime.Model.Balance
+public import KanariMoveRuntime.Model.Treasury
+public import KanariMoveRuntime.Supply.Statement
 open KanariMoveRuntime
 
 /-
@@ -37,6 +39,8 @@ negative result that funding a wallet outside the treasury cap breaks it.
 
 This file is machine-checked, sorry-free Lean 4 core (no mathlib).
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

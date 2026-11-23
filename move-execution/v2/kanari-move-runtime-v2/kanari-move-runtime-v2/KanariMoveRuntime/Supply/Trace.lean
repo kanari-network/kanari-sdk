@@ -1,5 +1,7 @@
-import KanariMoveRuntime.Supply.Statement
-import KanariMoveRuntime.Supply.Proof
+module
+
+public import KanariMoveRuntime.Supply.Statement
+public import KanariMoveRuntime.Supply.Proof
 open KanariMoveRuntime
 
 /-
@@ -29,6 +31,8 @@ The trace model is deliberately small:
 `ledgerOf` and `supplyInvariant_of_ledgerInv` connect this abstract model back
 to the concrete `State`/`Coin` model of `Statement.lean`.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 

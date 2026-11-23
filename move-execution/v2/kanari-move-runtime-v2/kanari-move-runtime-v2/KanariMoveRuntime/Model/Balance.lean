@@ -1,3 +1,5 @@
+module
+
 /-!
 # Kanari Move Runtime v2 — balance model
 
@@ -24,6 +26,8 @@ This is the invariant enforced by `validate_cached_supply_invariants` in
 `usd_shared_cap_mint_pays_out_twice_to_any_recipient` when the shared
 treasury cap's total was not updated to reflect pre-funded gas supply.
 -/
+
+@[expose] public section
 
 namespace KanariMoveRuntime
 
