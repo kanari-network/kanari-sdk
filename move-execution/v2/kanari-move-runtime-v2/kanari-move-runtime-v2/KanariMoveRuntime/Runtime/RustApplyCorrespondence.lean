@@ -33,10 +33,15 @@ Included ranges (all under `move-execution/v2/kanari-move-runtime-v2/src/`):
 * `state/supply/supply_repairs.rs`: 14-77, 92-118;
 * `state/supply/supply_tracking.rs`: 38-140.
 
+The sibling batch-burn fast path (`mod.rs:667-857`) has its own supply model in
+`Runtime.BatchBurnProof` plus four range anchors in `batchBurnAnchors`; only its
+supply arithmetic is mirrored, not its structural eligibility predicates or
+object writes.
+
 Explicitly skipped: profiling/logging/error-message text, RocksDB and overlay
 plumbing, Move VM/entry loading, serialization byte layout beyond the already
-modelled balance/cap extraction, event/NFT/collection/module effects, the
-sibling batch-burn API (`mod.rs:667-857`), and all concurrency claims.
+modelled balance/cap extraction, event/NFT/collection/module effects, and all
+concurrency claims.
 
 The theorem `rustApplyFull_safe` is about this mirror and reduces to the
 existing `Runtime.FullApplyProof.applyFull_safe`. It is not a theorem that the
@@ -178,6 +183,38 @@ def rustAnchors : List RustAnchor :=
     anchorSupplyTracking ]
 
 theorem rustAnchors_wellFormed : ∀ a ∈ rustAnchors, a.first ≤ a.last := by
+  decide
+
+/-- Batch-burn eligibility gates and the rejected-extras check. -/
+def anchorBatchBurnEligibility : RustAnchor :=
+  ⟨"src/state/apply/mod.rs", 667, 698,
+    "batch-burn entry and structural eligibility gates",
+    "try_apply_owned_native_burn_batch_without_supply_validation"⟩
+
+/-- Checked owner-delta and supply-delta fold in the batch fast path. -/
+def anchorBatchBurnDeltas : RustAnchor :=
+  ⟨"src/state/apply/mod.rs", 700, 770,
+    "batch-burn canonical gas, debit checks and checked delta folds",
+    "Native owned batch supply delta overflow"⟩
+
+/-- The positive-delta rejection and single checked burn of total and cache. -/
+def anchorBatchBurnSupply : RustAnchor :=
+  ⟨"src/state/apply/mod.rs", 783, 817,
+    "batch-burn net-delta gate, total burn and visible-supply burn",
+    "let burn_amount"⟩
+
+/-- Owner balance writes, object writes, index and access-version tail. -/
+def anchorBatchBurnCommit : RustAnchor :=
+  ⟨"src/state/apply/mod.rs", 819, 856,
+    "batch-burn owner recompute, object writes and access versions",
+    "advance_access_versions"⟩
+
+/-- All batch-burn anchors. -/
+def batchBurnAnchors : List RustAnchor :=
+  [anchorBatchBurnEligibility, anchorBatchBurnDeltas, anchorBatchBurnSupply,
+    anchorBatchBurnCommit]
+
+theorem batchBurnAnchors_wellFormed : ∀ a ∈ batchBurnAnchors, a.first ≤ a.last := by
   decide
 
 /-- The supply-relevant phases in Rust apply order. -/

@@ -12,6 +12,8 @@ public import KanariMoveRuntime.Supply.Cover
 public import KanariMoveRuntime.Runtime.Pipeline
 public import KanariMoveRuntime.Runtime.ApplyProof
 public import KanariMoveRuntime.Runtime.FullApplyProof
+public import KanariMoveRuntime.Runtime.BatchBurnProof
+public import KanariMoveRuntime.Runtime.ResidualGuards
 public import KanariMoveRuntime.Runtime.RustApplyCorrespondence
 public import KanariMoveRuntime.Runtime.SchedulerProof
 public import KanariMoveRuntime.Runtime.EngineLoop
@@ -26,9 +28,11 @@ of **`TransactionScheduler::schedule`**, and of the scheduler's wave consumer
 loop under explicit locality hypotheses. It also contains a **line-anchored
 supply-relevant correspondence** for the Rust apply ranges: named file/line
 anchors, a drift checker, and a terminal theorem reducing the mirrored pipeline
-to `applyFull_safe`. It is not a line-by-line verification of the whole Rust
-runtime. The bounded attestation, its preconditions, and the parts that are
-only modelled and tested are recorded in `VERIFICATION.md`.
+to `applyFull_safe`. Supply models and guards cover the sibling batch-burn
+fast path, legacy raw supply-key startup checks, and generic Move writes that
+would overwrite supply fields. It is not a line-by-line verification of the
+whole Rust runtime. The bounded attestation, its preconditions, and the parts
+that are only modelled and tested are recorded in `VERIFICATION.md`.
 
 This library formalizes the supply invariant enforced by
 `validate_cached_supply_invariants` in
@@ -63,9 +67,12 @@ in `crates/kanari-core/tests/unit/engine_tests.rs`.
   records that a token with no persisted total has no fixed cap.
 * `Supply.Cover.CoverInv`, `Supply.Cover.coveredCheck_sound` and the four
   preservation lemmas — a concrete startup invariant over the finite inputs
-  Rust uses to derive `tracked`. It replaces the opaque `hcover` predicate for
-  modelled fresh/normal write paths; legacy unindexed caps and generic
-  `move_writes` supply writes remain residual startup/API risks.
+  Rust uses to derive `tracked`. `Supply.Cover.coverCheckStartup_sound` turns
+  acceptance of an executable startup check into `CoverInv`, and
+  `Supply.Cover.coverCheckStartup_raw_bound` bounds legacy raw `supply:<T>`
+  caps once they are forced into the derived tracked set. Generic `move_writes`
+  supply writes are still
+  an API risk; `Runtime.ResidualGuards` provides a guard for them.
 * `Runtime.ApplyProof.applyChangesetNative_preserves`,
   `Runtime.ApplyProof.applyChangesetValidated_safe` — the compositional native
   apply proof: checked `i128` net delta, a single checked `u64` total update,
@@ -77,6 +84,17 @@ in `crates/kanari-core/tests/unit/engine_tests.rs`.
   object-locked reconciliation with the signed issued/visible delta, candidate
   legacy repair, supply-neutral index / Move / access-version writes, and
   validate-and-reject.
+* `Runtime.BatchBurn.batchBurnNative_safe`,
+  `Runtime.BatchBurn.batchBurnNative_total_nonincreasing` — the supply model of
+  the sibling batch-native-burn fast path: eligibility gates, checked net delta,
+  a positive-delta rejection, and reuse of the already-proved checked native
+  transition. Object bytes, versions and index writes are not proved.
+* `Runtime.ResidualGuards.guardedApplyMoveWrites_no_critical`,
+  `Runtime.ResidualGuards.guardedApplyMoveWrites_preserves_bound` — a guard that
+  rejects generic Move writes classified as `total_supply`,
+  `global_token_supplies`, `supply:<T>` or `treasury:<T>` keys; successful
+  writes are supply-neutral. It depends on a faithful key classifier supplied
+  by the caller.
 * `Runtime.SchedulerProof.schedule_flatten`,
   `Runtime.SchedulerProof.schedule_waves_nonempty`,
   `Runtime.SchedulerProof.schedule_wave_size`,
@@ -86,14 +104,16 @@ in `crates/kanari-core/tests/unit/engine_tests.rs`.
   transactions with conflicting keys. This is a proof about the model, not a
   line-by-line verification of the Rust source.
 * `Runtime.RustApply.rustAnchors_wellFormed`,
+  `Runtime.RustApply.batchBurnAnchors_wellFormed`,
   `Runtime.RustApply.rustTreasuryCapWrite_nativeCapAgrees`,
   `Runtime.RustApply.rustLockedReconciliation_preserves_bound`,
   `Runtime.RustApply.rustNonSupplyPass_preserves_bound`,
   `Runtime.RustApply.rustLegacyRepair_preserves_bound`,
   `Runtime.RustApply.rustApplyFull_safe` — a line-anchored mirror of the
-  supply-relevant Rust apply ranges, with `scripts/CheckRustAnchors.lean`
-  detecting shifted anchors. The terminal theorem reduces the mirrored
-  pipeline to `applyFull_safe`; it is not a proof about Rust execution.
+  21 apply anchors and 4 batch-burn anchors, with
+  `scripts/CheckRustAnchors.lean` detecting shifted anchors. The terminal
+  theorem reduces the mirrored pipeline to `applyFull_safe`; it is not a proof
+  about Rust execution.
 * `Runtime.EngineLoop.engineFold_eq_seqFold` — under `EngineOK` (read/write
   manifest completeness) and `Nodup` waves, the modelled wave engine equals
   the strict serial fold. This is conditional model equivalence, not a proof
@@ -102,6 +122,9 @@ in `crates/kanari-core/tests/unit/engine_tests.rs`.
 `testdata/token_bound_vectors.tsv` is generated by `scripts/GenerateVectors.lean`
 and checked against the real Rust `validate_token_supply_bound` by
 `src/state/supply/supply_validation.rs::tests::lean_vectors_match_rust`.
+`scripts/CheckResidualGuards.lean` additionally checks Lean-model consistency
+for native/batch apply, the Move-write guard and the startup cover check; it is
+not a Rust differential test.
 
 Note that the invariant is *not* a theorem about arbitrary `State` values:
 `Counterexample.invariant_fails` proves the negation for a concrete state.

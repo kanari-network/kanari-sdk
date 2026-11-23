@@ -37,61 +37,84 @@ the strict serial fold. It is a conditional equivalence about the model; it
 does not prove that Rust manifests are complete, that epoch fences or the VM
 are correct, or that the runtime is concurrent/linearizable.
 
-A separate correspondence artifact records 21 file/line anchors over the
-supply-relevant parts of `state/apply` and `state/supply`, mirrors Rust's
-derived tracked set and locked-record sums, and reduces the mirrored phase
-order to `applyFull_safe`. A drift checker detects shifted or deleted anchors.
-This is a line-anchored Lean mirror, not a proof about Rust execution or about
-code outside the declared ranges.
+A separate correspondence artifact records 21 apply anchors plus 4 batch-burn
+anchors over the supply-relevant parts of `state/apply` and `state/supply`,
+mirrors Rust's derived tracked set and locked-record sums, and reduces the
+mirrored phase order to `applyFull_safe`. A drift checker detects shifted or
+deleted anchors. This is a line-anchored Lean mirror, not a proof about Rust
+execution or about code outside the declared ranges.
+
+Three residual risks have Lean-side artefacts: an executable startup check that
+turns acceptance into `CoverInv` for canonical and legacy raw `supply:<T>`
+caps, a guard that rejects generic Move writes to supply-critical keys, and a
+supply model of the sibling batch-native-burn fast path whose success reduces
+to the existing checked native apply theorem. These are conditional on a
+complete candidate list, a faithful key classifier, and a faithful mirror of
+the Rust eligibility predicates respectively. Compiler, VM, RocksDB,
+serialization, object versions, event/NFT/collection effects and concurrency
+remain external boundaries; Lean cannot verify them without a semantics or
+extractor for those components.
 
 The allowed one-sentence summary is:
 
 > _Inside `KanariMoveRuntime`, the supply-relevant apply path is covered by
 > machine-checked Lean proofs and a Lean/Rust differential test for the
-> per-token bound, a drift-checked line-anchored mirror records the Rust apply
-> correspondence, the `schedule` wave-partition algorithm is machine-checked,
-> and the modelled wave consumer loop is conditionally proved equivalent to
-> the serial fold._
+> per-token bound; a drift-checked line-anchored mirror records the Rust apply
+> correspondence; startup cover, Move-write and batch-burn guards cover the
+> previously listed residual supply risks; the `schedule` wave-partition
+> algorithm is machine-checked; and the modelled wave consumer loop is
+> conditionally proved equivalent to the serial fold._
 
 The following claims are **not** made:
 
 - `kanari-move-runtime-v2` is fully formally verified.
 - Every Rust line in the apply path is proof-carrying.
 - The opaque `hcover` predicate in `Supply/Store.lean` has been globally
-  eliminated; only its concrete `CoverInv` replacement for modelled normal
-  write paths is proved.
-- The Rust engine, epoch fence, VM, or runtime concurrency is formally
-  verified.
+  eliminated; concrete `CoverInv`, its startup check, and its preservation
+  lemmas are proved only for the modelled paths.
+- The Rust engine, epoch fence, VM, RocksDB, serialization, object versions,
+  event/NFT/collection effects, or runtime concurrency is formally verified.
+- The batch-burn mirror proves a successful _modelled_ burn; it does not prove
+  that Rust's eligibility predicates, object writes or indexes are correct.
 
 ## 2. What is machine-checked
 
 All items below are `sorry`/`admit`/`axiom`-free and built by Lean
 `v4.37.0-rc1` with Mathlib pinned in `lake-manifest.json`.
 
-| Area                  | Artifact                                 | Checked statement                                                                                                                                                            |
-| --------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Per-token bound       | `Supply/Store.lean`                      | `rustTokenBound_sound`, `rustTokenBound_complete`: `rustTokenBound` mirrors `validate_token_supply_bound`, including `u64::checked_add` overflow rejection                   |
-| Cap-based mint/burn   | `Supply/Proof.lean`, `Supply/Trace.lean` | `mint_preserves`, `Ledger.burn_preserves`, `coinSupplyOf_transfer_pair`, `reachable_invariant`                                                                               |
-| Negative case         | `Supply/Counterexample.lean`             | `fundOutside_breaks`, `invariant_fails`, `check_rejects`                                                                                                                     |
-| Native apply          | `Runtime/ApplyProof.lean`                | `applyChangesetNative_preserves`, `applyChangesetValidated_safe`: checked `i128` net delta, one checked `u64` total update, covered owner debits, full bound                 |
-| Gate                  | `Runtime/FullApplyProof.lean`            | `fullGate_sound`, `fullGate_complete`                                                                                                                                        |
-| Treasury caps         | `Runtime/FullApplyProof.lean`            | `writeCap_nativeCapAgrees`, `writeCaps_nativeCapAgrees`                                                                                                                      |
-| Gas object            | `Runtime/FullApplyProof.lean`            | `debitCoin_spec`, `debitCoin_none_of_insufficient`, `applyGas_walletCache_eq_sum`, `applyGas_neg_le`                                                                         |
-| Native bridge         | `Runtime/FullApplyProof.lean`            | `applyNativePhase_gas_bound`, `applyNativePhase_nativeCapAgrees`, `writeNativeTotal_nativeCapAgrees`                                                                         |
-| Locked reconciliation | `Runtime/FullApplyProof.lean`            | `reconcileLocked_bound`, `reconcileAll_preserves_bound` using delta `(issued_after - issued_before) - (visible_after - visible_before)`                                      |
-| Legacy repair         | `Runtime/FullApplyProof.lean`            | `applyLegacyRepair_preserves_bound`                                                                                                                                          |
-| Non-supply writes     | `Runtime/FullApplyProof.lean`            | `applyNonSupply_preserves_bound`                                                                                                                                             |
-| Composition           | `Runtime/FullApplyProof.lean`            | `applyFullCore_preserves`, `applyFull_eq_repaired_of_bound`, **`applyFull_safe`**                                                                                            |
-| Scheduler             | `Runtime/SchedulerProof.lean`            | `schedule_flatten`, `schedule_waves_nonempty`, `schedule_wave_size`, `schedule_wave_disjoint` — properties of the model of `src/scheduler.rs` (no runtime concurrency claim) |
-| Cover                 | `Supply/Cover.lean`                      | `CoverInv`, `coveredCheck_sound`, and preservation under modelled treasury/native/wallet/locked writes — concrete startup replacement for opaque `hcover`                    |
-| Engine loop           | `Runtime/EngineLoop.lean`                | `engineFold_eq_seqFold` — conditional equality of modelled wave execution and serial fold under `EngineOK` and `Nodup` waves                                                 |
-| Rust apply anchors    | `Runtime/RustApplyCorrespondence.lean`   | `rustAnchors_wellFormed`, `rustApplyFull_safe`, `rustApplyFull_safe_derived` — 21 line anchors, derived tracked set, and reduction to `applyFull_safe`                       |
+| Area                  | Artifact                                 | Checked statement                                                                                                                                                                  |
+| --------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-token bound       | `Supply/Store.lean`                      | `rustTokenBound_sound`, `rustTokenBound_complete`: `rustTokenBound` mirrors `validate_token_supply_bound`, including `u64::checked_add` overflow rejection                         |
+| Cap-based mint/burn   | `Supply/Proof.lean`, `Supply/Trace.lean` | `mint_preserves`, `Ledger.burn_preserves`, `coinSupplyOf_transfer_pair`, `reachable_invariant`                                                                                     |
+| Negative case         | `Supply/Counterexample.lean`             | `fundOutside_breaks`, `invariant_fails`, `check_rejects`                                                                                                                           |
+| Native apply          | `Runtime/ApplyProof.lean`                | `applyChangesetNative_preserves`, `applyChangesetValidated_safe`: checked `i128` net delta, one checked `u64` total update, covered owner debits, full bound                       |
+| Gate                  | `Runtime/FullApplyProof.lean`            | `fullGate_sound`, `fullGate_complete`                                                                                                                                              |
+| Treasury caps         | `Runtime/FullApplyProof.lean`            | `writeCap_nativeCapAgrees`, `writeCaps_nativeCapAgrees`                                                                                                                            |
+| Gas object            | `Runtime/FullApplyProof.lean`            | `debitCoin_spec`, `debitCoin_none_of_insufficient`, `applyGas_walletCache_eq_sum`, `applyGas_neg_le`                                                                               |
+| Native bridge         | `Runtime/FullApplyProof.lean`            | `applyNativePhase_gas_bound`, `applyNativePhase_nativeCapAgrees`, `writeNativeTotal_nativeCapAgrees`                                                                               |
+| Locked reconciliation | `Runtime/FullApplyProof.lean`            | `reconcileLocked_bound`, `reconcileAll_preserves_bound` using delta `(issued_after - issued_before) - (visible_after - visible_before)`                                            |
+| Legacy repair         | `Runtime/FullApplyProof.lean`            | `applyLegacyRepair_preserves_bound`                                                                                                                                                |
+| Non-supply writes     | `Runtime/FullApplyProof.lean`            | `applyNonSupply_preserves_bound`                                                                                                                                                   |
+| Composition           | `Runtime/FullApplyProof.lean`            | `applyFullCore_preserves`, `applyFull_eq_repaired_of_bound`, **`applyFull_safe`**                                                                                                  |
+| Scheduler             | `Runtime/SchedulerProof.lean`            | `schedule_flatten`, `schedule_waves_nonempty`, `schedule_wave_size`, `schedule_wave_disjoint` — properties of the model of `src/scheduler.rs` (no runtime concurrency claim)       |
+| Cover                 | `Supply/Cover.lean`                      | `CoverInv`, `coveredCheck_sound`, `coverCheckStartup_sound`, `coverCheckStartup_raw_bound` (legacy raw caps), and preservation under modelled treasury/native/wallet/locked writes |
+| Engine loop           | `Runtime/EngineLoop.lean`                | `engineFold_eq_seqFold` — conditional equality of modelled wave execution and serial fold under `EngineOK` and `Nodup` waves                                                       |
+| Rust apply anchors    | `Runtime/RustApplyCorrespondence.lean`   | `rustAnchors_wellFormed`, `batchBurnAnchors_wellFormed`, `rustApplyFull_safe`, `rustApplyFull_safe_derived` — 21 apply + 4 batch-burn line anchors                                 |
+| Batch burn            | `Runtime/BatchBurnProof.lean`            | `batchBurnNative_safe`, `batchBurnNative_total_nonincreasing`, `batchBurnNative_net_nonpositive` — modelled fast path reduces to the checked native transition                     |
+| Move-write guard      | `Runtime/ResidualGuards.lean`            | `guardedApplyMoveWrites_no_critical`, `guardedApplyMoveWrites_preserves_bound` — supply-critical key rejection contingent on a faithful classifier                                 |
+| Residual grid         | `scripts/CheckResidualGuards.lean`       | 147 native/batch vectors, 6 guard vectors, 2 startup-cover vectors — Lean-only executable consistency check, not a Rust differential test                                          |
 
 `applyFull_safe` is the terminal guarantee: if the validated full pipeline
 returns a state, that state passes the modelled runtime supply check.
 `coveredCheck_sound` is the cover-side guarantee: over the concrete derived
 tracked set, acceptance bounds every token with a persisted cap, provided
 `CoverInv` holds on the startup database and normal writes preserve it.
+`coverCheckStartup_sound` supplies that startup invariant when the enumerated
+candidate list is complete, and `coverCheckStartup_raw_bound` extends the cached
+check to legacy raw `supply:<T>` caps. `batchBurnNative_safe` is conditional on eligibility
+and on the delta/state mirror; it does not certify Rust's structural checks.
+`guardedApplyMoveWrites_preserves_bound` is conditional on `classify` matching
+Rust's canonical key construction; the guard rejects rather than repairs.
 `engineFold_eq_seqFold` is conditional: it gives equality of modelled wave
 execution and serial execution only when `EngineOK` and `Nodup` are supplied.
 `rustApplyFull_safe` is only a reduction: if the mirrored Rust phase order
@@ -116,11 +139,15 @@ The bounded claim holds only together with these conditions:
    `writeTreasuryCap_preserves_CoverInv`,
    `writeNativeSupply_preserves_CoverInv`,
    `addWalletKey_preserves_CoverInv` and `addLockedKey_preserves_CoverInv`
-   prove preservation under the modelled normal writes. The residual risk is
-   therefore a startup/API check: legacy databases with an unindexed
-   `supply:<T>` cap, or changesets that write `supply:` keys through the
-   generic `move_writes` escape hatch, can violate `CoverInv` and are not
-   covered by this theorem.
+   prove preservation under the modelled normal writes.
+   `hasPersistedTreasury` and `coverCheckStartup_sound` add an executable
+   startup check for both canonical and legacy raw `supply:<T>` caps, provided
+   the candidate list enumerates every persisted cap.
+   `Runtime.ResidualGuards.guardedApplyMoveWrites` can reject changesets whose
+   generic `move_writes` target `total_supply`, `global_token_supplies`,
+   `supply:<T>` or `treasury:<T>` keys, provided `classify` matches Rust's key
+   construction. Both checks must be wired into the real API by its owner;
+   this library only proves their Lean-side soundness.
 2. **Tracked set contains the gas coin.** `applyLegacyRepair_preserves_bound`
    and the cached checker assume `gasCoin ∈ tracked`.
 3. **Input plausibility.** The changeset model receives the same supply inputs
@@ -158,13 +185,20 @@ linearizable. The modelled fallback is serial replay of an anomalous wave,
 not a proof about real concurrent execution.
 
 `Runtime/RustApplyCorrespondence.lean` is inside `KanariMoveRuntime` only. Its
-anchors cover the supply-relevant ranges of `state/apply` and `state/supply`;
-profiling, logging, error-message text, RocksDB/overlay plumbing, Move VM and
-entry loading, serialization beyond the modelled balance/cap extraction,
-event/NFT/collection/module effects, the sibling batch-burn API
-(`mod.rs:667-857`), and all concurrency claims are outside the mirror. The
-drift checker verifies that anchors still point at live source ranges, but it
-cannot prove the initial transcription faithful.
+anchors cover the supply-relevant ranges of `state/apply` and `state/supply`
+plus four ranges of the sibling batch-burn API (`mod.rs:667-857`); the supply
+arithmetic of that API is modelled in `Runtime/BatchBurnProof`. Profiling,
+logging, error-message text, RocksDB/overlay plumbing, Move VM and entry
+loading, serialization beyond the modelled balance/cap extraction,
+object-version and index details, event/NFT/collection/module effects, the
+batch-burn structural eligibility predicates, and all concurrency claims are
+outside the mirror. The drift checker verifies that anchors still point at live
+source ranges, but it cannot prove the initial transcription faithful.
+
+These external boundaries cannot be discharged by more Lean theorems alone: a
+Rust semantics or extractor, a model of the storage engine and VM, and a
+linearizability proof would be required. They are listed here as limits, not
+as implicit assumptions of the bounded claim.
 
 No claim is made here about anything outside `KanariMoveRuntime`.
 
@@ -188,7 +222,11 @@ cargo test -p kanari-move-runtime-v2 --no-fail-fast
 (included under `#[cfg(test)]`) asserts that the real
 `StateManager::validate_token_supply_bound` accepts exactly the same rows,
 including `u64::MAX` overflow cases. The Rust runtime path is unchanged; only
-a test module was added.
+a test module was added. These 216 vectors cover the per-token check only, not
+the whole apply path. `scripts/CheckResidualGuards.lean` adds 147 native/batch,
+6 Move-write guard and 2 startup-cover vectors inside Lean; those are not
+cross-checked against Rust and must not be described as a Rust differential
+test.
 
 ## 6. Reproduction
 
@@ -196,10 +234,14 @@ From this directory (`.../kanari-move-runtime-v2/kanari-move-runtime-v2`):
 
 ```powershell
 lake build
-# Build completed successfully (1235 jobs), 0 errors, 0 warnings
+# Build completed successfully (1239 jobs), 0 errors, 0 warnings
 
 lake env lean --run scripts/CheckRustAnchors.lean
-# Rust anchor check passed: 21 anchors
+# Rust anchor check passed: 25 anchors (21 apply, 4 batch-burn)
+
+lake env lean --run scripts/CheckResidualGuards.lean
+# Residual guard check passed: 147 native/batch vectors, 6 guard vectors,
+# 2 startup cover vectors
 
 lake env lean --run scripts/GenerateVectors.lean
 # 216 rows
@@ -233,10 +275,13 @@ Use:
 
 > Machine-checked Lean proofs cover the supply-relevant apply path
 > (`Runtime.ApplyProof`, `Runtime.FullApplyProof`) with theorem `applyFull_safe`,
-> the concrete startup cover invariant (`Supply.Cover`), the `schedule`
-> wave-partition algorithm (`Runtime.SchedulerProof`), and the conditional
-> wave-engine equivalence (`Runtime.EngineLoop`), plus a 216-vector Lean/Rust
-> differential test. The remainder of `kanari-move-runtime-v2` is covered by
-> the Rust test suite, not formally verified.
+> the concrete startup cover invariant (`Supply.Cover`), the modelled batch-burn
+> fast path (`Runtime.BatchBurnProof`), the Move-write supply guard
+> (`Runtime.ResidualGuards`), the `schedule` wave-partition algorithm
+> (`Runtime.SchedulerProof`), and the conditional wave-engine equivalence
+> (`Runtime.EngineLoop`), plus a 216-vector Lean/Rust differential test and a
+> drift-checked 25-anchor Rust apply mirror. The remainder of
+> `kanari-move-runtime-v2` is covered by the Rust test suite, not formally
+> verified.
 
 Do **not** shorten this to “the runtime is formally verified”.

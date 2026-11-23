@@ -22,11 +22,13 @@ def checkAnchor (a : RustAnchor) : IO (List String) := do
       return [s!"marker missing in {a.file}:{a.first}-{a.last}: {a.marker}"]
 
 def main : IO Unit := do
+  let all := rustAnchors ++ batchBurnAnchors
   let mut errors : List String := []
-  for a in rustAnchors do
+  for a in all do
     errors := errors ++ (← checkAnchor a)
   if errors.length == 0 then
-    IO.println s!"Rust anchor check passed: {rustAnchors.length} anchors"
+    IO.println s!"Rust anchor check passed: {all.length} anchors \
+      ({rustAnchors.length} apply, {batchBurnAnchors.length} batch-burn)"
   else
     for e in errors do
       IO.eprintln e

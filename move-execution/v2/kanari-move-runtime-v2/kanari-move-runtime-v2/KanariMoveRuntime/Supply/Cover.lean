@@ -82,6 +82,76 @@ theorem coveredCheck_sound {v : TrackedStore} {locked : TokenType → Nat}
       v.store.walletCache T + locked T ≤ v.store.issuedSupply T := by
   exact rustCachedSupplyCheck_sound hcheck (hv T c hc)
 
+/-- True when a token has a persisted treasury cap at either the canonical or
+the legacy raw `supply:<T>` spelling. -/
+def hasPersistedTreasury (v : TrackedStore) (T : TokenType) : Bool :=
+  match v.store.supplyKey T, v.store.supplyKeyRaw T with
+  | some (PersistedSupply.treasury _), _ => true
+  | _, some (PersistedSupply.treasury _) => true
+  | _, _ => false
+
+theorem hasPersistedTreasury_of_canonical {v : TrackedStore} {T : TokenType}
+    {c : TreasuryCap} (hc : v.store.supplyKey T = some (PersistedSupply.treasury c)) :
+    hasPersistedTreasury v T = true := by
+  simp [hasPersistedTreasury, hc]
+
+theorem hasPersistedTreasury_of_raw {v : TrackedStore} {T : TokenType}
+    {c : TreasuryCap} (hc : v.store.supplyKeyRaw T = some (PersistedSupply.treasury c)) :
+    hasPersistedTreasury v T = true := by
+  rcases hk : v.store.supplyKey T with _ | p
+  · simp [hasPersistedTreasury, hk, hc]
+  · cases p <;> simp [hasPersistedTreasury, hk, hc]
+
+/-- Executable startup check. `candidates` is the finite list of token types
+whose canonical or raw supply keys were enumerated from the database. The check
+accepts only when every token with a persisted cap is in the derived tracked
+set. -/
+def coverCheckStartup (v : TrackedStore) : List TokenType → Bool
+  | [] => true
+  | T :: Ts => (!hasPersistedTreasury v T || T ∈ trackedTokens v) && coverCheckStartup v Ts
+
+/-- Membership witness extracted from a successful startup check. -/
+theorem coverCheckStartup_mem_of_mem (v : TrackedStore) (candidates : List TokenType)
+    (T : TokenType) (hcheck : coverCheckStartup v candidates = true)
+    (hcand : T ∈ candidates) :
+    hasPersistedTreasury v T = true → T ∈ trackedTokens v := by
+  induction candidates with
+  | nil => simp at hcand
+  | cons U Us ih =>
+      intro hpt
+      simp [coverCheckStartup] at hcheck
+      rcases hcheck with ⟨hUcheck, hUscheck⟩
+      simp only [List.mem_cons] at hcand
+      rcases hcand with hEq | hInUs
+      · subst U
+        simpa [hpt] using hUcheck
+      · exact ih hUscheck hInUs hpt
+
+/-- Acceptance of the startup check gives `CoverInv` without any opaque
+`hcover` hypothesis, provided the candidate list is complete. -/
+theorem coverCheckStartup_sound {v : TrackedStore} {candidates : List TokenType}
+    (hcomplete : ∀ T, hasPersistedTreasury v T = true → T ∈ candidates)
+    (hcheck : coverCheckStartup v candidates = true) : CoverInv v := by
+  intro T c hc
+  have hpt := hasPersistedTreasury_of_canonical hc
+  exact coverCheckStartup_mem_of_mem v candidates T hcheck (hcomplete T hpt) hpt
+
+/-- A legacy raw `supply:<T>` cap is also bounded once the startup check accepts
+and the cached checker passes: the check forces that token into the derived
+tracked set before `rustCachedSupplyCheck_sound` is applied. -/
+theorem coverCheckStartup_raw_bound {v : TrackedStore} {candidates : List TokenType}
+    {locked : TokenType → Nat} {T : TokenType} {c : TreasuryCap}
+    (hcomplete : ∀ U, hasPersistedTreasury v U = true → U ∈ candidates)
+    (hcheck : coverCheckStartup v candidates = true)
+    (hcached : coveredCheck v locked = true)
+    (hc : v.store.supplyKeyRaw T = some (PersistedSupply.treasury c)) :
+    v.store.walletCache T ≤ v.store.issuedSupply T ∧
+      v.store.walletCache T + locked T ≤ v.store.issuedSupply T := by
+  have hpt := hasPersistedTreasury_of_raw hc
+  have hmem : T ∈ trackedTokens v :=
+    coverCheckStartup_mem_of_mem v candidates T hcheck (hcomplete T hpt) hpt
+  exact rustCachedSupplyCheck_sound hcached hmem
+
 /-- If each finite input only grows, the derived tracked set only grows. -/
 theorem trackedTokens_mono {v w : TrackedStore}
     (hi : List.Subset v.treasuryIndex w.treasuryIndex)

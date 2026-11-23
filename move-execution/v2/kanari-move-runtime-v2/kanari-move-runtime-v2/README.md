@@ -34,14 +34,17 @@ apply-pipeline module uses Mathlib's `List.sum` big operator and
 | `KanariMoveRuntime.Supply.Trace`                    | abstract ledger, trace induction, negative result for out-of-treasury funding                                                                                                       |
 | `KanariMoveRuntime.Supply.Counterexample`           | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance                                                                                                                  |
 | `KanariMoveRuntime.Supply.Store`                    | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems                                                                                              |
-| `KanariMoveRuntime.Supply.Cover`                    | concrete startup `CoverInv` over treasury index / wallet keys / locked keys / gas, with preservation under modelled normal writes                                                   |
+| `KanariMoveRuntime.Supply.Cover`                    | concrete startup `CoverInv` over treasury index / wallet keys / locked keys / gas, preservation under modelled normal writes, and an executable startup check for legacy raw caps   |
 | `KanariMoveRuntime.Runtime.Pipeline`                | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
 | `KanariMoveRuntime.Runtime.ApplyProof`              | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
 | `KanariMoveRuntime.Runtime.FullApplyProof`          | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
+| `KanariMoveRuntime.Runtime.BatchBurnProof`          | supply model of `try_apply_owned_native_burn_batch_without_supply_validation`: eligibility gates, positive-delta rejection, checked burn, and reuse of the native apply theorem     |
+| `KanariMoveRuntime.Runtime.ResidualGuards`          | guard rejecting generic Move writes to `total_supply`, `global_token_supplies`, `supply:<T>` and `treasury:<T>` keys; successful writes are supply-neutral                          |
 | `KanariMoveRuntime.Runtime.SchedulerProof`          | machine-checked model of `src/scheduler.rs`: waves partition the input in order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group conflicting keys               |
 | `KanariMoveRuntime.Runtime.EngineLoop`              | conditional wave-engine model: `EngineOK` plus distinct entries imply equality with the strict serial fold                                                                          |
 | `KanariMoveRuntime.Runtime.RustApplyCorrespondence` | line-anchored supply-relevant mirror of the Rust apply ranges; named anchors, derived tracked set, locked-record sums, and a terminal reduction to `applyFull_safe`                 |
-| `scripts/CheckRustAnchors.lean`                     | drift check that every declared Rust anchor still exists and contains its marker                                                                                                    |
+| `scripts/CheckRustAnchors.lean`                     | drift check that all 25 declared Rust anchors still exist and contain their markers                                                                                                 |
+| `scripts/CheckResidualGuards.lean`                  | Lean-only consistency grid for native/batch apply, the Move-write guard and the startup cover check (not a Rust differential test)                                                  |
 | `scripts/GenerateVectors.lean`                      | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
 
 ## The statement, precisely
@@ -110,9 +113,11 @@ proves such a state exists and that the check rejects it. What is proved is:
    into `tracked`: treasury index, wallet-cache keys, object-locked keys and
    the gas coin. `coveredCheck_sound` needs no opaque cover hypothesis, and
    the four preservation lemmas show that `CoverInv` survives the modelled
-   treasury-cap, native-supply, wallet-key and locked-key writes. The residual
-   risk is a startup/API check: legacy unindexed caps and generic `move_writes`
-   writes of `supply:` keys are not covered.
+   treasury-cap, native-supply, wallet-key and locked-key writes.
+   `coverCheckStartup_sound` turns acceptance of an executable startup check
+   into `CoverInv`, and `coverCheckStartup_raw_bound` bounds legacy raw
+   `supply:<T>` caps forced into the derived tracked set. Generic `move_writes`
+   supply writes remain an API risk and need the guard below.
 9. **Conditional wave-engine equivalence.** `Runtime.EngineLoop` models the
    commit-or-replay consumer of the waves. `engineFold_eq_seqFold` proves that,
    under `EngineOK` (exec stability on declared reads and write-manifest
@@ -120,14 +125,26 @@ proves such a state exists and that the check rejects it. What is proved is:
    execution equals the strict serial fold. This is not a proof of the Rust
    engine, epoch fence, VM, retry policy, or concurrency/linearizability.
 10. **Line-anchored apply correspondence (supply-relevant ranges only).**
-    `Runtime.RustApplyCorrespondence` records 21 file/line anchors for the
-    supply-relevant parts of `state/apply` and `state/supply`, mirrors Rust's
-    derived tracked set and object-locked record sums, and names the already
-    machine-checked `FullApplyProof` phases in Rust apply order.
+    `Runtime.RustApplyCorrespondence` records 21 apply anchors plus 4 batch-burn
+    anchors for the supply-relevant parts of `state/apply` and `state/supply`,
+    mirrors Rust's derived tracked set and object-locked record sums, and names
+    the already machine-checked `FullApplyProof` phases in Rust apply order.
     `rustApplyFull_safe` reduces the mirrored pipeline to `applyFull_safe`, and
     `scripts/CheckRustAnchors.lean` detects shifted or deleted anchors. This is
     a correspondence artifact, not a proof about Rust execution or a claim that
     every Rust line is proof-carrying.
+11. **Batch-burn supply model and Move-write guard.** `Runtime.BatchBurnProof`
+    proves that a successful modelled fast path has a non-positive net delta,
+    never increases the native total, and satisfies the full native bound via
+    the existing checked-apply theorem. `Runtime.ResidualGuards` rejects generic
+    Move writes classified as supply-critical and proves that accepted writes
+    preserve the full bound. Both depend on faithful models/classifiers and do
+    not verify Rust object bytes, versions or indexes.
+12. **Residual-guard consistency grid.** `scripts/CheckResidualGuards.lean`
+    evaluates 147 native/batch vectors, 6 guard vectors and 2 startup-cover
+    vectors inside Lean. This is a self-consistency check, not a Lean/Rust
+    differential test; only the 216 per-token vectors are cross-checked with
+    Rust.
 
 ## Deviations from the previous draft
 
