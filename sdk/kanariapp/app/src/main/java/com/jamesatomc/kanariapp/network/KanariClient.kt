@@ -4,6 +4,7 @@ import android.util.Log
 import com.jamesatomc.kanariapp.network.models.*
 import com.jamesatomc.kanariapp.wallet.KanariWallet
 import com.kanari.kanari_crypto.KanariCrypto
+import kotlinx.coroutines.delay
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -13,12 +14,6 @@ import retrofit2.Retrofit
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-
-// Requested gas price in Mist per gas unit. The active v3.1 gas model
-// discounts any requested price fivefold (floor 1), so the protocol
-// minimum request settles at an effective 1 Mist/unit.
-internal const val DEFAULT_GAS_PRICE: ULong = 1uL
-internal const val DEFAULT_GAS_LIMIT: ULong = 100_000uL
 
 class KanariClient(private val environment: KanariEnvironment) {
     private val json = Json {
@@ -186,8 +181,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         sender: String,
         recipient: String,
         objectId: String,
-        gasLimit: ULong = 100000uL,
-        gasPrice: ULong = DEFAULT_GAS_PRICE
+        gas: GasSettings = DEFAULT_GAS_SETTINGS
     ): CallFunctionData? {
         val request = RpcRequest(
             method = "kanari_buildNftTransfer",
@@ -195,8 +189,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                 put("sender", sender)
                 put("recipient", normalizeAddress(recipient))
                 put("object_id", normalizeAddress(objectId))
-                put("gas_limit", gasLimit.toLong())
-                put("gas_price", gasPrice.toLong())
+                putGasSettings(gas)
                 put("execute_immediate", true)
             }
         )
@@ -210,8 +203,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         recipient: String,
         tokenType: String,
         amount: Long,
-        gasLimit: ULong = 100000uL,
-        gasPrice: ULong = DEFAULT_GAS_PRICE
+        gas: GasSettings = DEFAULT_GAS_SETTINGS
     ): CallFunctionData? {
         val request = RpcRequest(
             method = "kanari_buildKrc1155Transfer",
@@ -220,8 +212,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                 put("recipient", normalizeAddress(recipient))
                 put("token_type", normalizeAddress(tokenType))
                 put("amount", amount)
-                put("gas_limit", gasLimit.toLong())
-                put("gas_price", gasPrice.toLong())
+                putGasSettings(gas)
                 put("execute_immediate", true)
             }
         )
@@ -234,8 +225,7 @@ class KanariClient(private val environment: KanariEnvironment) {
         sender: String,
         recipient: String,
         amount: ULong,
-        gasLimit: ULong = 100000uL,
-        gasPrice: ULong = DEFAULT_GAS_PRICE
+        gas: GasSettings = DEFAULT_GAS_SETTINGS
     ): ObjectTransferData? {
         val request = RpcRequest(
             method = "kanari_buildNativeTransfer",
@@ -243,8 +233,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                 put("sender", sender)
                 put("recipient", normalizeAddress(recipient))
                 put("amount", amount.toLong())
-                put("gas_limit", gasLimit.toLong())
-                put("gas_price", gasPrice.toLong())
+                putGasSettings(gas)
                 put("execute_immediate", true)
             }
         )
@@ -253,13 +242,32 @@ class KanariClient(private val environment: KanariEnvironment) {
         return response.result
     }
 
+    private suspend fun buildNativeCoinConsolidation(
+        sender: String,
+        requiredAmount: ULong,
+    ): CallFunctionData {
+        val request = RpcRequest(
+            method = "kanari_buildNativeCoinConsolidation",
+            params = buildJsonObject {
+                put("sender", sender)
+                put("required_amount", requiredAmount.toLong())
+                putGasSettings()
+                put("execute_immediate", true)
+            }
+        )
+        val response = rpcService.call(request)
+        if (response.error != null) throw Exception(response.error.message)
+        return json.decodeFromJsonElement(
+            response.result ?: throw Exception("Coin consolidation builder returned no transaction")
+        )
+    }
+
     suspend fun buildTokenTransfer(
         sender: String,
         recipient: String,
         tokenType: String,
         amount: ULong,
-        gasLimit: ULong = 100000uL,
-        gasPrice: ULong = DEFAULT_GAS_PRICE
+        gas: GasSettings = DEFAULT_GAS_SETTINGS
     ): CallFunctionData? {
         val normalizedTokenType = normalizeTokenType(tokenType)
         val request = RpcRequest(
@@ -269,8 +277,7 @@ class KanariClient(private val environment: KanariEnvironment) {
                 put("recipient", normalizeAddress(recipient))
                 put("token_type", normalizedTokenType)
                 put("amount", amount.toLong())
-                put("gas_limit", gasLimit.toLong())
-                put("gas_price", gasPrice.toLong())
+                putGasSettings(gas)
                 put("execute_immediate", true)
             }
         )
@@ -372,6 +379,45 @@ class KanariClient(private val environment: KanariEnvironment) {
         return NativePrepared(normalized, hash)
     }
 
+    private suspend fun prepareNativeTransferWithConsolidation(
+        sender: String,
+        recipient: String,
+        amount: ULong,
+        sign: suspend (ByteArray) -> ByteArray,
+    ): NativePrepared {
+        repeat(32) {
+            try {
+                return prepareNativeTransfer(sender, recipient, amount)
+            } catch (e: Exception) {
+                val message = e.message.orEmpty()
+                if (!message.contains("No single Coin<", ignoreCase = true) ||
+                    !message.contains("can cover requested amount", ignoreCase = true)
+                ) throw e
+            }
+
+            val prepared = prepareCallTx(buildNativeCoinConsolidation(sender, amount))
+            val signature = sign(prepared.hash)
+            try {
+                val result = submitCallFunction(
+                    prepared.normalized.copy(signature = signature.map { it.toInt() and 0xFF })
+                ) ?: throw Exception("Coin consolidation returned no transaction result")
+                if (!result.success && !result.committed) {
+                    throw Exception(result.errorMessage ?: "Coin consolidation transaction failed")
+                }
+            } catch (e: Exception) {
+                val message = e.message.orEmpty()
+                if (message.contains("object version mismatch", ignoreCase = true) ||
+                    message.contains("object_version_mismatch", ignoreCase = true)
+                ) {
+                    delay(500L)
+                    return@repeat
+                }
+                throw e
+            }
+        }
+        throw Exception("Could not consolidate native coins enough to cover the requested transfer")
+    }
+
     /**
      * Build + normalize + BCS-encode + hash a token transfer (no signing).
      * Shared by key-pair wallets and zkLogin.
@@ -442,7 +488,9 @@ class KanariClient(private val environment: KanariEnvironment) {
         recipient: String,
         amount: ULong
     ): TransactionResult? {
-        val p = prepareNativeTransfer(wallet.taggedAddress, recipient, amount)
+        val p = prepareNativeTransferWithConsolidation(wallet.taggedAddress, recipient, amount) {
+            wallet.sign(it)
+        }
 
         // Sign the hash with the wallet's curve
         val signature = wallet.sign(p.hash)
@@ -502,7 +550,14 @@ class KanariClient(private val environment: KanariEnvironment) {
         recipient: String,
         amount: ULong,
     ): TransactionResult? {
-        val p = prepareNativeTransfer("ZkLogin:${session.address}", recipient, amount)
+        val p = prepareNativeTransferWithConsolidation(
+            "ZkLogin:${session.address}",
+            recipient,
+            amount,
+        ) { hash ->
+            com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
+                .sign(session, hash, System.currentTimeMillis() / 1000)
+        }
         val signature = com.jamesatomc.kanariapp.wallet.zklogin.ZkLoginTxSigner
             .sign(session, p.hash, System.currentTimeMillis() / 1000)
         Log.d("KanariClient", "zkLogin bundle bytes: ${signature.size}")

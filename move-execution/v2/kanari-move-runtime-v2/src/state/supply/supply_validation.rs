@@ -74,16 +74,49 @@ impl StateManager {
         Ok(())
     }
 
+    /// Validate that no tokens are lost: total_supply == wallet_visible + object_locked
+    /// for every known fungible token. This is stricter than `validate_supply_invariants`
+    /// (which uses <=) and should only be called at checkpoint boundaries.
+    /// Reuses the same token-type enumeration as `validate_supply_invariants`.
+    pub fn validate_no_lost_tokens(&self) -> Result<()> {
+        let token_types = self.known_token_types()?;
+
+        for token_type in token_types {
+            let summary = self.token_supply_summary(&token_type)?;
+            let accounted = summary
+                .wallet_visible_supply
+                .checked_add(summary.object_locked_supply)
+                .require("Accounted token supply overflow")?;
+            ensure!(
+                accounted == summary.total_supply,
+                "Lost tokens detected: token_type={} total_supply={} accounted={} wallet_visible={} object_locked={}",
+                token_type,
+                summary.total_supply,
+                accounted,
+                summary.wallet_visible_supply,
+                summary.object_locked_supply
+            );
+        }
+        Ok(())
+    }
+
+    /// Enumerate all known fungible token types (tracked + canonical index).
+    pub fn known_token_types(&self) -> Result<BTreeSet<String>> {
+        let canonical_index = self.compute_wallet_supply_index()?;
+        let mut token_types = self.tracked_fungible_token_types()?;
+        token_types.extend(
+            canonical_index.keys().map(|token_type| CoinModule::normalize_token_type(token_type)),
+        );
+        Ok(token_types)
+    }
+
     /// Validate supply bounds for every known fungible token using canonical object
     /// state.
     pub fn validate_supply_invariants(&self) -> Result<()> {
         self.validate_persisted_native_supply()?;
 
         let canonical_index = self.compute_wallet_supply_index()?;
-        let mut token_types = self.tracked_fungible_token_types()?;
-        token_types.extend(
-            canonical_index.keys().map(|token_type| CoinModule::normalize_token_type(token_type)),
-        );
+        let token_types = self.known_token_types()?;
 
         for token_type in token_types {
             let summary = self.token_supply_summary(&token_type)?;

@@ -500,7 +500,13 @@ fn signed_tx_to_mysticeti_transaction(tx: &SignedTransaction) -> Result<Mysticet
 
 pub fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> [u8; 32] {
     let mut id = [0u8; 32];
-    id.copy_from_slice(reference.digest.as_ref());
+    let digest = reference.digest.as_ref();
+    if digest.len() >= 32 {
+        id.copy_from_slice(&digest[..32]);
+    } else {
+        // Defensive: pad short digests instead of panicking on a crafted vertex.
+        id[..digest.len()].copy_from_slice(digest);
+    }
     id
 }
 
@@ -599,11 +605,7 @@ impl DagEngine {
 
         let parent_ids: Vec<[u8; 32]> = mysticeti_blocks
             .iter()
-            .map(|block| {
-                let mut id = [0u8; 32];
-                id.copy_from_slice(block.reference().digest.as_ref());
-                id
-            })
+            .map(|block| mysticeti_reference_to_vertex_id(block.reference()))
             .collect();
 
         let parent_authors: Vec<String> = mysticeti_blocks

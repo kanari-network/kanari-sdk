@@ -65,7 +65,7 @@ private suspend fun KanariClient.objectInputForAction(objectId: String): kotlinx
                 put("AddressOwner", JsonPrimitive(normalizeAddress(owner.address)))
             })
 
-                        null -> put("owner", buildJsonObject {
+            null -> put("owner", buildJsonObject {
                 put("AddressOwner", JsonPrimitive(normalizeAddress(obj.owner)))
             })
         }
@@ -82,8 +82,7 @@ suspend fun KanariClient.buildEscrowCreateDeal(
     description: String,
     coinObjectId: String,
     tokenType: String,
-    gasLimit: Long = 100000,
-    gasPrice: Long = 1
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -108,8 +107,7 @@ suspend fun KanariClient.buildEscrowCreateDeal(
             put("object_inputs", buildJsonArray {
                 add(objectInputForAction(coinObjectId))
             })
-            put("gas_limit", gasLimit)
-            put("gas_price", gasPrice)
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )
@@ -124,8 +122,7 @@ suspend fun KanariClient.buildEscrowConfirmDelivery(
     dealObjectId: String,
     proofObjectId: String,
     coinType: String,
-    gasLimit: Long = 100000,
-    gasPrice: Long = 1
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -143,8 +140,7 @@ suspend fun KanariClient.buildEscrowConfirmDelivery(
                 add(objectInputForAction(dealObjectId))
                 add(objectInputForAction(proofObjectId))
             })
-            put("gas_limit", gasLimit)
-            put("gas_price", gasPrice)
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )
@@ -159,8 +155,7 @@ suspend fun KanariClient.buildEscrowReleaseFunds(
     dealObjectId: String,
     proofObjectId: String,
     coinType: String,
-    gasLimit: Long = 100000,
-    gasPrice: Long = 1
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -178,8 +173,7 @@ suspend fun KanariClient.buildEscrowReleaseFunds(
                 add(objectInputForAction(dealObjectId))
                 add(objectInputForAction(proofObjectId))
             })
-            put("gas_limit", gasLimit)
-            put("gas_price", gasPrice)
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )
@@ -195,8 +189,7 @@ suspend fun KanariClient.buildEscrowRaiseDispute(
     proofObjectId: String,
     reason: String,
     coinType: String,
-    gasLimit: Long = 100000,
-    gasPrice: Long = 1
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -215,8 +208,7 @@ suspend fun KanariClient.buildEscrowRaiseDispute(
                 add(objectInputForAction(dealObjectId))
                 add(objectInputForAction(proofObjectId))
             })
-            put("gas_limit", gasLimit)
-            put("gas_price", gasPrice)
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )

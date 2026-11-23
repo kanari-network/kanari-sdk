@@ -73,6 +73,21 @@ impl ChangeSet {
         }
     }
 
+    /// Compute the net native supply delta from owner deltas.
+    pub fn native_supply_delta(&self) -> anyhow::Result<i128> {
+        self.owner_deltas.values().try_fold(0i128, |total, change| {
+            total
+                .checked_add(change.balance_delta)
+                .ok_or_else(|| anyhow::anyhow!("Native supply delta overflow"))
+        })
+    }
+
+    /// Whether this changeset would inflate native supply without a backing mint.
+    pub fn is_unbacked_supply_inflation(&self) -> anyhow::Result<bool> {
+        let delta = self.native_supply_delta()?;
+        Ok(delta > 0 && self.treasuries.is_empty() && !self.has_mint)
+    }
+
     /// Records a treasury cap creation or update for a token type.
     pub fn add_treasury(&mut self, owner: AccountAddress, token_type: String, total_supply: u64) {
         self.treasuries.push((owner, token_type, TreasuryCap { total_supply }));

@@ -839,8 +839,11 @@ impl BlockchainEngine {
             gas_balance
         );
         if gas_object_ref.object_id == coin_object_id {
+            let total_cost = amount
+                .checked_add(gas_cost)
+                .context("Native transfer amount + gas cost overflowed u64")?;
             ensure!(
-                transfer_balance >= amount.saturating_add(gas_cost),
+                transfer_balance >= total_cost,
                 "Native transfer coin {} must cover transfer amount {} plus gas {}",
                 coin_object_id,
                 amount,
@@ -2582,9 +2585,11 @@ impl BlockchainEngine {
             if !retry_serial {
                 speculative_committed_waves += 1;
                 speculative_committed_txs += wave.len();
-                let committed = committed_wave_changesets
-                    .as_ref()
-                    .expect("committed speculative wave must retain changesets");
+                let committed = committed_wave_changesets.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Speculative wave committed without retained changesets; internal invariant violated"
+                    )
+                })?;
                 for (index, (signed_tx, result)) in wave.iter().zip(&results).enumerate() {
                     result.as_ref().map_err(|error| {
                         anyhow::anyhow!(
@@ -3790,7 +3795,7 @@ impl BlockchainEngine {
             prepared.state,
             prepared.smt_changes,
             prepared.transactions,
-            false,
+            true,
         )?;
         self.maybe_audit_owned_fastpath_checkpoint(checkpoint_info.sequence)?;
         let applied_at = std::time::Instant::now();
@@ -4005,3 +4010,7 @@ mod tests;
 #[cfg(test)]
 #[path = "../tests/unit/engine_mutable_input_tests.rs"]
 mod mutable_input_tests;
+
+#[cfg(test)]
+#[path = "../tests/unit/attack_tests.rs"]
+mod attack_tests;

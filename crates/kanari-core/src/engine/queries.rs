@@ -147,7 +147,11 @@ impl BlockchainEngine {
         Ok(entries)
     }
 
-    /// Dumps the canonical state snapshot as key-value pairs, panicking on failure.
+    /// Dumps the canonical state snapshot as key-value pairs.
+    ///
+    /// # Panics
+    /// Panics only when persistent state cannot be read or is malformed. Prefer
+    /// `try_canonical_state_snapshot_dump` in fallible paths.
     pub fn canonical_state_snapshot_dump(&self, limit: Option<usize>) -> Vec<(String, String)> {
         self.try_canonical_state_snapshot_dump(limit)
             .expect("canonical snapshot dump requires readable, well-formed persistent state")
@@ -206,7 +210,11 @@ impl BlockchainEngine {
         ))
     }
 
-    /// Returns the first diverging key between two engines' canonical states, panicking on failure.
+    /// Returns the first diverging key between two engines' canonical states.
+    ///
+    /// # Panics
+    /// Panics only when persistent state cannot be read or is malformed. Prefer
+    /// `try_first_canonical_state_divergence` in fallible paths.
     pub fn first_canonical_state_divergence(&self, other: &Self) -> Option<String> {
         self.try_first_canonical_state_divergence(other).expect(
             "canonical state divergence check requires readable, well-formed persistent state",
@@ -559,7 +567,11 @@ impl BlockchainEngine {
         })
     }
 
-    /// Reconstructs a Block from FullBlockData, panicking on failure.
+    /// Reconstructs a Block from FullBlockData.
+    ///
+    /// # Panics
+    /// Panics only when `FullBlockData` contains invalid hex or malformed roots.
+    /// Prefer `try_block_from_full_data` in fallible paths.
     pub fn block_from_full_data(full_block: &FullBlockData) -> kanari_types::block::Block {
         Self::try_block_from_full_data(full_block)
             .expect("FullBlockData must contain valid 32-byte hex prev_hash and state_root")

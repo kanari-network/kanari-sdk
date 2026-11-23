@@ -136,6 +136,11 @@ pub struct ChangeSet {
     pub events: Vec<Event>,
     /// Treasury creations or updates: (owner, token_type, TreasuryCap)
     pub treasuries: Vec<(AccountAddress, String, TreasuryCap)>,
+    /// Whether this changeset contains an explicit mint (via `mint()`).
+    /// Used by the supply inflation guard to distinguish legitimate mints
+    /// from malformed supply increases.
+    #[serde(default)]
+    pub has_mint: bool,
     /// NFT capability creations or updates: (owner, token_type, NftCapRecord)
     pub nft_caps: Vec<(AccountAddress, String, kanari_types::collection::NftCapRecord)>,
     /// Per-owner token balances (absolute set): (owner, token_type, BalanceRecord)
@@ -175,6 +180,7 @@ impl ChangeSet {
             token_gas_credits: BTreeMap::new(),
             events: Vec::new(),
             treasuries: Vec::new(),
+            has_mint: false,
             nft_caps: Vec::new(),
             token_balance_sets: Vec::new(),
             input_objects: Vec::new(),

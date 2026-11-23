@@ -27,6 +27,10 @@ import com.jamesatomc.kanariapp.ui.components.SendSuccessOverlay
 import com.jamesatomc.kanariapp.ui.components.formatAmountExactOrUnknown
 import com.jamesatomc.kanariapp.ui.components.parseAmountToMist
 import com.jamesatomc.kanariapp.ui.components.validateAddress
+import com.jamesatomc.kanariapp.network.models.AccountInfo
+import com.jamesatomc.kanariapp.network.models.TokenBalance
+import com.jamesatomc.kanariapp.network.DEFAULT_GAS_RESERVE_MIST
+import com.jamesatomc.kanariapp.network.DEFAULT_GAS_RESERVE_USD
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import kotlinx.coroutines.launch
 
@@ -189,6 +193,7 @@ fun MainScreen(
 @Composable
 fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
     val tokenBalances by viewModel.tokenBalances.collectAsState()
+    val accountInfo by viewModel.accountInfo.collectAsState()
     val wallets by viewModel.wallets.collectAsState()
     var recipient by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
@@ -282,10 +287,45 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             value = amount,
             onValueChange = { amount = it; error = null },
             label = { Text("Amount") },
+            trailingIcon = {
+                TextButton(
+                    onClick = {
+                        val token = selectedToken ?: return@TextButton
+                        val decimals = token.decimals ?: return@TextButton
+                        amount = formatAmountExactOrUnknown(
+                            maxSpendableAmount(token, accountInfo),
+                            decimals
+                        )
+                        error = null
+                    },
+                    enabled = selectedToken?.decimals != null
+                ) { Text("Max") }
+            },
             shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
+
+        selectedToken?.let { token ->
+            val tokenType = canonicalCoinType(token.tokenType)
+            val coinCount = accountInfo?.ownedObjects?.count { obj ->
+                canonicalCoinType(obj.getEffectiveType())
+                    .substringAfter("coin<", "")
+                    .substringBeforeLast(">", "") == tokenType
+            }
+            Text(
+                buildString {
+                    append("Balance: ")
+                    append(formatAmountExactOrUnknown(token.getEffectiveAmount(), token.decimals))
+                    if (coinCount != null) {
+                        append(" · $coinCount coin object")
+                        if (coinCount != 1) append("s")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
 
         if (error != null) {
             Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -349,6 +389,59 @@ fun SendScreenContent(viewModel: WalletViewModel, onBack: () -> Unit) {
             },
         )
     }
+}
+
+private fun canonicalCoinType(type: String): String =
+    type.replace(" ", "").lowercase(java.util.Locale.US)
+        .replace(Regex("0x0+([0-9a-f])"), "0x$1")
+
+private fun sendCoinBalances(account: AccountInfo?, tokenType: String): List<ULong> {
+    val wanted = canonicalCoinType(tokenType)
+    return account?.ownedObjects.orEmpty().mapNotNull { obj ->
+        val type = canonicalCoinType(obj.getEffectiveType())
+        if (type.substringAfter("coin<", "").substringBeforeLast(">", "") != wanted ||
+            obj.data.size < 40
+        ) return@mapNotNull null
+        (0 until 8).fold(0uL) { value, index ->
+            value or (obj.data[32 + index].toUByte().toULong() shl (index * 8))
+        }.takeIf { it > 0uL }
+    }.sorted()
+}
+
+private fun maxSpendableAmount(token: TokenBalance, account: AccountInfo?): Long {
+    val total = token.getEffectiveAmount().coerceAtLeast(0L)
+    val isNative = token.symbol.equals("KANARI", true) ||
+            token.tokenType.contains("::kanari::kanari", true)
+    if (!isNative) {
+        val isUsd = token.symbol.equals("USD", true) ||
+                token.tokenType.endsWith("::usd::USD", ignoreCase = true)
+        return if (isUsd) {
+            (total - DEFAULT_GAS_RESERVE_USD.toLong()).coerceAtLeast(0L)
+        } else {
+            total
+        }
+    }
+
+    val coins = sendCoinBalances(account, token.tokenType)
+    if (coins.isEmpty()) return (total - DEFAULT_GAS_RESERVE_MIST.toLong()).coerceAtLeast(0L)
+
+    val direct = coins.indices.maxOf { index ->
+        val coin = coins[index]
+        val hasSeparateGas = coins.indices.any {
+            it != index && coins[it] >= DEFAULT_GAS_RESERVE_MIST
+        }
+        (if (hasSeparateGas) coin else coin - DEFAULT_GAS_RESERVE_MIST.coerceAtMost(coin))
+            .coerceAtMost(Long.MAX_VALUE.toULong()).toLong()
+    }
+
+    val gasReserve = DEFAULT_GAS_RESERVE_MIST *
+            (coins.size - 1).coerceAtLeast(1).toULong()
+    val gasCoin = coins.firstOrNull { it >= gasReserve }
+    val consolidated = if (gasCoin == null) 0L else {
+        (coins.fold(0uL) { sum, coin -> sum + coin } - gasCoin)
+            .coerceAtMost(Long.MAX_VALUE.toULong()).toLong()
+    }
+    return minOf(total, maxOf(direct, consolidated)).coerceAtLeast(0L)
 }
 
 data class NavItem(

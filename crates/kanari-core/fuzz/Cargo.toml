@@ -1,0 +1,68 @@
+[package]
+name = "kanari-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+# Separate workspace for fuzz targets to avoid conflicts with main workspace
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+bcs = "0.2.2"
+hex = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+
+[dependencies.kanari-core]
+path = ".."
+
+[dependencies.kanari-types]
+path = "../../kanari-types"
+
+[dependencies.kanari-crypto]
+path = "../../kanari-crypto"
+
+[[bin]]
+name = "signed-tx-bcs"
+path = "fuzz_targets/signed_tx_bcs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dag-vertex-json"
+path = "fuzz_targets/dag_vertex_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "checkpoint-bcs"
+path = "fuzz_targets/checkpoint_bcs.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decode-hex-exact"
+path = "fuzz_targets/decode_hex_exact.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "address-normalize"
+path = "fuzz_targets/address_normalize.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+opt-level = 3
+debug = false
+lto = false
+debug-assertions = false

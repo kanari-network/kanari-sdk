@@ -71,8 +71,7 @@ suspend fun KanariClient.buildDeepbookBid(
     baseType: String,
     quoteType: String,
     tradeArgumentOrder: DeepbookTradeArgumentOrder,
-    gasLimit: ULong = DEFAULT_GAS_LIMIT,
-    gasPrice: ULong = DEFAULT_GAS_PRICE
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
     val normalizedBookId = normalizeAddress(bookId)
@@ -99,8 +98,7 @@ suspend fun KanariClient.buildDeepbookBid(
                 add(buildJsonArray { addAll(hexToBytes(normalizedPaymentCoin).map { it.toInt() and 0xFF }) })
                 add(buildJsonArray { addAll(bcsEncodeU8(orderType)) })
             })
-            put("gas_limit", gasLimit.toLong())
-            put("gas_price", gasPrice.toLong())
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )
@@ -123,8 +121,7 @@ suspend fun KanariClient.buildDeepbookAsk(
     baseType: String,
     quoteType: String,
     tradeArgumentOrder: DeepbookTradeArgumentOrder,
-    gasLimit: ULong = DEFAULT_GAS_LIMIT,
-    gasPrice: ULong = DEFAULT_GAS_PRICE
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
     val normalizedBookId = normalizeAddress(bookId)
@@ -151,8 +148,7 @@ suspend fun KanariClient.buildDeepbookAsk(
                 add(buildJsonArray { addAll(hexToBytes(normalizedBaseCoin).map { it.toInt() and 0xFF }) })
                 add(buildJsonArray { addAll(bcsEncodeU8(orderType)) })
             })
-            put("gas_limit", gasLimit.toLong())
-            put("gas_price", gasPrice.toLong())
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )
@@ -171,8 +167,7 @@ suspend fun KanariClient.buildDeepbookCancel(
     orderId: ULong,
     baseType: String,
     quoteType: String,
-    gasLimit: ULong = DEFAULT_GAS_LIMIT,
-    gasPrice: ULong = DEFAULT_GAS_PRICE
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val normalizedSender = normalizeAddress(sender)
     val normalizedBookId = normalizeAddress(bookId)
@@ -194,8 +189,7 @@ suspend fun KanariClient.buildDeepbookCancel(
                 add(buildJsonArray { addAll(hexToBytes(normalizedBookId).map { it.toInt() and 0xFF }) })
                 add(buildJsonArray { addAll(bcsEncodeU64(orderId.toLong())) })
             })
-            put("gas_limit", gasLimit.toLong())
-            put("gas_price", gasPrice.toLong())
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )

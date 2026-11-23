@@ -181,13 +181,13 @@ zstd = "0.14.4"                                                                 
 # ============================================================================
 # Caching & Performance Optimization
 # ============================================================================
-lru = "0.19.1"                                                                      # LRU cache
+lru = "0.19.2"                                                                      # LRU cache
 ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
 
 # ============================================================================
 # Error Handling & Result Types
 # ============================================================================
-anyhow = "1.0.104"
+anyhow = "1.0.105"
 thiserror = { version = "2.0.21", default-features = true }
 better_any = { version = "0.2.1", features = ["derive"] }
 

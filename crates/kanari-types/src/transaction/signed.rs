@@ -45,7 +45,10 @@ impl SignedTransaction {
         let signature = sign_message(private_key, &tx_hash, curve_type)
             .map_err(|e| anyhow::anyhow!("Failed to sign transaction: {}", e))?;
         self.signature = signature;
-        let _ = self.cached_verified_signature.set((tx_hash, self.signature.clone()));
+        // NOTE: do NOT populate `cached_verified_signature` here. The cache is
+        // an optimization for *verified* signatures only; populating it from
+        // `sign()` would let an attacker bypass sender/public-key verification
+        // by calling sign() with an arbitrary key and then into_verified().
         Ok(())
     }
 

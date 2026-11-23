@@ -19,6 +19,7 @@ impl ChangeSet {
     /// Mint operation: create new tokens
     pub fn mint(&mut self, to: AccountAddress, amount: u64) {
         self.get_or_create_owner_delta(to).credit(amount);
+        self.has_mint = true;
     }
 
     /// Burn operation: destroy tokens

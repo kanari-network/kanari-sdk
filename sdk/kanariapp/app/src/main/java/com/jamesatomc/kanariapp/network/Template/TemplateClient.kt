@@ -21,8 +21,7 @@ internal const val TEMPLATE_MODULE = "template"
 
 suspend fun KanariClient.buildTemplateAction(
     sender: String,
-    gasLimit: Long = 100000,
-    gasPrice: Long = 1
+    gas: GasSettings = DEFAULT_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -33,8 +32,7 @@ suspend fun KanariClient.buildTemplateAction(
             put("function", "do_action")
             put("type_args", buildJsonArray { })
             put("args", buildJsonArray { })
-            put("gas_limit", gasLimit)
-            put("gas_price", gasPrice)
+            putGasSettings(gas)
             put("execute_immediate", true)
         }
     )

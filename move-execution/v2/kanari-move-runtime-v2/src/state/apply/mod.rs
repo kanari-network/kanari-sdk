@@ -15,6 +15,17 @@ impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
     pub fn apply_changeset(&mut self, changeset: &ChangeSet) -> Result<()> {
+        // Guard: a positive native supply delta (mint) must be backed by a
+        // detected TreasuryCap update or an explicit mint() call. Without this,
+        // a malformed changeset could inflate total_supply without an explicit
+        // mint.
+        if changeset.is_unbacked_supply_inflation()? {
+            let delta = changeset.native_supply_delta()?;
+            anyhow::bail!(
+                "Native supply inflation rejected: positive supply delta {} without treasury update or mint",
+                delta
+            );
+        }
         // Guard against oversized changesets that could OOM the validation clone.
         const MAX_CHANGESET_OBJECTS: usize = 100_000;
         if changeset.created_objects.len() + changeset.deleted_objects.len() > MAX_CHANGESET_OBJECTS
@@ -84,9 +95,7 @@ impl StateManager {
             return Ok(());
         }
 
-        let supply_delta = changeset.owner_deltas.values().try_fold(0i128, |total, change| {
-            total.checked_add(change.balance_delta).require("Native supply delta overflow")
-        })?;
+        let supply_delta = changeset.native_supply_delta()?;
         let next_total_supply = if supply_delta > 0 {
             let mint_amount = u64::try_from(supply_delta)
                 .require("Native supply delta overflowed u64 total supply")?;
@@ -627,6 +636,13 @@ impl StateManager {
         if supplies_dirty {
             let supplies_clone = self.global_token_supplies.clone();
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
+        }
+
+        // Post-apply supply audit: detect lost tokens (total != wallet + locked).
+        // Non-fatal: log warning but don't fail the apply, as transitions may
+        // legitimately have in-flight tokens. Full validation happens at checkpoint.
+        if let Err(error) = self.validate_no_lost_tokens() {
+            log::warn!("Post-apply supply audit: {}", error);
         }
 
         // Move modules/resources are part of the same canonical overlay as objects and

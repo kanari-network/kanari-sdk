@@ -18,6 +18,19 @@ pub(crate) struct PreparedCheckpointState {
 }
 
 impl BlockchainEngine {
+    /// Repair native wallet overcount. On the owned fast path (conflict-free),
+    /// repair the cached counter; otherwise repair the legacy counter.
+    fn repair_native_wallet_overcount(
+        state: &mut StateManager,
+        assume_conflict_free: bool,
+    ) -> Result<bool> {
+        if assume_conflict_free {
+            state.repair_cached_native_wallet_overcount()
+        } else {
+            state.repair_legacy_native_wallet_overcount()
+        }
+    }
+
     fn changeset_needs_native_wallet_repair(
         changeset: &kanari_move_runtime_v2::changeset::ChangeSet,
     ) -> bool {
@@ -73,8 +86,7 @@ impl BlockchainEngine {
         }
 
         if Self::changeset_needs_native_wallet_repair(&changeset) {
-            state_write
-                .repair_legacy_native_wallet_overcount()
+            Self::repair_native_wallet_overcount(&mut state_write, false)
                 .context("Failed to repair native wallet overcount after clock prologue")?;
         }
         Ok(())
@@ -125,21 +137,9 @@ impl BlockchainEngine {
         let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_PREPARE_PROFILE");
         let started_at = std::time::Instant::now();
         let mut state_snapshot = self.state_read().clone();
-        if assume_conflict_free {
-            let validate_owned_fastpath =
-                Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
-            if validate_owned_fastpath {
-                state_snapshot
-                    .repair_cached_native_wallet_overcount()
-                    .context(
-                        "Failed to repair cached native wallet overcount before checkpoint state execution",
-                    )?;
-            }
-        } else {
-            state_snapshot.repair_legacy_native_wallet_overcount().context(
-                "Failed to repair legacy native wallet overcount before checkpoint state execution",
-            )?;
-        }
+        Self::repair_native_wallet_overcount(&mut state_snapshot, assume_conflict_free).context(
+            "Failed to repair native wallet overcount before checkpoint state execution",
+        )?;
         let state_arc = Arc::new(RwLock::new(state_snapshot));
         let cloned_at = std::time::Instant::now();
         let mut to_execute = Vec::new();
@@ -173,19 +173,9 @@ impl BlockchainEngine {
 
         {
             let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
-            if assume_conflict_free {
-                let validate_owned_fastpath =
-                    Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
-                if validate_owned_fastpath {
-                    state_write
-                        .repair_cached_native_wallet_overcount()
-                        .context("Failed to repair cached native wallet overcount after checkpoint state execution")?;
-                }
-            } else {
-                state_write
-                    .repair_legacy_native_wallet_overcount()
-                    .context("Failed to repair legacy native wallet overcount after checkpoint state execution")?;
-            }
+            Self::repair_native_wallet_overcount(&mut state_write, assume_conflict_free).context(
+                "Failed to repair native wallet overcount after checkpoint state execution",
+            )?;
         }
         let repaired_at = std::time::Instant::now();
 
@@ -238,6 +228,13 @@ impl BlockchainEngine {
             new_state
                 .validate_supply_invariants()
                 .context("Supply invariants failed before checkpoint commit")?;
+            // Stricter check: no tokens may be lost (total == wallet + locked).
+            // This catches Coin objects deleted without being burned first.
+            // Fatal at checkpoint boundary: all transactions are applied, so
+            // in-flight tokens should not exist.
+            new_state
+                .validate_no_lost_tokens()
+                .context("Lost tokens detected at checkpoint commit (total != wallet + locked)")?;
         }
         let validated_at = std::time::Instant::now();
         let inline_checkpoint_metadata = self.persistent_store.as_ref().is_some_and(|store| {
