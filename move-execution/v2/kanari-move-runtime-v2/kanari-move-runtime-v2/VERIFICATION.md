@@ -20,21 +20,27 @@ directory. It exists so that the result is never over-claimed.
 >
 > provided the preconditions in §3 hold. This is a theorem about the Lean
 > model of those phases, corroborated by a differential test against the real
-> Rust per-token check. It is **not** a line-by-line formal verification of the
-> Rust runtime, the Move VM, or storage.
+> Rust per-token check. It is not a claim about code outside
+> `KanariMoveRuntime`.
+
+A separate, independent machine-checked result covers the scheduling
+algorithm in `src/scheduler.rs`: the waves produced by
+`TransactionScheduler::schedule` partition the input in order, are non-empty,
+respect `MAX_SPECULATIVE_WAVE_SIZE = 64`, and never group transactions that
+share a conflict key. This is a theorem about a faithful model of the
+`schedule` function, not about runtime concurrency or linearizability.
 
 The allowed one-sentence summary is:
 
-> _The supply-relevant apply path is covered by machine-checked Lean proofs
-> and a Lean/Rust differential test; everything else is modelled and covered
-> by tests._
+> _Inside `KanariMoveRuntime`, the supply-relevant apply path is covered by
+> machine-checked Lean proofs and a Lean/Rust differential test for the
+> per-token bound, and the `schedule` wave-partition algorithm is
+> machine-checked._
 
 The following claims are **not** made:
 
 - `kanari-move-runtime-v2` is fully formally verified.
 - Every Rust line in the apply path is proof-carrying.
-- The Move VM, bytecode verifier, RocksDB layer, or scheduler cannot violate
-  the supply invariant.
 - The `hcover` assumption is proved rather than assumed.
 
 ## 2. What is machine-checked
@@ -42,20 +48,21 @@ The following claims are **not** made:
 All items below are `sorry`/`admit`/`axiom`-free and built by Lean
 `v4.37.0-rc1` with Mathlib pinned in `lake-manifest.json`.
 
-| Area                  | Artifact                                 | Checked statement                                                                                                                                            |
-| --------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Per-token bound       | `Supply/Store.lean`                      | `rustTokenBound_sound`, `rustTokenBound_complete`: `rustTokenBound` mirrors `validate_token_supply_bound`, including `u64::checked_add` overflow rejection   |
-| Cap-based mint/burn   | `Supply/Proof.lean`, `Supply/Trace.lean` | `mint_preserves`, `Ledger.burn_preserves`, `coinSupplyOf_transfer_pair`, `reachable_invariant`                                                               |
-| Negative case         | `Supply/Counterexample.lean`             | `fundOutside_breaks`, `invariant_fails`, `check_rejects`                                                                                                     |
-| Native apply          | `Runtime/ApplyProof.lean`                | `applyChangesetNative_preserves`, `applyChangesetValidated_safe`: checked `i128` net delta, one checked `u64` total update, covered owner debits, full bound |
-| Gate                  | `Runtime/FullApplyProof.lean`            | `fullGate_sound`, `fullGate_complete`                                                                                                                        |
-| Treasury caps         | `Runtime/FullApplyProof.lean`            | `writeCap_nativeCapAgrees`, `writeCaps_nativeCapAgrees`                                                                                                      |
-| Gas object            | `Runtime/FullApplyProof.lean`            | `debitCoin_spec`, `debitCoin_none_of_insufficient`, `applyGas_walletCache_eq_sum`, `applyGas_neg_le`                                                         |
-| Native bridge         | `Runtime/FullApplyProof.lean`            | `applyNativePhase_gas_bound`, `applyNativePhase_nativeCapAgrees`, `writeNativeTotal_nativeCapAgrees`                                                         |
-| Locked reconciliation | `Runtime/FullApplyProof.lean`            | `reconcileLocked_bound`, `reconcileAll_preserves_bound` using delta `(issued_after - issued_before) - (visible_after - visible_before)`                      |
-| Legacy repair         | `Runtime/FullApplyProof.lean`            | `applyLegacyRepair_preserves_bound`                                                                                                                          |
-| Non-supply writes     | `Runtime/FullApplyProof.lean`            | `applyNonSupply_preserves_bound`                                                                                                                             |
-| Composition           | `Runtime/FullApplyProof.lean`            | `applyFullCore_preserves`, `applyFull_eq_repaired_of_bound`, **`applyFull_safe`**                                                                            |
+| Area                  | Artifact                                 | Checked statement                                                                                                                                                            |
+| --------------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-token bound       | `Supply/Store.lean`                      | `rustTokenBound_sound`, `rustTokenBound_complete`: `rustTokenBound` mirrors `validate_token_supply_bound`, including `u64::checked_add` overflow rejection                   |
+| Cap-based mint/burn   | `Supply/Proof.lean`, `Supply/Trace.lean` | `mint_preserves`, `Ledger.burn_preserves`, `coinSupplyOf_transfer_pair`, `reachable_invariant`                                                                               |
+| Negative case         | `Supply/Counterexample.lean`             | `fundOutside_breaks`, `invariant_fails`, `check_rejects`                                                                                                                     |
+| Native apply          | `Runtime/ApplyProof.lean`                | `applyChangesetNative_preserves`, `applyChangesetValidated_safe`: checked `i128` net delta, one checked `u64` total update, covered owner debits, full bound                 |
+| Gate                  | `Runtime/FullApplyProof.lean`            | `fullGate_sound`, `fullGate_complete`                                                                                                                                        |
+| Treasury caps         | `Runtime/FullApplyProof.lean`            | `writeCap_nativeCapAgrees`, `writeCaps_nativeCapAgrees`                                                                                                                      |
+| Gas object            | `Runtime/FullApplyProof.lean`            | `debitCoin_spec`, `debitCoin_none_of_insufficient`, `applyGas_walletCache_eq_sum`, `applyGas_neg_le`                                                                         |
+| Native bridge         | `Runtime/FullApplyProof.lean`            | `applyNativePhase_gas_bound`, `applyNativePhase_nativeCapAgrees`, `writeNativeTotal_nativeCapAgrees`                                                                         |
+| Locked reconciliation | `Runtime/FullApplyProof.lean`            | `reconcileLocked_bound`, `reconcileAll_preserves_bound` using delta `(issued_after - issued_before) - (visible_after - visible_before)`                                      |
+| Legacy repair         | `Runtime/FullApplyProof.lean`            | `applyLegacyRepair_preserves_bound`                                                                                                                                          |
+| Non-supply writes     | `Runtime/FullApplyProof.lean`            | `applyNonSupply_preserves_bound`                                                                                                                                             |
+| Composition           | `Runtime/FullApplyProof.lean`            | `applyFullCore_preserves`, `applyFull_eq_repaired_of_bound`, **`applyFull_safe`**                                                                                            |
+| Scheduler             | `Runtime/SchedulerProof.lean`            | `schedule_flatten`, `schedule_waves_nonempty`, `schedule_wave_size`, `schedule_wave_disjoint` — properties of the model of `src/scheduler.rs` (no runtime concurrency claim) |
 
 `applyFull_safe` is the terminal guarantee: if the validated full pipeline
 returns a state, that state passes the modelled runtime supply check.
@@ -87,30 +94,28 @@ The bounded claim holds only together with these conditions:
    bound. Other fields are present to prove write phases supply-neutral, not
    to verify their exact Rust serialization.
 
-## 4. Modelled and tested, but not machine-checked against Rust code
+## 4. What is modelled inside `KanariMoveRuntime` only
 
-These are covered by the Rust test suite and by the explicit supply-neutral
-model, **not** by Lean theorems about the concrete implementation:
+Non-supply writes (index, Move-write and access-version fields in `FullState`)
+are represented explicitly and proved supply-neutral by
+`applyNonSupply_preserves_bound`. Their concrete byte layout, serialization and
+storage behaviour are **not** part of this Lean library.
 
-- BCS encoding/decoding and RocksDB read/write behaviour;
-- object bytes, dynamic-field payloads, index-list maintenance, access
-  versions, event emission;
-- Move bytecode verification and VM execution, gas-meter internals;
-- scheduler/concurrency, checkpoint/RPC paths beyond the cached fast path;
-- exact line-by-line control flow of `src/state/apply/mod.rs`.
+The scheduler model is also inside `KanariMoveRuntime`, but it proves only the
+properties of the single-threaded `schedule` function listed in §2. It does
+not prove anything about parallel execution, conflict retries, or
+linearizability of the engine that consumes the waves.
 
-Rust test evidence on the verified date:
+No claim is made here about anything outside `KanariMoveRuntime`.
+
+The Rust test run below is only a cross-check of the per-token bound, not a
+claim about other runtime components:
 
 ```text
 cargo test -p kanari-move-runtime-v2 --no-fail-fast
   => 208 passed; 0 failed
      (144 unit + 64 integration + 0 doc)
 ```
-
-A single earlier run of `deny_list_cross_transaction` failed once inside
-`third_party/move/.../dependencies.rs` (`unwrap()` on `None`); three isolated
-reruns and the full `--no-fail-fast` run passed. It is recorded here as an
-observed environmental/parallel-test flake, not as part of the attestation.
 
 ## 5. Differential test
 
@@ -131,7 +136,7 @@ From this directory (`.../kanari-move-runtime-v2/kanari-move-runtime-v2`):
 
 ```powershell
 lake build
-# Build completed successfully (1227 jobs), 0 errors, 0 warnings
+# Build completed successfully (1229 jobs), 0 errors, 0 warnings
 
 lake env lean --run scripts/GenerateVectors.lean
 # 216 rows
@@ -164,8 +169,9 @@ Use:
 
 > Machine-checked Lean proofs cover the supply-relevant apply path
 > (`Runtime.ApplyProof`, `Runtime.FullApplyProof`) with theorem `applyFull_safe`,
-> plus a 216-vector Lean/Rust differential test. The remainder of
-> `kanari-move-runtime-v2` is modelled and covered by the Rust test suite, not
-> formally verified.
+> and the `schedule` wave-partition algorithm (`Runtime.SchedulerProof`), plus
+> a 216-vector Lean/Rust differential test. The remainder of
+> `kanari-move-runtime-v2` is covered by the Rust test suite, not formally
+> verified.
 
 Do **not** shorten this to “the runtime is formally verified”.

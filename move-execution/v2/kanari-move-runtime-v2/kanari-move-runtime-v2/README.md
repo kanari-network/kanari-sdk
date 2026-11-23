@@ -36,6 +36,7 @@ apply-pipeline module uses Mathlib's `List.sum` big operator and
 | `KanariMoveRuntime.Runtime.Pipeline`       | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
 | `KanariMoveRuntime.Runtime.ApplyProof`     | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
 | `KanariMoveRuntime.Runtime.FullApplyProof` | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
+| `KanariMoveRuntime.Runtime.SchedulerProof` | machine-checked model of `src/scheduler.rs`: waves partition the input in order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group conflicting keys               |
 | `scripts/GenerateVectors.lean`             | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
 
 ## The statement, precisely
@@ -90,6 +91,15 @@ proves such a state exists and that the check rejects it. What is proved is:
 6. **The bug is caught.** Funding a wallet outside the treasury cap breaks
    the invariant (`Supply.Ledger.fundOutside_breaks`) and the concrete USD
    instance is rejected (`Counterexample.check_rejects`).
+
+7. **Scheduler wave properties.** `Runtime.SchedulerProof` models
+   `TransactionScheduler::schedule` from `src/scheduler.rs` and proves that
+   its waves partition the input in order (`schedule_flatten`), are non-empty
+   (`schedule_waves_nonempty`), never exceed `MAX_SPECULATIVE_WAVE_SIZE`
+   (`schedule_wave_size`), and never place conflicting transactions in the
+   same wave (`schedule_wave_disjoint`). This is a proof about the model of
+   the scheduling algorithm, not a line-by-line proof of the Rust source or
+   of concurrency/linearizability at runtime.
 
 ## Deviations from the previous draft
 
