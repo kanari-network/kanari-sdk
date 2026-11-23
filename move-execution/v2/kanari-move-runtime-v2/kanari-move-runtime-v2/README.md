@@ -6,9 +6,10 @@ Machine-checked Lean 4 model and proof of the supply invariant enforced by
 called from `state/apply/mod.rs`).
 
 > **Scope of the claim.** The machine-checked result covers the
-> **supply-relevant apply path** and its Lean model, not the whole runtime.
-> See [VERIFICATION.md](VERIFICATION.md) for the bounded attestation,
-> preconditions, and the parts that are only modelled and tested.
+> **supply-relevant apply path**, a model of `TransactionScheduler::schedule`,
+> and a conditional model of its wave consumer loop; it is not a proof of the
+> whole runtime. See [VERIFICATION.md](VERIFICATION.md) for the bounded
+> attestation, preconditions, and the parts that are only modelled and tested.
 
 ```
 lake build
@@ -33,10 +34,12 @@ apply-pipeline module uses Mathlib's `List.sum` big operator and
 | `KanariMoveRuntime.Supply.Trace`           | abstract ledger, trace induction, negative result for out-of-treasury funding                                                                                                       |
 | `KanariMoveRuntime.Supply.Counterexample`  | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance                                                                                                                  |
 | `KanariMoveRuntime.Supply.Store`           | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems                                                                                              |
+| `KanariMoveRuntime.Supply.Cover`           | concrete startup `CoverInv` over treasury index / wallet keys / locked keys / gas, with preservation under modelled normal writes                                                   |
 | `KanariMoveRuntime.Runtime.Pipeline`       | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
 | `KanariMoveRuntime.Runtime.ApplyProof`     | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
 | `KanariMoveRuntime.Runtime.FullApplyProof` | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
 | `KanariMoveRuntime.Runtime.SchedulerProof` | machine-checked model of `src/scheduler.rs`: waves partition the input in order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group conflicting keys               |
+| `KanariMoveRuntime.Runtime.EngineLoop`     | conditional wave-engine model: `EngineOK` plus distinct entries imply equality with the strict serial fold                                                                          |
 | `scripts/GenerateVectors.lean`             | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
 
 ## The statement, precisely
@@ -100,6 +103,20 @@ proves such a state exists and that the check rejects it. What is proved is:
    same wave (`schedule_wave_disjoint`). This is a proof about the model of
    the scheduling algorithm, not a line-by-line proof of the Rust source or
    of concurrency/linearizability at runtime.
+8. **Concrete cover invariant.** `Supply.Cover` replaces the opaque
+   `hcover` predicate with `CoverInv` over the finite inputs that Rust unions
+   into `tracked`: treasury index, wallet-cache keys, object-locked keys and
+   the gas coin. `coveredCheck_sound` needs no opaque cover hypothesis, and
+   the four preservation lemmas show that `CoverInv` survives the modelled
+   treasury-cap, native-supply, wallet-key and locked-key writes. The residual
+   risk is a startup/API check: legacy unindexed caps and generic `move_writes`
+   writes of `supply:` keys are not covered.
+9. **Conditional wave-engine equivalence.** `Runtime.EngineLoop` models the
+   commit-or-replay consumer of the waves. `engineFold_eq_seqFold` proves that,
+   under `EngineOK` (exec stability on declared reads and write-manifest
+   completeness) and with distinct entries in every wave, speculative wave
+   execution equals the strict serial fold. This is not a proof of the Rust
+   engine, epoch fence, VM, retry policy, or concurrency/linearizability.
 
 ## Deviations from the previous draft
 
@@ -121,9 +138,9 @@ not be proved without `sorry`. This version:
   `lakefile.toml`, toolchain `v4.37.0-rc1`) and uses it in the apply-pipeline
   model, while keeping the trusted core model small.
 
-The trusted audit surface is `Model/*` and `Supply/Statement.lean`; everything
-in `Proof.lean`, `Trace.lean`, `Counterexample.lean` and `Store.lean` is
-checked by Lean.
+The trusted audit surface is `Model/*` and `Supply/Statement.lean`; the proof
+modules, including `Supply/Cover.lean` and the `Runtime/*` modules, are checked
+by Lean.
 
 ## Matching the real lookup path (`Store.lean`)
 
@@ -155,10 +172,15 @@ loop. It proves:
 - `ofState_check_sound` — acceptance by the faithful checker implies
   `SupplyInvariant` for states whose cap totals agree with the persisted caps.
 
-The remaining modelling assumption is `hcover`: every token reachable through
-`supply:...` must be tracked. In Rust, `tracked_fungible_token_types` unions the
-`treasury_index`, the wallet cache, the gas coin and all object-locked records;
-a treasury entry that is absent from all of those would escape the loop.
+`Store.lean` still records the original opaque modelling assumption `hcover`:
+every token reachable through `supply:...` must be tracked. Rust derives the
+set from the `treasury_index`, the wallet cache, the gas coin and all
+object-locked records; a treasury entry absent from all of those escapes the
+loop. `Supply/Cover.lean` turns that risk into a concrete startup invariant,
+`CoverInv`, and proves it preserved by the modelled normal write paths. It does
+not cover legacy databases with unindexed caps or generic `move_writes` writes
+of `supply:` keys, so those remain explicit residual risks rather than hidden
+assumptions.
 
 The full precondition list, the explicit non-claims, and the reproduction
 commands are recorded in [VERIFICATION.md](VERIFICATION.md).

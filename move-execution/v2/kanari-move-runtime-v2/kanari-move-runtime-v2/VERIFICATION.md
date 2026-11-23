@@ -30,18 +30,30 @@ respect `MAX_SPECULATIVE_WAVE_SIZE = 64`, and never group transactions that
 share a conflict key. This is a theorem about a faithful model of the
 `schedule` function, not about runtime concurrency or linearizability.
 
+A related model-level result covers the scheduler's wave consumer loop. Under
+`EngineOK` (extensional read/write manifest completeness) and `Nodup` waves,
+`engineFold_eq_seqFold` proves that the modelled commit-or-replay loop equals
+the strict serial fold. It is a conditional equivalence about the model; it
+does not prove that Rust manifests are complete, that epoch fences or the VM
+are correct, or that the runtime is concurrent/linearizable.
+
 The allowed one-sentence summary is:
 
 > _Inside `KanariMoveRuntime`, the supply-relevant apply path is covered by
 > machine-checked Lean proofs and a Lean/Rust differential test for the
-> per-token bound, and the `schedule` wave-partition algorithm is
-> machine-checked._
+> per-token bound, the `schedule` wave-partition algorithm is machine-checked,
+> and the modelled wave consumer loop is conditionally proved equivalent to
+> the serial fold._
 
 The following claims are **not** made:
 
 - `kanari-move-runtime-v2` is fully formally verified.
 - Every Rust line in the apply path is proof-carrying.
-- The `hcover` assumption is proved rather than assumed.
+- The opaque `hcover` predicate in `Supply/Store.lean` has been globally
+  eliminated; only its concrete `CoverInv` replacement for modelled normal
+  write paths is proved.
+- The Rust engine, epoch fence, VM, or runtime concurrency is formally
+  verified.
 
 ## 2. What is machine-checked
 
@@ -63,22 +75,39 @@ All items below are `sorry`/`admit`/`axiom`-free and built by Lean
 | Non-supply writes     | `Runtime/FullApplyProof.lean`            | `applyNonSupply_preserves_bound`                                                                                                                                             |
 | Composition           | `Runtime/FullApplyProof.lean`            | `applyFullCore_preserves`, `applyFull_eq_repaired_of_bound`, **`applyFull_safe`**                                                                                            |
 | Scheduler             | `Runtime/SchedulerProof.lean`            | `schedule_flatten`, `schedule_waves_nonempty`, `schedule_wave_size`, `schedule_wave_disjoint` — properties of the model of `src/scheduler.rs` (no runtime concurrency claim) |
+| Cover                 | `Supply/Cover.lean`                      | `CoverInv`, `coveredCheck_sound`, and preservation under modelled treasury/native/wallet/locked writes — concrete startup replacement for opaque `hcover`                    |
+| Engine loop           | `Runtime/EngineLoop.lean`                | `engineFold_eq_seqFold` — conditional equality of modelled wave execution and serial fold under `EngineOK` and `Nodup` waves                                                 |
 
 `applyFull_safe` is the terminal guarantee: if the validated full pipeline
 returns a state, that state passes the modelled runtime supply check.
+`coveredCheck_sound` is the cover-side guarantee: over the concrete derived
+tracked set, acceptance bounds every token with a persisted cap, provided
+`CoverInv` holds on the startup database and normal writes preserve it.
+`engineFold_eq_seqFold` is conditional: it gives equality of modelled wave
+execution and serial execution only when `EngineOK` and `Nodup` are supplied.
 
 ## 3. Preconditions and modelling assumptions
 
 The bounded claim holds only together with these conditions:
 
-1. **`hcover`** (`Supply/Store.lean`):
+1. **Cover of persisted caps.** `Supply/Store.lean` still records the legacy
+   opaque predicate
    ```lean
    hcover : ∀ (T : TokenType) (c : TreasuryCap), capOf T = some c → T ∈ tracked
    ```
-   In Rust, `tracked_fungible_token_types` unions `treasury_index`, the wallet
-   cache, `GAS_COIN`, and all object-locked records. A treasury entry absent
-   from all of those would escape the validation loop. This is the main
-   residual assumption.
+   for its original checker theorem. `Supply/Cover.lean` replaces it for a
+   concrete `TrackedStore` with `CoverInv`, a checkable invariant over the
+   finite inputs Rust unions into `tracked_fungible_token_types`:
+   `treasury_index`, wallet-cache keys, object-locked keys and `GAS_COIN`.
+   `coveredCheck_sound` needs no opaque cover hypothesis, and
+   `writeTreasuryCap_preserves_CoverInv`,
+   `writeNativeSupply_preserves_CoverInv`,
+   `addWalletKey_preserves_CoverInv` and `addLockedKey_preserves_CoverInv`
+   prove preservation under the modelled normal writes. The residual risk is
+   therefore a startup/API check: legacy databases with an unindexed
+   `supply:<T>` cap, or changesets that write `supply:` keys through the
+   generic `move_writes` escape hatch, can violate `CoverInv` and are not
+   covered by this theorem.
 2. **Tracked set contains the gas coin.** `applyLegacyRepair_preserves_bound`
    and the cached checker assume `gasCoin ∈ tracked`.
 3. **Input plausibility.** The changeset model receives the same supply inputs
@@ -105,6 +134,15 @@ The scheduler model is also inside `KanariMoveRuntime`, but it proves only the
 properties of the single-threaded `schedule` function listed in §2. It does
 not prove anything about parallel execution, conflict retries, or
 linearizability of the engine that consumes the waves.
+
+`Runtime/EngineLoop.lean` models that consumer as commit-or-replay and proves
+`engineFold_eq_seqFold` only under `EngineOK` and `Nodup` waves. `EngineOK` is
+an extensional locality hypothesis: executions agree whenever they agree on
+their declared read keys, and every key actually written appears in the
+declared write set. It is not a proof that Rust produces complete manifests,
+that epoch fences or the VM behave correctly, or that the retry policy is
+linearizable. The modelled fallback is serial replay of an anomalous wave,
+not a proof about real concurrent execution.
 
 No claim is made here about anything outside `KanariMoveRuntime`.
 
@@ -136,7 +174,7 @@ From this directory (`.../kanari-move-runtime-v2/kanari-move-runtime-v2`):
 
 ```powershell
 lake build
-# Build completed successfully (1229 jobs), 0 errors, 0 warnings
+# Build completed successfully (1233 jobs), 0 errors, 0 warnings
 
 lake env lean --run scripts/GenerateVectors.lean
 # 216 rows
@@ -159,7 +197,8 @@ rustfmt --edition 2024 --check `
 Also checked:
 
 ```powershell
-# no sorry/admit/axiom in Runtime/
+# no sorry/admit/axiom declarations under KanariMoveRuntime/
+# (historical mentions in Supply/Proof.lean comments describe removed holes)
 # all .lake/packages/** working trees clean
 ```
 
@@ -169,9 +208,10 @@ Use:
 
 > Machine-checked Lean proofs cover the supply-relevant apply path
 > (`Runtime.ApplyProof`, `Runtime.FullApplyProof`) with theorem `applyFull_safe`,
-> and the `schedule` wave-partition algorithm (`Runtime.SchedulerProof`), plus
-> a 216-vector Lean/Rust differential test. The remainder of
-> `kanari-move-runtime-v2` is covered by the Rust test suite, not formally
-> verified.
+> the concrete startup cover invariant (`Supply.Cover`), the `schedule`
+> wave-partition algorithm (`Runtime.SchedulerProof`), and the conditional
+> wave-engine equivalence (`Runtime.EngineLoop`), plus a 216-vector Lean/Rust
+> differential test. The remainder of `kanari-move-runtime-v2` is covered by
+> the Rust test suite, not formally verified.
 
 Do **not** shorten this to “the runtime is formally verified”.
