@@ -37,11 +37,19 @@ the strict serial fold. It is a conditional equivalence about the model; it
 does not prove that Rust manifests are complete, that epoch fences or the VM
 are correct, or that the runtime is concurrent/linearizable.
 
+A separate correspondence artifact records 21 file/line anchors over the
+supply-relevant parts of `state/apply` and `state/supply`, mirrors Rust's
+derived tracked set and locked-record sums, and reduces the mirrored phase
+order to `applyFull_safe`. A drift checker detects shifted or deleted anchors.
+This is a line-anchored Lean mirror, not a proof about Rust execution or about
+code outside the declared ranges.
+
 The allowed one-sentence summary is:
 
 > _Inside `KanariMoveRuntime`, the supply-relevant apply path is covered by
 > machine-checked Lean proofs and a Lean/Rust differential test for the
-> per-token bound, the `schedule` wave-partition algorithm is machine-checked,
+> per-token bound, a drift-checked line-anchored mirror records the Rust apply
+> correspondence, the `schedule` wave-partition algorithm is machine-checked,
 > and the modelled wave consumer loop is conditionally proved equivalent to
 > the serial fold._
 
@@ -77,6 +85,7 @@ All items below are `sorry`/`admit`/`axiom`-free and built by Lean
 | Scheduler             | `Runtime/SchedulerProof.lean`            | `schedule_flatten`, `schedule_waves_nonempty`, `schedule_wave_size`, `schedule_wave_disjoint` — properties of the model of `src/scheduler.rs` (no runtime concurrency claim) |
 | Cover                 | `Supply/Cover.lean`                      | `CoverInv`, `coveredCheck_sound`, and preservation under modelled treasury/native/wallet/locked writes — concrete startup replacement for opaque `hcover`                    |
 | Engine loop           | `Runtime/EngineLoop.lean`                | `engineFold_eq_seqFold` — conditional equality of modelled wave execution and serial fold under `EngineOK` and `Nodup` waves                                                 |
+| Rust apply anchors    | `Runtime/RustApplyCorrespondence.lean`   | `rustAnchors_wellFormed`, `rustApplyFull_safe`, `rustApplyFull_safe_derived` — 21 line anchors, derived tracked set, and reduction to `applyFull_safe`                       |
 
 `applyFull_safe` is the terminal guarantee: if the validated full pipeline
 returns a state, that state passes the modelled runtime supply check.
@@ -85,6 +94,10 @@ tracked set, acceptance bounds every token with a persisted cap, provided
 `CoverInv` holds on the startup database and normal writes preserve it.
 `engineFold_eq_seqFold` is conditional: it gives equality of modelled wave
 execution and serial execution only when `EngineOK` and `Nodup` are supplied.
+`rustApplyFull_safe` is only a reduction: if the mirrored Rust phase order
+returns a state, the existing `applyFull_safe` theorem supplies the bound. It
+does not establish that the Rust source, compiler, DB, VM, or runtime semantics
+match the mirror.
 
 ## 3. Preconditions and modelling assumptions
 
@@ -144,6 +157,15 @@ that epoch fences or the VM behave correctly, or that the retry policy is
 linearizable. The modelled fallback is serial replay of an anomalous wave,
 not a proof about real concurrent execution.
 
+`Runtime/RustApplyCorrespondence.lean` is inside `KanariMoveRuntime` only. Its
+anchors cover the supply-relevant ranges of `state/apply` and `state/supply`;
+profiling, logging, error-message text, RocksDB/overlay plumbing, Move VM and
+entry loading, serialization beyond the modelled balance/cap extraction,
+event/NFT/collection/module effects, the sibling batch-burn API
+(`mod.rs:667-857`), and all concurrency claims are outside the mirror. The
+drift checker verifies that anchors still point at live source ranges, but it
+cannot prove the initial transcription faithful.
+
 No claim is made here about anything outside `KanariMoveRuntime`.
 
 The Rust test run below is only a cross-check of the per-token bound, not a
@@ -174,7 +196,10 @@ From this directory (`.../kanari-move-runtime-v2/kanari-move-runtime-v2`):
 
 ```powershell
 lake build
-# Build completed successfully (1233 jobs), 0 errors, 0 warnings
+# Build completed successfully (1235 jobs), 0 errors, 0 warnings
+
+lake env lean --run scripts/CheckRustAnchors.lean
+# Rust anchor check passed: 21 anchors
 
 lake env lean --run scripts/GenerateVectors.lean
 # 216 rows

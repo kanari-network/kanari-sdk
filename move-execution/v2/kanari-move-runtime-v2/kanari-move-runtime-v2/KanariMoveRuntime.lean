@@ -12,6 +12,7 @@ public import KanariMoveRuntime.Supply.Cover
 public import KanariMoveRuntime.Runtime.Pipeline
 public import KanariMoveRuntime.Runtime.ApplyProof
 public import KanariMoveRuntime.Runtime.FullApplyProof
+public import KanariMoveRuntime.Runtime.RustApplyCorrespondence
 public import KanariMoveRuntime.Runtime.SchedulerProof
 public import KanariMoveRuntime.Runtime.EngineLoop
 
@@ -22,9 +23,12 @@ Lean 4 formalization of the supply invariant in `kanari-move-runtime-v2`.
 
 Scope: this is a machine-checked model of the **supply-relevant apply path**,
 of **`TransactionScheduler::schedule`**, and of the scheduler's wave consumer
-loop under explicit locality hypotheses. It is not a line-by-line verification
-of the whole Rust runtime. The bounded attestation, its preconditions, and the
-parts that are only modelled and tested are recorded in `VERIFICATION.md`.
+loop under explicit locality hypotheses. It also contains a **line-anchored
+supply-relevant correspondence** for the Rust apply ranges: named file/line
+anchors, a drift checker, and a terminal theorem reducing the mirrored pipeline
+to `applyFull_safe`. It is not a line-by-line verification of the whole Rust
+runtime. The bounded attestation, its preconditions, and the parts that are
+only modelled and tested are recorded in `VERIFICATION.md`.
 
 This library formalizes the supply invariant enforced by
 `validate_cached_supply_invariants` in
@@ -81,6 +85,15 @@ in `crates/kanari-core/tests/unit/engine_tests.rs`.
   order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group
   transactions with conflicting keys. This is a proof about the model, not a
   line-by-line verification of the Rust source.
+* `Runtime.RustApply.rustAnchors_wellFormed`,
+  `Runtime.RustApply.rustTreasuryCapWrite_nativeCapAgrees`,
+  `Runtime.RustApply.rustLockedReconciliation_preserves_bound`,
+  `Runtime.RustApply.rustNonSupplyPass_preserves_bound`,
+  `Runtime.RustApply.rustLegacyRepair_preserves_bound`,
+  `Runtime.RustApply.rustApplyFull_safe` — a line-anchored mirror of the
+  supply-relevant Rust apply ranges, with `scripts/CheckRustAnchors.lean`
+  detecting shifted anchors. The terminal theorem reduces the mirrored
+  pipeline to `applyFull_safe`; it is not a proof about Rust execution.
 * `Runtime.EngineLoop.engineFold_eq_seqFold` — under `EngineOK` (read/write
   manifest completeness) and `Nodup` waves, the modelled wave engine equals
   the strict serial fold. This is conditional model equivalence, not a proof

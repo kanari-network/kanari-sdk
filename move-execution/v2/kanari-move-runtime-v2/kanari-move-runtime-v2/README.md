@@ -24,23 +24,25 @@ apply-pipeline module uses Mathlib's `List.sum` big operator and
 
 ## Modules
 
-| Module                                     | Role                                                                                                                                                                                |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `KanariMoveRuntime.Model.Balance`          | `Address`, `TokenType`, `Coin`, `gasCoin`                                                                                                                                           |
-| `KanariMoveRuntime.Model.Treasury`         | `TreasuryCap` and its `mint` / `burn` field updates                                                                                                                                 |
-| `KanariMoveRuntime.Model.State`            | cached supply state, `State.mintCap` / `burnCap`                                                                                                                                    |
-| `KanariMoveRuntime.Supply.Statement`       | `walletVisibleSupply`, `totalSupply`, `SupplyInvariant`, executable `cachedSupplyCheck`                                                                                             |
-| `KanariMoveRuntime.Supply.Proof`           | coin-sum lemmas, `mint_preserves`, checker soundness/completeness                                                                                                                   |
-| `KanariMoveRuntime.Supply.Trace`           | abstract ledger, trace induction, negative result for out-of-treasury funding                                                                                                       |
-| `KanariMoveRuntime.Supply.Counterexample`  | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance                                                                                                                  |
-| `KanariMoveRuntime.Supply.Store`           | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems                                                                                              |
-| `KanariMoveRuntime.Supply.Cover`           | concrete startup `CoverInv` over treasury index / wallet keys / locked keys / gas, with preservation under modelled normal writes                                                   |
-| `KanariMoveRuntime.Runtime.Pipeline`       | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
-| `KanariMoveRuntime.Runtime.ApplyProof`     | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
-| `KanariMoveRuntime.Runtime.FullApplyProof` | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
-| `KanariMoveRuntime.Runtime.SchedulerProof` | machine-checked model of `src/scheduler.rs`: waves partition the input in order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group conflicting keys               |
-| `KanariMoveRuntime.Runtime.EngineLoop`     | conditional wave-engine model: `EngineOK` plus distinct entries imply equality with the strict serial fold                                                                          |
-| `scripts/GenerateVectors.lean`             | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
+| Module                                              | Role                                                                                                                                                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KanariMoveRuntime.Model.Balance`                   | `Address`, `TokenType`, `Coin`, `gasCoin`                                                                                                                                           |
+| `KanariMoveRuntime.Model.Treasury`                  | `TreasuryCap` and its `mint` / `burn` field updates                                                                                                                                 |
+| `KanariMoveRuntime.Model.State`                     | cached supply state, `State.mintCap` / `burnCap`                                                                                                                                    |
+| `KanariMoveRuntime.Supply.Statement`                | `walletVisibleSupply`, `totalSupply`, `SupplyInvariant`, executable `cachedSupplyCheck`                                                                                             |
+| `KanariMoveRuntime.Supply.Proof`                    | coin-sum lemmas, `mint_preserves`, checker soundness/completeness                                                                                                                   |
+| `KanariMoveRuntime.Supply.Trace`                    | abstract ledger, trace induction, negative result for out-of-treasury funding                                                                                                       |
+| `KanariMoveRuntime.Supply.Counterexample`           | the `usd_shared_cap_mint_pays_out_twice_to_any_recipient` instance                                                                                                                  |
+| `KanariMoveRuntime.Supply.Store`                    | faithful `issued_supply_for_token` / `u64::checked_add` model and its checker theorems                                                                                              |
+| `KanariMoveRuntime.Supply.Cover`                    | concrete startup `CoverInv` over treasury index / wallet keys / locked keys / gas, with preservation under modelled normal writes                                                   |
+| `KanariMoveRuntime.Runtime.Pipeline`                | component-level apply-pipeline model (`applyOwnerDelta` / `applyOwnerDeltas`, `supplyDelta`, `nextTotalSupply`) with Mathlib `List.sum` / `Multiset.foldl_induction` demonstrations |
+| `KanariMoveRuntime.Runtime.ApplyProof`              | compositional native apply proof: checked `i128` net delta, one checked `u64` total update, covered owner debits, full runtime bound, and validate-and-reject wrapper               |
+| `KanariMoveRuntime.Runtime.FullApplyProof`          | supply-relevant full apply-pipeline model: treasury cap write-back, gas-object adjustment, owner recompute, object-locked reconciliation, non-supply writes, and the validate gate  |
+| `KanariMoveRuntime.Runtime.SchedulerProof`          | machine-checked model of `src/scheduler.rs`: waves partition the input in order, are non-empty, respect `MAX_SPECULATIVE_WAVE_SIZE`, and never group conflicting keys               |
+| `KanariMoveRuntime.Runtime.EngineLoop`              | conditional wave-engine model: `EngineOK` plus distinct entries imply equality with the strict serial fold                                                                          |
+| `KanariMoveRuntime.Runtime.RustApplyCorrespondence` | line-anchored supply-relevant mirror of the Rust apply ranges; named anchors, derived tracked set, locked-record sums, and a terminal reduction to `applyFull_safe`                 |
+| `scripts/CheckRustAnchors.lean`                     | drift check that every declared Rust anchor still exists and contains its marker                                                                                                    |
+| `scripts/GenerateVectors.lean`                      | emits `testdata/token_bound_vectors.tsv` for the Rust differential test                                                                                                             |
 
 ## The statement, precisely
 
@@ -117,6 +119,15 @@ proves such a state exists and that the check rejects it. What is proved is:
    completeness) and with distinct entries in every wave, speculative wave
    execution equals the strict serial fold. This is not a proof of the Rust
    engine, epoch fence, VM, retry policy, or concurrency/linearizability.
+10. **Line-anchored apply correspondence (supply-relevant ranges only).**
+    `Runtime.RustApplyCorrespondence` records 21 file/line anchors for the
+    supply-relevant parts of `state/apply` and `state/supply`, mirrors Rust's
+    derived tracked set and object-locked record sums, and names the already
+    machine-checked `FullApplyProof` phases in Rust apply order.
+    `rustApplyFull_safe` reduces the mirrored pipeline to `applyFull_safe`, and
+    `scripts/CheckRustAnchors.lean` detects shifted or deleted anchors. This is
+    a correspondence artifact, not a proof about Rust execution or a claim that
+    every Rust line is proof-carrying.
 
 ## Deviations from the previous draft
 
