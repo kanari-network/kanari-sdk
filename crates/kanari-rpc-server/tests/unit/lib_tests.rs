@@ -821,6 +821,7 @@ async fn submit_transaction_can_execute_immediately() {
                     transferred: Vec::new(),
                     causal_edges: Vec::new(),
                     error_message: None,
+                    events: Vec::new(),
                 }),
             },
         )

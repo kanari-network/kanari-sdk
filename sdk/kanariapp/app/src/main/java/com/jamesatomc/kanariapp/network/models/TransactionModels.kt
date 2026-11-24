@@ -153,13 +153,22 @@ object ObjectOwnerKindSerializer : KSerializer<ObjectOwnerKind> {
 }
 
 @Serializable
+data class EventInfo(
+    @SerialName("key") val key: String,
+    @SerialName("sequence_number") val sequenceNumber: Long,
+    @SerialName("type_tag") val typeTag: String,
+    @SerialName("event_data") val eventData: String,
+)
+
+@Serializable
 data class TransactionEffectsInfo(
     val status: String,
     @SerialName("gas_used") val gasUsed: Long,
     @SerialName("object_changes") val objectChanges: List<ObjectChangeInfo> = emptyList(),
     val created: List<ObjectChangeInfo>? = null,
     val mutated: List<ObjectChangeInfo>? = null,
-    val transferred: List<ObjectChangeInfo>? = null
+    val transferred: List<ObjectChangeInfo>? = null,
+    @SerialName("events") val events: List<EventInfo> = emptyList(),
 )
 
 @Serializable

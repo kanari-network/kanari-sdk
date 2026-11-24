@@ -23,6 +23,12 @@ impl BlockchainEngine {
     // vertices carry transaction payloads.
     const DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 128;
     const MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 512;
+    /// Maximum number of remote snapshot entries accepted for comparison,
+    /// preventing memory amplification from a malicious remote peer.
+    ///
+    /// For state at 100B+ entry scale, prefer pagination/streaming diff
+    /// protocols over loading entire snapshots into memory.
+    const MAX_REMOTE_SNAPSHOT_ENTRIES: usize = 500_000;
 
     fn dag_vertices_per_checkpoint_sync() -> usize {
         std::env::var("KANARI_DAG_VERTICES_PER_CHECKPOINT_SYNC")
@@ -58,26 +64,29 @@ impl BlockchainEngine {
     }
 
     /// Returns a page of canonical state snapshot entries with optional prefix filtering.
+    ///
+    /// Iteration stops as soon as `limit` entries are collected, avoiding an
+    /// unbounded allocation when the state contains millions of entries.
     pub fn canonical_state_snapshot_entries(
         &self,
         limit: Option<usize>,
         prefix: Option<&str>,
     ) -> Result<Vec<CanonicalStateEntry>> {
         let state = self.state_read();
-        let mut entries = state
-            .try_canonical_state_snapshot()?
-            .into_iter()
-            .map(|(key, value)| CanonicalStateEntry {
-                key: String::from_utf8_lossy(&key).into_owned(),
-                value: hex::encode(value),
-            })
-            .filter(|entry| match prefix {
-                Some(prefix) => entry.key.starts_with(prefix),
-                None => true,
-            })
-            .collect::<Vec<_>>();
-        if let Some(limit) = limit {
-            entries.truncate(limit);
+        let snapshot = state.try_canonical_state_snapshot()?;
+        let limit = limit.unwrap_or(usize::MAX);
+        let mut entries = Vec::with_capacity(limit.min(4096));
+        for (key, value) in snapshot {
+            if entries.len() >= limit {
+                break;
+            }
+            let key_str = String::from_utf8_lossy(&key).into_owned();
+            if let Some(prefix) = prefix
+                && !key_str.starts_with(prefix)
+            {
+                continue;
+            }
+            entries.push(CanonicalStateEntry { key: key_str, value: hex::encode(value) });
         }
         Ok(entries)
     }
@@ -98,11 +107,29 @@ impl BlockchainEngine {
     }
 
     /// Compares the local canonical state against a remote snapshot and reports differences.
+    ///
+    /// NOTE: This function loads the full local canonical state snapshot into memory
+    /// and compares it against the remote entries. For state at 100B+ entry scale,
+    /// prefer pagination/streaming diff protocols over loading entire snapshots,
+    /// as loading all entries simultaneously can cause OOM on very large states.
+    ///
+    /// No entry-count limit is enforced here; operators who want a hard cap should
+    /// validate `req.entries.len()` before calling this function, or implement a
+    /// streaming diff protocol that compares entries in bounded chunks.
     pub fn compare_canonical_state_snapshot(
         &self,
         req: &CompareCanonicalStateSnapshotRequest,
     ) -> Result<CanonicalStateDiffResponse> {
         use std::collections::BTreeMap;
+
+        // Validate remote input size FIRST to prevent memory amplification
+        // from a malicious remote peer sending millions of entries.
+        anyhow::ensure!(
+            req.entries.len() <= Self::MAX_REMOTE_SNAPSHOT_ENTRIES,
+            "Remote snapshot has {} entries, exceeds limit {}",
+            req.entries.len(),
+            Self::MAX_REMOTE_SNAPSHOT_ENTRIES
+        );
 
         let local_entries = self.canonical_state_snapshot_entries(None, None)?;
         let local_map = local_entries
@@ -136,15 +163,11 @@ impl BlockchainEngine {
         &self,
         limit: Option<usize>,
     ) -> Result<Vec<(String, String)>> {
-        let mut entries = self
+        Ok(self
             .canonical_state_snapshot_entries(limit, None)?
             .into_iter()
             .map(|entry| (entry.key, entry.value))
-            .collect::<Vec<_>>();
-        if let Some(limit) = limit {
-            entries.truncate(limit);
-        }
-        Ok(entries)
+            .collect())
     }
 
     /// Dumps the canonical state snapshot as key-value pairs.
@@ -166,7 +189,12 @@ impl BlockchainEngine {
         fmt_key: impl Fn(&K) -> String,
         fmt_val: impl Fn(&V) -> String,
     ) -> Option<String> {
-        for key in left.keys().chain(right.keys()) {
+        use std::collections::BTreeSet;
+        let mut all_keys: BTreeSet<&K> = BTreeSet::new();
+        all_keys.extend(left.keys());
+        all_keys.extend(right.keys());
+
+        for key in all_keys {
             match (left.get(key), right.get(key)) {
                 (Some(left_value), Some(right_value)) if left_value == right_value => {}
                 (Some(left_value), Some(right_value)) => {
@@ -441,6 +469,11 @@ impl BlockchainEngine {
     fn block_data_from_checkpoint(checkpoint: &Checkpoint) -> BlockData {
         let (transaction_effects, object_changes, object_graph_edges) =
             Self::checkpoint_detail_collections(checkpoint);
+        let events: Vec<kanari_types::event::Event> = checkpoint
+            .transaction_effects
+            .iter()
+            .flat_map(|effects| effects.events.iter().cloned())
+            .collect();
         BlockData {
             height: checkpoint.sequence,
             timestamp: checkpoint.timestamp,
@@ -448,7 +481,7 @@ impl BlockchainEngine {
             prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
-            events: Vec::new(),
+            events,
             transaction_effects,
             object_changes,
             object_graph_edges,
@@ -458,6 +491,11 @@ impl BlockchainEngine {
     fn full_block_data_from_checkpoint(checkpoint: &Checkpoint) -> FullBlockData {
         let (transaction_effects, object_changes, object_graph_edges) =
             Self::checkpoint_detail_collections(checkpoint);
+        let events: Vec<kanari_types::event::Event> = checkpoint
+            .transaction_effects
+            .iter()
+            .flat_map(|effects| effects.events.iter().cloned())
+            .collect();
         FullBlockData {
             height: checkpoint.sequence,
             timestamp: checkpoint.timestamp,
@@ -465,7 +503,7 @@ impl BlockchainEngine {
             prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
-            events: Vec::new(),
+            events,
             transactions: checkpoint.transactions.iter().cloned().collect(),
             transaction_effects,
             object_changes,

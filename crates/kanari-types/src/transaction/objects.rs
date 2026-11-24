@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::event::Event;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,4 +179,6 @@ pub struct TransactionEffects {
     #[serde(default)]
     pub causal_edges: Vec<ObjectGraphEdge>,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub events: Vec<Event>,
 }

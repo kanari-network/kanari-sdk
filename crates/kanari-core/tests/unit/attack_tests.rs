@@ -568,7 +568,8 @@ fn attack_custom_gas_coin_rejected_at_admission_shape() {
         gas_price: 5,
         nonce: 0,
     };
-    let err = BlockchainEngine::validate_transaction_admission_shape(&tx).unwrap_err();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let err = engine.validate_transaction_admission_shape(&tx).unwrap_err();
     assert!(err.to_string().contains("Unsupported gas coin type"));
 }
 

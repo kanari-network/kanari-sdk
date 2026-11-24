@@ -597,7 +597,8 @@ fn admission_rejects_client_faults_fail_closed() {
         100_000,
         1,
     );
-    let error = BlockchainEngine::validate_transaction_admission_shape(&zero_tx).unwrap_err();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let error = engine.validate_transaction_admission_shape(&zero_tx).unwrap_err();
     assert!(
         error.to_string().contains("non-zero"),
         "zero-amount transfer must be rejected: {error:#}"
@@ -617,7 +618,8 @@ fn admission_rejects_client_faults_fail_closed() {
     if let Transaction::ExecuteFunction { nonce, .. } = &mut big_nonce_tx {
         *nonce = (1u64 << 53) + 1;
     }
-    BlockchainEngine::validate_transaction_admission_shape(&big_nonce_tx).unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    engine.validate_transaction_admission_shape(&big_nonce_tx).unwrap();
 
     // Sane transaction passes.
     let good_tx = Transaction::new_transfer_with_object_ref_and_gas(
@@ -629,7 +631,8 @@ fn admission_rejects_client_faults_fail_closed() {
         100_000,
         1,
     );
-    BlockchainEngine::validate_transaction_admission_shape(&good_tx).unwrap();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    engine.validate_transaction_admission_shape(&good_tx).unwrap();
 
     // Object-count overflow.
     let mut many_objects_tx = Transaction::new_transfer_with_object_ref_and_gas(
@@ -645,8 +648,8 @@ fn admission_rejects_client_faults_fail_closed() {
         let filler = object_inputs.first().cloned().expect("transfer carries an object input");
         object_inputs.resize(MAX_TRANSACTION_OBJECTS + 1, filler);
     }
-    let error =
-        BlockchainEngine::validate_transaction_admission_shape(&many_objects_tx).unwrap_err();
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let error = engine.validate_transaction_admission_shape(&many_objects_tx).unwrap_err();
     assert!(
         error.to_string().contains("objects"),
         "object-count overflow must be rejected: {error:#}"
@@ -677,8 +680,9 @@ fn version_conflict_failures_do_not_charge_gas() {
         "Execution failed: Gas payment version mismatch for 0xbbbb: expected 1, found 2",
         "Execution failed: Gas payment digest mismatch for 0xbbbb",
     ] {
-        let changeset =
-            engine.failed_changeset_for_error(&tx, &engine.state, message.to_string()).unwrap();
+        let changeset = engine
+            .failed_changeset_for_error(&tx, &engine.state, &anyhow::anyhow!(message))
+            .unwrap();
         assert!(!changeset.success);
         let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
         let sender_delta =
@@ -698,7 +702,7 @@ fn version_conflict_failures_do_not_charge_gas() {
         );
     }
     let changeset =
-        engine.failed_changeset_for_error(&tx, &engine.state, "boom".to_string()).unwrap();
+        engine.failed_changeset_for_error(&tx, &engine.state, &anyhow::anyhow!("boom")).unwrap();
     let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
     let sender_delta =
         changeset.owner_deltas.get(&sender_addr).map(|delta| delta.balance_delta).unwrap_or(0);
@@ -864,8 +868,9 @@ proptest! {
                 .gas_payment()
                 .map(|payment| payment.payment_objects.len())
                 .unwrap_or(0);
+        let engine = BlockchainEngine::new_in_memory().unwrap();
         prop_assert_eq!(
-            BlockchainEngine::validate_transaction_admission_shape(&tx).is_ok(),
+            engine.validate_transaction_admission_shape(&tx).is_ok(),
             total <= MAX_TRANSACTION_OBJECTS,
             "admission must accept exactly up to the object cap (total={})", total
         );
@@ -1204,6 +1209,7 @@ fn restart_recovers_checkpoint_metadata_from_durable_commit_marker() {
             transferred: Vec::new(),
             causal_edges: Vec::new(),
             error_message: None,
+            events: Vec::new(),
         }]);
         // Persist exactly as `commit_with_raw_update` does: raw BCS checkpoint
         // bytes in the same batch as the state changes.
@@ -3683,7 +3689,7 @@ fn custom_gas_coin_is_rejected_for_move_execution() {
         nonce: 0,
     };
 
-    let admission_error = BlockchainEngine::validate_transaction_admission_shape(&tx).unwrap_err();
+    let admission_error = engine.validate_transaction_admission_shape(&tx).unwrap_err();
     assert!(admission_error.to_string().contains("Unsupported gas coin type"));
 
     let error = engine

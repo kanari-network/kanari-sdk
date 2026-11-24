@@ -910,6 +910,7 @@ fn empty_success_effect() -> kanari_types::transaction::TransactionEffects {
         transferred: Vec::new(),
         causal_edges: Vec::new(),
         error_message: None,
+        events: Vec::new(),
     }
 }
 

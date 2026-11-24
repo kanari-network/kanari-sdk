@@ -1,7 +1,7 @@
 param(
     [string]$From = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146",
 
-    [string]$To = "0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3",
+    [string]$To = "0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350",
 
     [Parameter(Mandatory = $true)]
     [string]$Password,
@@ -28,7 +28,7 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $nodeExe = Join-Path $repoRoot 'target\release\kanari-node.exe'
 $kanariExe = Join-Path $repoRoot 'target\release\kanari.exe'
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".codex-runlogs\four-node-tx-load-$runId"
+$runRoot = Join-Path $repoRoot ".kanari-runlogs\four-node-tx-load-$runId"
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 

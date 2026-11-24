@@ -83,10 +83,9 @@ impl BlockchainEngine {
     }
 
     fn persistent_store_has_logical_entries(store: &PersistentStore) -> Result<bool> {
-        Ok(!store
-            .logical_entries()
-            .context("Failed to inspect persistent store before genesis fallback")?
-            .is_empty())
+        store
+            .has_any_logical_entry()
+            .context("Failed to inspect persistent store before genesis fallback")
     }
 
     fn persistent_store_can_use_fresh_genesis_metadata(
@@ -122,9 +121,10 @@ impl BlockchainEngine {
         reason: &str,
         require_recoverable_metadata: bool,
     ) -> Result<Arc<RwLock<Blockchain>>> {
-        if require_recoverable_metadata
-            && !Self::persistent_store_can_use_fresh_genesis_metadata(store)?
-        {
+        // Safety guard must run regardless of strictness: creating a fresh
+        // genesis over an existing non-genesis store would silently orphan
+        // committed state and break replay protection.
+        if !Self::persistent_store_can_use_fresh_genesis_metadata(store)? {
             anyhow::bail!(
                 "Refusing to create fresh genesis because persistent store contains state but blockchain metadata could not be recovered: {reason}"
             );
@@ -309,6 +309,12 @@ impl BlockchainEngine {
 
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
+
+        tracing::warn!(
+            "SINGLE-AUTHORITY MODE: Only one authority configured. This is suitable for \
+             development and testing only. Production deployments MUST use multiple \
+             authorities with DAG consensus to prevent equivocation and ensure safety."
+        );
 
         let engine = Self {
             blockchain,

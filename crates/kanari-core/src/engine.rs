@@ -212,6 +212,59 @@ pub struct PendingTransactionRecord {
     size_bytes: usize,
 }
 
+/// Classified execution error type used to distinguish concurrency races
+/// (retryable, zero gas) from sender faults (charge gas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExecutionError {
+    /// Object version/digest mismatch — another tx mutated a referenced object
+    /// between submit and execute. Concurrency artifact, not sender fault.
+    RaceCondition,
+    /// Insufficient balance / gas — sender fault.
+    InsufficientBalance,
+    /// Other execution error — sender fault.
+    Other,
+}
+
+impl ExecutionError {
+    /// Classify an anyhow::Error into a typed variant. Falls back to string
+    /// matching of the error chain for backward compatibility with existing
+    /// Move VM error messages.
+    pub(crate) fn classify(error: &anyhow::Error) -> Self {
+        // Walk the error chain looking for race-condition markers.
+        let mut current: &(dyn std::error::Error + 'static) = error.as_ref();
+        let mut messages = Vec::new();
+        loop {
+            messages.push(current.to_string());
+            match current.source() {
+                Some(source) => current = source,
+                None => break,
+            }
+        }
+        let combined = messages.join(" | ");
+        let lower = combined.to_lowercase();
+
+        if lower.contains("version mismatch")
+            || lower.contains("digest mismatch")
+            || lower.contains("object changed concurrently")
+        {
+            return ExecutionError::RaceCondition;
+        }
+        if lower.contains("insufficient")
+            || lower.contains("balance")
+            || lower.contains("underflow")
+            || lower.contains("gas")
+        {
+            return ExecutionError::InsufficientBalance;
+        }
+        ExecutionError::Other
+    }
+
+    /// Whether this error type should result in zero gas (retryable, not sender fault).
+    pub(crate) fn is_retryable(self) -> bool {
+        matches!(self, ExecutionError::RaceCondition)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct MempoolState {
     pending_txs: Vec<PendingTransactionRecord>,
@@ -2025,22 +2078,19 @@ impl BlockchainEngine {
             [] => Ok(()),
             [index] => state.apply_changeset_with_audit(&mut changesets[*index]),
             _ => {
-                let merged_at = std::time::Instant::now();
                 for index in indices {
                     state.apply_changeset_with_audit(&mut changesets[*index])?;
                 }
                 let applied_at = std::time::Instant::now();
-                let result = Ok(());
                 if profile {
                     eprintln!(
-                        "dependency apply batch profile: txs={} merge={:.6}s state_apply={:.6}s total={:.6}s",
+                        "dependency apply batch profile: txs={} apply={:.6}s total={:.6}s",
                         indices.len(),
-                        merged_at.duration_since(started_at).as_secs_f64(),
-                        applied_at.duration_since(merged_at).as_secs_f64(),
+                        applied_at.duration_since(started_at).as_secs_f64(),
                         applied_at.duration_since(started_at).as_secs_f64(),
                     );
                 }
-                result
+                Ok(())
             }
         }
     }
@@ -2310,7 +2360,7 @@ impl BlockchainEngine {
                         let failed = self.failed_changeset_for_error(
                             &signed_tx.transaction,
                             state_arc,
-                            error.to_string(),
+                            &error,
                         )?;
                         let mut state_write =
                             state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2572,7 +2622,7 @@ impl BlockchainEngine {
                         let failed = self.failed_changeset_for_error(
                             &signed_tx.transaction,
                             state_arc,
-                            error.to_string(),
+                            &error,
                         )?;
                         let mut state_write =
                             state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2655,7 +2705,7 @@ impl BlockchainEngine {
         &self,
         tx: &Transaction,
         state_arc: &Arc<RwLock<StateManager>>,
-        error_message: String,
+        error: &anyhow::Error,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let gas_op = match tx {
@@ -2711,26 +2761,14 @@ impl BlockchainEngine {
             };
             (wallet, cap)
         };
-        // Version/digest races are concurrency artifacts, not sender faults:
-        // another transaction mutated a referenced object between submit and
-        // execution. Failing these free (no gas charge) lets bulk/concurrent
-        // senders retry with fresh refs instead of burning gas on every loser.
-        const RACE_MARKERS: [&str; 4] = [
-            "Object version mismatch for",
-            "Object digest mismatch for",
-            "Gas payment version mismatch for",
-            "Gas payment digest mismatch for",
-        ];
-        let is_race = RACE_MARKERS.iter().any(|marker| error_message.contains(marker));
-        let (gas_cost, error_message) = if is_race {
-            (
-                0,
-                format!(
-                    "{error_message} (object changed concurrently; retry with fresh object refs)"
-                ),
-            )
+        // Classify error type to decide gas charging. Race conditions are
+        // concurrency artifacts (zero gas, retryable); all other errors charge
+        // the sender.
+        let error_class = ExecutionError::classify(error);
+        let (gas_cost, error_message) = if error_class.is_retryable() {
+            (0, format!("{error} (object changed concurrently; retry with fresh object refs)"))
         } else {
-            (requested_cost.min(balance).min(object_cap), error_message)
+            (requested_cost.min(balance).min(object_cap), error.to_string())
         };
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
@@ -2842,7 +2880,7 @@ impl BlockchainEngine {
 
     /// Reject malformed payloads at admission so they cannot occupy a mempool
     /// lane or later become zero-gas failed checkpoint effects.
-    pub(crate) fn validate_transaction_admission_shape(tx: &Transaction) -> Result<()> {
+    pub(crate) fn validate_transaction_admission_shape(&self, tx: &Transaction) -> Result<()> {
         ensure!(
             bcs::serialized_size(tx)? <= MAX_TRANSACTION_BYTES,
             "Transaction exceeds {} byte admission limit",
@@ -3621,6 +3659,7 @@ impl BlockchainEngine {
                         transferred: Vec::new(),
                         causal_edges: Vec::new(),
                         error_message: Some(error.to_string()),
+                        events: Vec::new(),
                     });
                     continue;
                 }
@@ -3726,6 +3765,11 @@ impl BlockchainEngine {
         let prepared_at = std::time::Instant::now();
         checkpoint.state_root = prepared.state_root;
         checkpoint.transaction_effects = prepared.effects.into();
+        // Align checkpoint.transactions with executed subset so index-based
+        // lookups in queries.rs always return the matching effect. Already-
+        // committed transactions are skipped during execution and have no
+        // effect entry, so keeping the full list would shift indices.
+        checkpoint.transactions = prepared.transactions.clone().into();
         let aggregated_at = std::time::Instant::now();
 
         let executed = checkpoint

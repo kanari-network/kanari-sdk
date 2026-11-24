@@ -233,7 +233,7 @@ $lastExitCode = $null
 $terminalError = $null
 
 if ([string]::IsNullOrWhiteSpace($StatusPath)) {
-    $StatusPath = Join-Path $repoRoot '.codex-runlogs\chaos-campaign-status.json'
+    $StatusPath = Join-Path $repoRoot '.kanari-runlogs\chaos-campaign-status.json'
 }
 $statusDirectory = Split-Path -Parent $StatusPath
 if (-not [string]::IsNullOrWhiteSpace($statusDirectory)) {

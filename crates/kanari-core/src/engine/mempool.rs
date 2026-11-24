@@ -100,21 +100,12 @@ impl BlockchainEngine {
                 let verified = signed_tx.into_verified()?;
                 let tx_hash = verified.hash().to_vec();
                 let tx = verified.transaction();
-                // zkLogin: the replay guard lives at THIS admission
-                // boundary, not inside signature verification (which
-                // legitimately re-runs on every fresh deserialized copy:
-                // simulation → mempool, gossip, vertex validation, commit).
-                // First admission records the hash; resubmission inside the
-                // policy TTL is rejected here. See
-                // `record_zklogin_admission`.
-                if let Some((CurveType::ZkLogin, _)) = KeyPair::parse_tagged_address(tx.sender())
-                    && !record_zklogin_admission(&tx_hash)
-                {
-                    anyhow::bail!(
-                        "Signature verification failed: zkLogin replay (transaction already admitted within the replay TTL)"
-                    );
-                }
-                Self::validate_transaction_admission_shape(tx)?;
+                // Shape-validate first so an invalid tx never lands in the
+                // zkLogin replay guard. record_zklogin_admission is deferred
+                // to the acceptance loop below so a tx that passes shape
+                // validation but later fails lane/nonce checks is not locked
+                // out of resubmission.
+                self.validate_transaction_admission_shape(tx)?;
                 let sender = tx.sender_address();
                 let normalized_sender = sender_cache
                     .get(sender)
@@ -250,7 +241,7 @@ impl BlockchainEngine {
                 .saturating_add(accepted_counts_by_sender.get(sender).copied().unwrap_or(0));
             if current_sender_depth >= MAX_PENDING_PER_SENDER {
                 anyhow::bail!(
-                    "Sender {} has too many pending transactions: {} pending, max {}",
+                    "Sender {} has too many pending transactions: {} pending, max {} (reputation-adjusted)",
                     sender,
                     current_sender_depth,
                     MAX_PENDING_PER_SENDER
@@ -293,6 +284,16 @@ impl BlockchainEngine {
                 );
             }
 
+            // zkLogin: record admission only after all checks (nonce, lane,
+            // congestion) have passed so a valid tx rejected for capacity
+            // reasons is not locked out of resubmission.
+            if let Some((CurveType::ZkLogin, _)) = KeyPair::parse_tagged_address(sender)
+                && !record_zklogin_admission(tx_hash)
+            {
+                anyhow::bail!(
+                    "Signature verification failed: zkLogin replay (transaction already admitted within the replay TTL)"
+                );
+            }
             accepted_hashes.push(tx_hash.clone());
             *accepted_counts_by_sender.entry(sender.clone()).or_insert(0) += 1;
             *accepted_counts_by_primary_access.entry(primary_access.clone()).or_insert(0) += 1;
@@ -357,7 +358,7 @@ impl BlockchainEngine {
         let verified = signed_tx.into_verified()?;
         let tx_hash = verified.hash().to_vec();
         let tx = verified.into_signed_transaction().transaction;
-        Self::validate_transaction_admission_shape(&tx)?;
+        self.validate_transaction_admission_shape(&tx)?;
 
         let changeset = {
             let state_snapshot = self.state_read().clone();
