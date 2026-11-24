@@ -1072,6 +1072,7 @@ fn native_coin_object_transfer_applies_gas_delta_without_supply_overcount() -> R
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
+    transfer.gas_object_refs.push(ObjectRef::new("0xaaaa", Some(1), None));
     transfer.created_objects.push((
         "0xaaaa".to_string(),
         address_owned_object(alice, coin_type.clone(), alice_remaining_data, 2),
@@ -1252,6 +1253,7 @@ fn native_coin_object_full_transfer_subtracts_gas_from_moved_coin() -> Result<()
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
+    transfer.gas_object_refs.push(ObjectRef::new("0xaaaa", Some(1), None));
     transfer
         .created_objects
         .push(("0xaaaa".to_string(), address_owned_object(bob, coin_type, moved_coin_data, 2)));
@@ -1501,6 +1503,11 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
     let mut transfer = ChangeSet::new();
     transfer.get_or_create_owner_delta(alice).debit(10);
     transfer.collect_gas(gas_collector, 10);
+    transfer.gas_object_refs.push(ObjectRef::new(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        Some(1),
+        None,
+    ));
     transfer.created_objects.push((
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         address_owned_object(alice, coin_type.clone(), sender_coin_after, 2),
@@ -1531,6 +1538,11 @@ fn native_transfer_to_dao_accounts_object_balance_and_gas_credit() -> Result<()>
     let mut second_transfer = ChangeSet::new();
     second_transfer.get_or_create_owner_delta(alice).debit(10);
     second_transfer.collect_gas(bob, 10);
+    second_transfer.gas_object_refs.push(ObjectRef::new(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        Some(2),
+        None,
+    ));
     second_transfer.created_objects.push((
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         address_owned_object(alice, coin_type.clone(), sender_coin_second, 3),

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use move_core_types::{
     account_address::AccountAddress,
     identifier::Identifier,
-    language_storage::{ModuleId, TypeTag},
+    language_storage::{ModuleId, StructTag, TypeTag},
 };
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -266,6 +266,23 @@ impl CoinModule {
     pub fn read_balance(data: &[u8]) -> Option<u64> {
         let amount = data.get(32..40)?;
         Some(u64::from_le_bytes(amount.try_into().ok()?))
+    }
+
+    /// Write the `u64` balance into the canonical `Coin<T>` BCS layout.
+    /// Returns `false` if the data is too short or the struct tag is not `Coin<T>`.
+    pub fn write_balance_to_object(data: &mut [u8], struct_tag: &StructTag, amount: u64) -> bool {
+        let module_name = struct_tag.module.as_str();
+        let struct_name = struct_tag.name.as_str();
+        let bytes = amount.to_le_bytes();
+
+        if module_name == Self::COIN_MODULE && struct_name == Self::COIN_STRUCT {
+            if data.len() < 32 + 8 {
+                return false;
+            }
+            data[32..40].copy_from_slice(&bytes);
+            return true;
+        }
+        false
     }
 
     /// Extract the coin balance from an object, gated on the object actually

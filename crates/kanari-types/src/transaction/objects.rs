@@ -49,8 +49,9 @@ pub struct GasPayment {
     /// post-upgrade history — reset devnet data on upgrade.
     #[serde(default)]
     pub coin_type: Option<String>,
-    /// Pinned oracle [`crate::gas_market::GasPriceTable`] version the wallet
-    /// quoted against. `None` = latest committed table (legacy behavior).
+    /// Pinned consensus [`crate::gas_market::GasPriceTable`] version the wallet
+    /// quoted against. Currently version 1 is protocol-fixed; `None` maps to
+    /// that version for legacy transactions.
     #[serde(default)]
     pub price_version: Option<u64>,
 }

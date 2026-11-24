@@ -14,6 +14,7 @@ module escrow::escrow {
     const E_WRONG_STATE: u64 = 3;
     const E_NOT_AUTHORIZED: u64 = 6;
     const E_NOT_ENOUGH_BALANCE: u64 = 7;
+    const E_SELF_ESCROW: u64 = 9;
 
     // The proof object supplied to an action must belong to that exact deal.
     // Without this check an otherwise authorized party could append an entry to
@@ -111,6 +112,9 @@ module escrow::escrow {
         ctx: &mut TxContext
     ) {
         let buyer_addr = tx_context::sender(ctx);
+        // An escrow must have two distinct parties. The buyer is derived from
+        // the signed transaction sender; never accept the buyer as seller.
+        assert!(seller != buyer_addr, E_SELF_ESCROW);
         let now = tx_context::epoch_timestamp_ms(ctx);
         let deal_id_copy = copy deal_id;
 

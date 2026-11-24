@@ -162,6 +162,45 @@ fn mutable_object_input_for_sender_owned_object_passes_sender_rule() {
 }
 
 #[test]
+fn gas_overlap_cannot_bypass_engine_validation_with_padded_object_id() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let short_id = "0x1";
+    let padded_id = format!("0x{:064x}", 1);
+    fund_coin_object(&engine, &sender.address, short_id, 1_000_000);
+
+    let tx = Transaction::ExecuteFunction {
+        sender: sender.tagged_address(),
+        module: "0x42::custom".to_string(),
+        function: "mutate_coin".to_string(),
+        type_args: vec![],
+        args: vec![],
+        object_inputs: vec![ObjectInput {
+            object_ref: coin_ref(short_id, 1_000_000),
+            owner: Some(ObjectOwnerKind::AddressOwner(sender.address.clone())),
+            mutable: true,
+        }],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![coin_ref(&padded_id, 1_000_000)],
+            owner: sender.address.clone(),
+            budget: 1_000_000,
+            price: 1,
+            coin_type: None,
+            price_version: None,
+        }),
+        gas_limit: 1_000_000,
+        gas_price: 1,
+        nonce: 0,
+    };
+    let state = engine.state.read().unwrap_or_else(|error| error.into_inner());
+    let sender_addr = AccountAddress::from_hex_literal(&sender.address).unwrap();
+
+    let error = BlockchainEngine::validate_transaction_object_access(&state, &tx, sender_addr)
+        .expect_err("canonical-equivalent gas and mutable refs must conflict");
+    assert!(error.to_string().contains("cannot overlap with a mutable object input"));
+}
+
+#[test]
 fn explicit_mutable_application_object_for_foreign_address_owner_is_rejected() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     let owner = generate_keypair(CurveType::Ed25519).unwrap();

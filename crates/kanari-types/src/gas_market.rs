@@ -1,11 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-//! USD-numeraire gas market (Phase 1).
+//! USD-numeraire gas quoting policy.
 //!
-//! Mirrors `kanari_system::gas_market` (Move) in pure integer math so the
-//! wallet/RPC can quote off-chain exactly what the on-chain `quote_in_token`
-//! would charge. No floats anywhere: USD is micro-USD (1e6), prices are
+//! The current consensus executor uses the protocol-fixed version-1 table
+//! below. It does not yet load dynamic `PriceTable` state from Move storage;
+//! wallet/RPC quoting and validator enforcement must therefore use this same
+//! fixed table. No floats anywhere: USD is micro-USD (1e6), prices are
 //! micro-USD per whole token, token amounts are base units.
 //!
 //! Settlement rule: `token_amount = ceil(usd_fee * 10^decimals / price)` with
@@ -34,7 +35,8 @@ pub struct GasCoinEntry {
     pub price_version: u64,
 }
 
-/// On-chain `PriceTable` snapshot used for deterministic quoting.
+/// Consensus quote table. The active executor currently uses the fixed default
+/// rather than a dynamically updated on-chain `PriceTable`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GasPriceTable {
     pub version: u64,
@@ -94,7 +96,7 @@ impl GasPriceTable {
         self.entry_for(coin_type).is_some_and(|entry| entry.price_usd_micros > 0)
     }
 
-    /// Pin check: the transaction's price version must not be stale.
+    /// Pin check against this table version.
     pub fn check_version(&self, tx_version: Option<u64>) -> Result<(), String> {
         let Some(pinned) = tx_version else {
             return Ok(());

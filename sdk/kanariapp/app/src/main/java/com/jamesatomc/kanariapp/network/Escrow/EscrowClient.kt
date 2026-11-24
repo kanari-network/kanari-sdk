@@ -24,6 +24,9 @@ import java.nio.ByteOrder
 internal const val ESCROW_PACKAGE =
     "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146"
 internal const val ESCROW_MODULE = "escrow"
+// Escrow calls create/update shared objects, mutate coins, and emit events;
+// the generic wallet default (1,000 units) is too small for these entry points.
+internal val ESCROW_GAS_SETTINGS = GasSettings(limit = 100_000uL)
 
 private fun bcsEncodeU64(value: Long): List<Int> {
     val buf = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(value)
@@ -82,7 +85,7 @@ suspend fun KanariClient.buildEscrowCreateDeal(
     description: String,
     coinObjectId: String,
     tokenType: String,
-    gas: GasSettings = DEFAULT_GAS_SETTINGS
+    gas: GasSettings = ESCROW_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -122,7 +125,7 @@ suspend fun KanariClient.buildEscrowConfirmDelivery(
     dealObjectId: String,
     proofObjectId: String,
     coinType: String,
-    gas: GasSettings = DEFAULT_GAS_SETTINGS
+    gas: GasSettings = ESCROW_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -155,7 +158,7 @@ suspend fun KanariClient.buildEscrowReleaseFunds(
     dealObjectId: String,
     proofObjectId: String,
     coinType: String,
-    gas: GasSettings = DEFAULT_GAS_SETTINGS
+    gas: GasSettings = ESCROW_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",
@@ -189,7 +192,7 @@ suspend fun KanariClient.buildEscrowRaiseDispute(
     proofObjectId: String,
     reason: String,
     coinType: String,
-    gas: GasSettings = DEFAULT_GAS_SETTINGS
+    gas: GasSettings = ESCROW_GAS_SETTINGS
 ): CallFunctionData {
     val request = RpcRequest(
         method = "kanari_buildCallFunction",

@@ -46,6 +46,22 @@ module escrow::escrow_tests {
     }
 
     #[test]
+    #[expected_failure(abort_code = escrow::E_SELF_ESCROW)]
+    fun test_buyer_cannot_create_escrow_with_self_as_seller() {
+        let mut ctx = tx_context::dummy();
+        let mut buyer_coin = create_test_usdc_coin(10000, &mut ctx);
+        escrow::create_deal_from_coin<TestUSDC>(
+            string::utf8(b"self_deal"),
+            @0x0,
+            1000,
+            string::utf8(b"Buyer and seller must differ"),
+            &mut buyer_coin,
+            &mut ctx
+        );
+        transfer::public_transfer(buyer_coin, @0x1);
+    }
+
+    #[test]
     fun test_create_multiple_deals_with_usdc() {
         let mut ctx = tx_context::dummy();
         let seller_addr = @0x2;

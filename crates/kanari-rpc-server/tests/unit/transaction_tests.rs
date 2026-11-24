@@ -261,7 +261,7 @@ fn gas_payment_cannot_overlap_mutable_object_input_at_rpc_boundary() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
-        coin_type: None,
+        coin_type: Some(USD_COIN.to_string()),
         price_version: None,
     };
 
@@ -298,7 +298,7 @@ fn equivalent_hex_gas_overlap_is_rejected_at_rpc_boundary() {
         owner: "0xa".to_string(),
         budget: 1,
         price: 1,
-        coin_type: None,
+        coin_type: Some(USD_COIN.to_string()),
         price_version: None,
     };
 
@@ -335,6 +335,34 @@ fn duplicate_gas_payment_objects_are_rejected_at_rpc_boundary() {
     assert!(
         err.error.as_ref().expect("rpc error").message.contains("Duplicate gas payment object")
     );
+}
+
+#[test]
+fn multiple_gas_payment_objects_are_rejected_at_rpc_boundary() {
+    let gas_payment = kanari_types::transaction::GasPayment {
+        payment_objects: vec![
+            kanari_types::transaction::ObjectRef::new(
+                "0x1",
+                Some(1),
+                Some("digest-one".to_string()),
+            ),
+            kanari_types::transaction::ObjectRef::new(
+                "0x2",
+                Some(1),
+                Some("digest-two".to_string()),
+            ),
+        ],
+        owner: "0xa".to_string(),
+        budget: 1,
+        price: 1,
+        coin_type: Some(USD_COIN.to_string()),
+        price_version: None,
+    };
+
+    let err = validate_object_inputs_and_gas(55, &[], Some(&gas_payment))
+        .expect_err("multiple gas objects are unsupported");
+
+    assert!(err.error.as_ref().expect("rpc error").message.contains("exactly one object"));
 }
 
 #[test]
@@ -395,7 +423,7 @@ proptest! {
             owner: "0xa".to_string(),
             budget: 1,
             price: 1,
-            coin_type: None,
+            coin_type: Some(USD_COIN.to_string()),
             price_version: None,
         };
 
@@ -447,7 +475,7 @@ proptest! {
             owner: "0xa".to_string(),
             budget: 1,
             price: 1,
-            coin_type: None,
+            coin_type: Some(USD_COIN.to_string()),
             price_version: None,
         };
 
@@ -1450,6 +1478,50 @@ fn auto_gas_falls_back_to_kanari_when_usd_is_unavailable() {
     assert!(payment.is_native_payment());
     assert_eq!(payment.budget, 100_000);
     assert_eq!(price, 1000);
+}
+
+#[test]
+fn native_gas_uses_protocol_price_not_usd_market_quote() {
+    // At the default USD table price, a 100k-unit quote is 0.05 KANARI.
+    // Native gas actually settles at gas_limit * effective_gas_price = 100k
+    // Mist (0.0001 KANARI), so an object covering the real max cost is enough.
+    let owned = vec![coin_object_info("0x2", GAS_COIN, 100_000)];
+    let (payment, price) = select_gas_payment_with_table(
+        &owned,
+        "0xa",
+        100_000,
+        1,
+        &[],
+        &std::collections::HashSet::new(),
+        &std::collections::BTreeMap::new(),
+        &usd_price_table(),
+    )
+    .unwrap();
+
+    assert!(payment.is_native_payment());
+    assert_eq!(payment.payment_objects[0].object_id, "0x2");
+    assert_eq!(price, 1);
+}
+
+#[test]
+fn one_native_coin_used_as_mutable_input_still_requires_separate_gas_coin() {
+    // Sui-style object separation: the only KANARI coin is a mutable Move
+    // input, so it must be excluded from gas selection. The RPC must fail
+    // instead of silently assigning the same object to both roles.
+    let owned = vec![coin_object_info("0x2", GAS_COIN, 100_000)];
+    let err = select_gas_payment_with_table(
+        &owned,
+        "0xa",
+        100_000,
+        1,
+        &["0x2".to_string()],
+        &std::collections::HashSet::new(),
+        &std::collections::BTreeMap::new(),
+        &usd_price_table(),
+    )
+    .expect_err("the mutable input must not be reused as the gas object");
+
+    assert!(err.to_string().contains("No spendable gas coin object found"));
 }
 
 #[test]

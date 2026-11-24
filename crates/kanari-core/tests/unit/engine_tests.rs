@@ -537,6 +537,50 @@ fn backend_native_transfer_allows_same_canonical_coin_for_gas_and_transfer() {
 }
 
 #[test]
+fn native_transfer_rejects_same_coin_with_noncanonical_gas_id_alias() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let short_id = "0x1";
+    let padded_id = format!("0x{:064x}", 1);
+    fund_sender_with_coin(&engine, &sender.address, short_id, 100);
+
+    let mut tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref(short_id, 100),
+        recipient.address,
+        100,
+        1,
+        100,
+        1,
+    );
+    if let Transaction::ExecuteFunction { gas_payment: Some(payment), .. } = &mut tx {
+        payment.payment_objects = vec![native_coin_object_ref(&padded_id, 100)];
+    }
+    let mut signed_tx = SignedTransaction::new(tx);
+    signed_tx.sign(&sender.private_key, sender.curve_type).unwrap();
+
+    let changeset = engine
+        .execute_transaction_with_runtime_internal(
+            &signed_tx.transaction,
+            &engine.runtime_pool[0],
+            &engine.state,
+            false,
+            Some(125),
+            false,
+        )
+        .expect("execution should produce a failed transaction effect");
+
+    assert!(!changeset.success);
+    assert!(
+        changeset.error_message.as_deref().unwrap_or_default().contains("transfer amount")
+            && changeset.error_message.as_deref().unwrap_or_default().contains("plus gas"),
+        "canonical aliases must still require transfer amount plus gas: {:?}",
+        changeset.error_message
+    );
+}
+
+#[test]
 fn admission_rejects_client_faults_fail_closed() {
     // No matter what a buggy or malicious client submits, admission must
     // reject malformed transactions before they reach the mempool.
@@ -559,7 +603,8 @@ fn admission_rejects_client_faults_fail_closed() {
         "zero-amount transfer must be rejected: {error:#}"
     );
 
-    // Nonce above JSON safe integer range.
+    // Nonce above JSON safe integer range — accepted (2^53 is a client
+    // concern, not a protocol constraint).
     let mut big_nonce_tx = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
         native_coin_object_ref("0xaaaa", 1_000_000),
@@ -572,11 +617,7 @@ fn admission_rejects_client_faults_fail_closed() {
     if let Transaction::ExecuteFunction { nonce, .. } = &mut big_nonce_tx {
         *nonce = (1u64 << 53) + 1;
     }
-    let error = BlockchainEngine::validate_transaction_admission_shape(&big_nonce_tx).unwrap_err();
-    assert!(
-        error.to_string().contains("exceeds maximum"),
-        "oversized nonce must be rejected: {error:#}"
-    );
+    BlockchainEngine::validate_transaction_admission_shape(&big_nonce_tx).unwrap();
 
     // Sane transaction passes.
     let good_tx = Transaction::new_transfer_with_object_ref_and_gas(

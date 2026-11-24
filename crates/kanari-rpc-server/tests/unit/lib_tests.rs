@@ -3,6 +3,7 @@
 
 use super::*;
 use axum::{
+    Router,
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode},
     response::Response,
@@ -17,7 +18,10 @@ use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::transaction::{SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use std::net::IpAddr;
-use std::sync::OnceLock;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 use tower::util::ServiceExt;
@@ -962,4 +966,53 @@ async fn anti_spam_router_rejects_over_budget_requests_with_429() {
     );
 
     drop(guard);
+}
+
+#[tokio::test]
+async fn lightweight_rpc_remains_responsive_during_blocking_dispatch_load() {
+    let _guard = test_guard().await;
+    let started = Arc::new(AtomicUsize::new(0));
+    let mut tasks = Vec::new();
+
+    // Occupy most bounded dispatch slots with synchronous work, leaving room
+    // for unrelated unit tests that exercise the blocking helpers.
+    for _ in 0..24 {
+        let started = Arc::clone(&started);
+        tasks.push(tokio::spawn(run_rpc_dispatch(async move {
+            started.fetch_add(1, Ordering::Release);
+            std::thread::sleep(Duration::from_millis(300));
+        })));
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while started.load(Ordering::Acquire) != 24 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("blocking dispatch tasks should occupy their slots");
+
+    let app = build_test_router();
+    let request = Request::builder()
+        .method("POST")
+        .uri("/rpc")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "method": methods::GET_GAS_INFO,
+                "params": [],
+                "id": 9
+            })
+            .to_string(),
+        ))
+        .invariant("build health-style rpc request");
+    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(request))
+        .await
+        .expect("RPC should not wait behind blocking work")
+        .invariant("RPC response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    for task in tasks {
+        task.await.invariant("blocking dispatch task join").expect("dispatch work");
+    }
 }
