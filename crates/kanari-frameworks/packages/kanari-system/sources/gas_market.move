@@ -9,10 +9,10 @@
 /// - Fees are *settled* in any whitelisted `Coin<T>` the sender owns, including
 ///   the native `0x2::kanari::KANARI`. Conversion uses integer math only and
 ///   always rounds up so validators never under-collect.
-/// - `PriceTable` is an on-chain shared object. Every validator quotes with the
-///   same committed version, keeping checkpoints deterministic. Transactions
-///   pin `price_version` and a `max_price_per_unit` slippage cap; the backend
-///   (see `kanari-types::gas_market`) mirrors this math in Rust.
+/// - This Move `PriceTable` is the intended dynamic oracle design, but the
+///   transaction executor currently enforces the protocol-fixed version-1
+///   table in Rust instead of reading this object. Do not treat updates here
+///   as active gas pricing until executor integration is implemented.
 ///
 /// Price encoding: `price_usd_micros` = USD value of ONE whole token, scaled by
 /// 1e6. Example: KANARI at $2.00 -> 2_000_000.

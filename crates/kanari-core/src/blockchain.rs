@@ -11,6 +11,7 @@
 
 use crate::consensus::Checkpoint;
 use anyhow::Result;
+use kanari_crypto::hash_data_blake3_array;
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::transaction::{SignedTransaction, TransactionEffects};
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,10 @@ pub struct Blockchain {
     tx_location_index: HashMap<Vec<u8>, (u64, usize)>,
     #[serde(default)]
     total_transaction_count: usize,
+    /// Hash of committed vertex sets → checkpoint sequence, for O(1)
+    /// duplicate detection during commit (avoids O(n) linear scan).
+    #[serde(skip)]
+    pub(crate) committed_vertex_sets: HashMap<[u8; 32], u64>,
 }
 
 fn default_dag_checkpoints() -> VecDeque<Checkpoint> {
@@ -77,6 +82,7 @@ impl Blockchain {
             tx_hash_queue: VecDeque::new(),
             tx_location_index: HashMap::new(),
             total_transaction_count: 0,
+            committed_vertex_sets: HashMap::new(),
         }
     }
 
@@ -204,6 +210,13 @@ impl Blockchain {
         }
 
         self.track_checkpoint_transactions(&checkpoint);
+
+        // Index the vertex set for O(1) duplicate detection during commit.
+        let vertex_set_hash = hash_data_blake3_array(
+            &checkpoint.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
+        );
+        self.committed_vertex_sets.insert(vertex_set_hash, checkpoint.sequence);
+
         self.dag_checkpoints.push_back(checkpoint);
 
         if self.dag_checkpoints.len() > MAX_RETAINED_BLOCKS
@@ -216,6 +229,11 @@ impl Blockchain {
                 let hash = tx.transaction_hash().to_vec();
                 self.tx_location_index.remove(&hash);
             }
+            // Remove evicted checkpoint's vertex set from the index.
+            let evicted_vertex_set_hash = hash_data_blake3_array(
+                &evicted.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
+            );
+            self.committed_vertex_sets.remove(&evicted_vertex_set_hash);
         }
         Ok(())
     }

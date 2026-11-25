@@ -1,6 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::event::Event;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,8 +50,9 @@ pub struct GasPayment {
     /// post-upgrade history — reset devnet data on upgrade.
     #[serde(default)]
     pub coin_type: Option<String>,
-    /// Pinned oracle [`crate::gas_market::GasPriceTable`] version the wallet
-    /// quoted against. `None` = latest committed table (legacy behavior).
+    /// Pinned consensus [`crate::gas_market::GasPriceTable`] version the wallet
+    /// quoted against. Currently version 1 is protocol-fixed; `None` maps to
+    /// that version for legacy transactions.
     #[serde(default)]
     pub price_version: Option<u64>,
 }
@@ -177,4 +179,6 @@ pub struct TransactionEffects {
     #[serde(default)]
     pub causal_edges: Vec<ObjectGraphEdge>,
     pub error_message: Option<String>,
+    #[serde(default)]
+    pub events: Vec<Event>,
 }

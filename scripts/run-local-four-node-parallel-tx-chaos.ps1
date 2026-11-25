@@ -137,7 +137,7 @@ $targetProfileDir = if ($BuildProfile -eq 'release') { 'release' } else { 'debug
 $nodeExe = Join-Path $repoRoot "target\$targetProfileDir\kanari-node.exe"
 $kanariExe = Join-Path $repoRoot "target\$targetProfileDir\kanari.exe"
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".codex-runlogs\four-node-parallel-tx-chaos-$runId"
+$runRoot = Join-Path $repoRoot ".kanari-runlogs\four-node-parallel-tx-chaos-$runId"
 if ([string]::IsNullOrWhiteSpace($P2pNamespace)) {
     $P2pNamespace = "parallel-chaos-$runId"
 }

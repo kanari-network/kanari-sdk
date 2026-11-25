@@ -9,7 +9,7 @@ use move_core_types::{
 use serde::{Deserialize, Serialize};
 
 /// Move VM Event representation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Event {
     pub key: Vec<u8>,
     pub sequence_number: u64,

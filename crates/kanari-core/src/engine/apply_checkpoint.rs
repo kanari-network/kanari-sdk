@@ -327,14 +327,14 @@ impl BlockchainEngine {
         let tx_count = checkpoint.transactions.len();
         // 1. Update blockchain metadata in-memory.
         {
-            let mut chain = self.blockchain.write().unwrap_or_else(|e| e.into_inner());
+            let mut chain = self.blockchain_write();
             chain.add_checkpoint_with_validation(checkpoint.clone(), true)?;
         }
         let chain_added_at = std::time::Instant::now();
 
         // 2. Persist blockchain state before draining the live mempool view.
         if self.persistent_store.is_some() && !checkpoint_metadata_already_persisted {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = self.blockchain_read();
             if let Err(e) = self.persist_blockchain_snapshot(&chain) {
                 drop(chain);
                 anyhow::bail!(

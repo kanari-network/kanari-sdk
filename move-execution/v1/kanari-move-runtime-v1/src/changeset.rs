@@ -902,6 +902,7 @@ impl ChangeSet {
             transferred,
             causal_edges,
             error_message: self.error_message.clone(),
+            events: Vec::new(),
         }
     }
 

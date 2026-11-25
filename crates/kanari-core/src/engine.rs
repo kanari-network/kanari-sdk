@@ -24,10 +24,11 @@ use kanari_types::transaction::{
 };
 use kanari_types::{GasMeter, GasOperation, effective_gas_price, gas_price_is_valid};
 use log::{error, info};
+use std::str::FromStr;
+
 use lru::LruCache;
 use move_core_types::{
     account_address::AccountAddress,
-    identifier::Identifier,
     language_storage::{ModuleId, StructTag, TypeTag},
 };
 use num_cpus;
@@ -211,6 +212,59 @@ pub struct PendingTransactionRecord {
     size_bytes: usize,
 }
 
+/// Classified execution error type used to distinguish concurrency races
+/// (retryable, zero gas) from sender faults (charge gas).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExecutionError {
+    /// Object version/digest mismatch — another tx mutated a referenced object
+    /// between submit and execute. Concurrency artifact, not sender fault.
+    RaceCondition,
+    /// Insufficient balance / gas — sender fault.
+    InsufficientBalance,
+    /// Other execution error — sender fault.
+    Other,
+}
+
+impl ExecutionError {
+    /// Classify an anyhow::Error into a typed variant. Falls back to string
+    /// matching of the error chain for backward compatibility with existing
+    /// Move VM error messages.
+    pub(crate) fn classify(error: &anyhow::Error) -> Self {
+        // Walk the error chain looking for race-condition markers.
+        let mut current: &(dyn std::error::Error + 'static) = error.as_ref();
+        let mut messages = Vec::new();
+        loop {
+            messages.push(current.to_string());
+            match current.source() {
+                Some(source) => current = source,
+                None => break,
+            }
+        }
+        let combined = messages.join(" | ");
+        let lower = combined.to_lowercase();
+
+        if lower.contains("version mismatch")
+            || lower.contains("digest mismatch")
+            || lower.contains("object changed concurrently")
+        {
+            return ExecutionError::RaceCondition;
+        }
+        if lower.contains("insufficient")
+            || lower.contains("balance")
+            || lower.contains("underflow")
+            || lower.contains("gas")
+        {
+            return ExecutionError::InsufficientBalance;
+        }
+        ExecutionError::Other
+    }
+
+    /// Whether this error type should result in zero gas (retryable, not sender fault).
+    pub(crate) fn is_retryable(self) -> bool {
+        matches!(self, ExecutionError::RaceCondition)
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct MempoolState {
     pending_txs: Vec<PendingTransactionRecord>,
@@ -250,95 +304,11 @@ pub struct BlockchainEngine {
     consensus_public_keys: BTreeMap<String, Vec<u8>>,
 }
 
-// Basic recursive parser for simple type-argument strings used by RPC/tests.
+/// Basic recursive parser for simple type-argument strings used by RPC/tests.
+/// Delegates to `move_core_types::parser::parse_type_tag` for correct handling
+/// of nested generics (e.g. `0x1::m::S<0x2::a::A>`).
 fn parse_type_tag(s: &str) -> Option<TypeTag> {
-    fn split_top_level_commas(s: &str) -> Vec<&str> {
-        let mut parts = Vec::new();
-        let mut depth: usize = 0;
-        let mut start = 0usize;
-        for (i, ch) in s.char_indices() {
-            match ch {
-                '<' => depth += 1,
-                '>' => depth = depth.saturating_sub(1),
-                ',' if depth == 0 => {
-                    parts.push(s[start..i].trim());
-                    start = i + 1;
-                }
-                _ => {}
-            }
-        }
-        if start < s.len() {
-            parts.push(s[start..].trim());
-        }
-        parts
-    }
-
-    let s = s.trim();
-
-    // Primitive types
-    match s {
-        "bool" => return Some(TypeTag::Bool),
-        "u8" => return Some(TypeTag::U8),
-        "u16" => return Some(TypeTag::U16),
-        "u32" => return Some(TypeTag::U32),
-        "u64" => return Some(TypeTag::U64),
-        "u128" => return Some(TypeTag::U128),
-        "u256" => return Some(TypeTag::U256),
-        "address" => return Some(TypeTag::Address),
-        "signer" => return Some(TypeTag::Signer),
-        _ => {}
-    }
-
-    // Vector<T>
-    if let Some(inner) = s.strip_prefix("vector<").and_then(|s| s.strip_suffix('>')) {
-        return parse_type_tag(inner.trim()).map(|t| TypeTag::Vector(Box::new(t)));
-    }
-
-    // Struct: 0xaddr::module::Name<generics>
-    if let Some(addr_end) = s.find("::") {
-        let addr_str = s[..addr_end].trim();
-        let rest = &s[addr_end + 2..];
-
-        if let Some(module_end) = rest.find("::") {
-            let module_str = rest[..module_end].trim();
-            let name_and_generics = rest[module_end + 2..].trim();
-
-            // Separate the struct name from the generics
-            let (name_str, generics_str) = if let Some(idx) = name_and_generics.find('<') {
-                if !name_and_generics.ends_with('>') {
-                    return None;
-                }
-                let name = name_and_generics[..idx].trim();
-                let generics = &name_and_generics[idx + 1..name_and_generics.len() - 1];
-                (name, Some(generics))
-            } else {
-                (name_and_generics, None)
-            };
-
-            let addr = KanariAddress::parse_to_account_address(addr_str).ok()?;
-            let module_id = Identifier::new(module_str).ok()?;
-            let name_id = Identifier::new(name_str).ok()?;
-
-            // Parse generics
-            let mut type_params = Vec::new();
-            if let Some(r#gen) = generics_str {
-                for g in split_top_level_commas(r#gen) {
-                    if !g.is_empty() {
-                        type_params.push(parse_type_tag(g)?);
-                    }
-                }
-            }
-
-            return Some(TypeTag::Struct(Box::new(StructTag {
-                address: addr,
-                module: module_id,
-                name: name_id,
-                type_params,
-            })));
-        }
-    }
-
-    None
+    move_core_types::parser::parse_type_tag(s).ok()
 }
 
 impl BlockchainEngine {
@@ -364,8 +334,7 @@ impl BlockchainEngine {
     ) -> Result<StateSnapshot> {
         let network = network.into();
         let genesis = self.genesis_manifest(network.clone())?;
-        let checkpoint =
-            self.blockchain.read().unwrap_or_else(|e| e.into_inner()).latest_checkpoint().clone();
+        let checkpoint = self.blockchain_read().latest_checkpoint().clone();
         let state = self.state_read();
         ensure!(
             state.overlay.is_empty(),
@@ -504,7 +473,10 @@ impl BlockchainEngine {
 
         let imported =
             Self::new_dir(target_dir.to_str().context("Invalid target data directory")?)?;
-        let chain = imported.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = imported.blockchain.read().unwrap_or_else(|poisoned| {
+            error!("Blockchain lock poisoned while importing chain state; recovering...");
+            poisoned.into_inner()
+        });
         let checkpoint = chain.latest_checkpoint();
         ensure!(
             checkpoint.sequence == snapshot.checkpoint_height,
@@ -727,11 +699,12 @@ impl BlockchainEngine {
                     owner_kind: gas_object.owner_kind,
                     uid: gas_object.uid,
                     id: gas_object.id,
-                    type_: gas_object.type_,
+                    type_: gas_object.type_.clone(),
                     data: Self::native_coin_data_with_balance(
                         &gas_object_ref.object_id,
                         &gas_object.data,
                         burned_coin_balance,
+                        &gas_object.type_,
                     )?,
                     version: gas_object.version,
                 },
@@ -745,16 +718,23 @@ impl BlockchainEngine {
         object_id: &str,
         existing_data: &[u8],
         amount: u64,
+        object_type: &str,
     ) -> Result<Vec<u8>> {
+        let struct_tag = StructTag::from_str(object_type)
+            .with_context(|| format!("Invalid coin object type for {}", object_id))?;
         let mut data = existing_data.to_vec();
-        ensure!(data.len() >= 40, "Native coin object {} has invalid coin bytes", object_id);
-        data[32..40].copy_from_slice(&amount.to_le_bytes());
+        ensure!(
+            CoinModule::write_balance_to_object(&mut data, &struct_tag, amount),
+            "Failed to write balance to native coin object {}",
+            object_id
+        );
         Ok(data)
     }
 
-    fn deterministic_native_transfer_output_id(tx: &Transaction) -> String {
-        let mut seed = b"kanari:native_transfer_output:v1:".to_vec();
+    fn deterministic_native_transfer_output_id(tx: &Transaction, output_index: u32) -> String {
+        let mut seed = b"kanari:native_transfer_output:v2:".to_vec();
         seed.extend_from_slice(&tx.hash());
+        seed.extend_from_slice(&output_index.to_le_bytes());
         object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(&seed)))
     }
 
@@ -838,7 +818,11 @@ impl BlockchainEngine {
             gas_coin,
             gas_balance
         );
-        if gas_object_ref.object_id == coin_object_id {
+        let gas_object_id = kanari_types::object::canonical_object_id(&gas_object_ref.object_id)
+            .context("Native transfer gas object id is invalid")?;
+        let transfer_object_id = kanari_types::object::canonical_object_id(coin_object_id)
+            .context("Native transfer object id is invalid")?;
+        if gas_object_id == transfer_object_id {
             let total_cost = amount
                 .checked_add(gas_cost)
                 .context("Native transfer amount + gas cost overflowed u64")?;
@@ -886,14 +870,19 @@ impl BlockchainEngine {
                         coin_object_id,
                         &transfer_object.data,
                         remaining,
+                        &transfer_object.type_,
                     )?,
                     version: transfer_object.version,
                 },
             ));
 
-            let output_id = Self::deterministic_native_transfer_output_id(tx);
-            let mut output_data =
-                Self::native_coin_data_with_balance(&output_id, &transfer_object.data, amount)?;
+            let output_id = Self::deterministic_native_transfer_output_id(tx, 0);
+            let mut output_data = Self::native_coin_data_with_balance(
+                &output_id,
+                &transfer_object.data,
+                amount,
+                &transfer_object.type_,
+            )?;
             if let Ok(output_addr) = AccountAddress::from_hex_literal(&output_id) {
                 output_data[..32].copy_from_slice(output_addr.as_ref());
             }
@@ -1392,7 +1381,7 @@ impl BlockchainEngine {
             }
         }
 
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = self.blockchain_read();
         for checkpoint in chain.dag_checkpoints.iter().rev() {
             if checkpoint.sequence == 0 {
                 break;
@@ -1424,7 +1413,7 @@ impl BlockchainEngine {
             return Some(effect.clone());
         }
 
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = self.blockchain_read();
         chain
             .get_transaction_location_with_effect(tx_hash)
             .and_then(|(_, _, _, effect)| effect.cloned())
@@ -1546,7 +1535,7 @@ impl BlockchainEngine {
         }
 
         if results.len() < limit {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = self.blockchain_read();
             for checkpoint in chain.dag_checkpoints.iter().rev() {
                 if checkpoint.sequence == 0 || results.len() >= limit {
                     break;
@@ -1587,6 +1576,30 @@ impl BlockchainEngine {
     pub fn state_read(&self) -> RwLockReadGuard<'_, StateManager> {
         self.state.read().unwrap_or_else(|poisoned| {
             error!("State lock poisoned while reading runtime state; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
+    /// Acquires a read lock on the blockchain metadata/checkpoints.
+    pub fn blockchain_read(&self) -> RwLockReadGuard<'_, crate::blockchain::Blockchain> {
+        self.blockchain_read_with_context("reading chain state")
+    }
+
+    /// Acquires a read lock on the blockchain metadata/checkpoints with context for poison recovery logs.
+    pub fn blockchain_read_with_context(
+        &self,
+        context: &str,
+    ) -> RwLockReadGuard<'_, crate::blockchain::Blockchain> {
+        self.blockchain.read().unwrap_or_else(|poisoned| {
+            error!("Blockchain lock poisoned in {context}; recovering...");
+            poisoned.into_inner()
+        })
+    }
+
+    /// Acquires a write lock on the blockchain metadata/checkpoints.
+    pub fn blockchain_write(&self) -> RwLockWriteGuard<'_, crate::blockchain::Blockchain> {
+        self.blockchain.write().unwrap_or_else(|poisoned| {
+            error!("Blockchain lock poisoned while writing chain state; recovering...");
             poisoned.into_inner()
         })
     }
@@ -1829,7 +1842,10 @@ impl BlockchainEngine {
             return Vec::new();
         }
         if Self::dag_lane_aware_selection_enabled() {
-            transactions.sort_by_cached_key(Self::pending_sort_key);
+            let mut keyed: Vec<(_, SignedTransaction)> =
+                transactions.into_iter().map(|tx| (Self::pending_sort_key(&tx), tx)).collect();
+            keyed.sort_by(|a, b| a.0.cmp(&b.0));
+            transactions = keyed.into_iter().map(|(_, tx)| tx).collect();
         } else {
             transactions.sort_by(|a, b| {
                 a.transaction
@@ -1919,11 +1935,8 @@ impl BlockchainEngine {
                 .ok_or_else(|| {
                     anyhow::anyhow!("Owned-object index references missing object {id}")
                 })?;
-            let coin_amount = if CoinModule::is_coin_object_type(&obj.type_) && obj.data.len() >= 40
-            {
-                let mut arr = [0u8; 8];
-                arr.copy_from_slice(&obj.data[32..40]);
-                Some(u64::from_le_bytes(arr))
+            let coin_amount = if CoinModule::is_coin_object_type(&obj.type_) {
+                CoinModule::read_balance(&obj.data)
             } else {
                 None
             };
@@ -2094,19 +2107,16 @@ impl BlockchainEngine {
                 for index in indices {
                     state.apply_changeset_with_audit(&mut changesets[*index])?;
                 }
-                let merged_at = std::time::Instant::now();
-                let result = Ok(());
                 let applied_at = std::time::Instant::now();
                 if profile {
                     eprintln!(
-                        "dependency apply batch profile: txs={} merge={:.6}s state_apply={:.6}s total={:.6}s",
+                        "dependency apply batch profile: txs={} apply={:.6}s total={:.6}s",
                         indices.len(),
-                        merged_at.duration_since(started_at).as_secs_f64(),
-                        applied_at.duration_since(merged_at).as_secs_f64(),
+                        applied_at.duration_since(started_at).as_secs_f64(),
                         applied_at.duration_since(started_at).as_secs_f64(),
                     );
                 }
-                result
+                Ok(())
             }
         }
     }
@@ -2160,7 +2170,10 @@ impl BlockchainEngine {
             return Ok((0, 0, Vec::new()));
         }
         let (access_epoch, state_overlay) = {
-            let state = state_arc.read().unwrap_or_else(|poisoned| poisoned.into_inner());
+            let state = state_arc.read().unwrap_or_else(|poisoned| {
+                error!("State lock poisoned while snapshotting execution overlay; recovering...");
+                poisoned.into_inner()
+            });
             (
                 state.access_epoch(),
                 (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
@@ -2223,7 +2236,10 @@ impl BlockchainEngine {
         }
         let access_checked_at = std::time::Instant::now();
 
-        let mut state_write = state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state_write = state_arc.write().unwrap_or_else(|poisoned| {
+            error!("State lock poisoned while applying conflict-free batch; recovering...");
+            poisoned.into_inner()
+        });
         if state_write.access_epoch() != access_epoch {
             return self.execute_tx_waves_deterministic_parallel_with_effects(
                 transactions,
@@ -2376,10 +2392,12 @@ impl BlockchainEngine {
                         let failed = self.failed_changeset_for_error(
                             &signed_tx.transaction,
                             state_arc,
-                            error.to_string(),
+                            &error,
                         )?;
-                        let mut state_write =
-                            state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let mut state_write = state_arc.write().unwrap_or_else(|poisoned| {
+                            error!("State lock poisoned while applying deterministic failure changeset; recovering...");
+                            poisoned.into_inner()
+                        });
                         if let Err(apply_error) = state_write.apply_changeset(&failed) {
                             return Err(apply_error)
                                 .context("Failed to apply deterministic failure gas changeset");
@@ -2638,10 +2656,12 @@ impl BlockchainEngine {
                         let failed = self.failed_changeset_for_error(
                             &signed_tx.transaction,
                             state_arc,
-                            error.to_string(),
+                            &error,
                         )?;
-                        let mut state_write =
-                            state_arc.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let mut state_write = state_arc.write().unwrap_or_else(|poisoned| {
+                            error!("State lock poisoned while applying deterministic failure changeset; recovering...");
+                            poisoned.into_inner()
+                        });
                         if let Err(apply_error) = state_write.apply_changeset(&failed) {
                             return Err(apply_error)
                                 .context("Failed to apply deterministic failure gas changeset");
@@ -2721,7 +2741,7 @@ impl BlockchainEngine {
         &self,
         tx: &Transaction,
         state_arc: &Arc<RwLock<StateManager>>,
-        error_message: String,
+        error: &anyhow::Error,
     ) -> Result<ChangeSet> {
         let sender_addr = KanariAddress::parse_to_account_address(tx.sender_address())?;
         let gas_op = match tx {
@@ -2748,7 +2768,10 @@ impl BlockchainEngine {
             .context("Failed to calculate failure gas cost")?;
 
         let (balance, object_cap) = {
-            let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
+            let state = state_arc.read().unwrap_or_else(|poisoned| {
+                error!("State lock poisoned while computing failed-tx gas; recovering...");
+                poisoned.into_inner()
+            });
             let wallet = state.resolve_owner_token_balance(sender_addr, &gas_coin).unwrap_or(0);
             // Non-native fees settle at the gas-object level, so a failed
             // transaction must never credit the DAO more than the designated
@@ -2777,26 +2800,14 @@ impl BlockchainEngine {
             };
             (wallet, cap)
         };
-        // Version/digest races are concurrency artifacts, not sender faults:
-        // another transaction mutated a referenced object between submit and
-        // execution. Failing these free (no gas charge) lets bulk/concurrent
-        // senders retry with fresh refs instead of burning gas on every loser.
-        const RACE_MARKERS: [&str; 4] = [
-            "Object version mismatch for",
-            "Object digest mismatch for",
-            "Gas payment version mismatch for",
-            "Gas payment digest mismatch for",
-        ];
-        let is_race = RACE_MARKERS.iter().any(|marker| error_message.contains(marker));
-        let (gas_cost, error_message) = if is_race {
-            (
-                0,
-                format!(
-                    "{error_message} (object changed concurrently; retry with fresh object refs)"
-                ),
-            )
+        // Classify error type to decide gas charging. Race conditions are
+        // concurrency artifacts (zero gas, retryable); all other errors charge
+        // the sender.
+        let error_class = ExecutionError::classify(error);
+        let (gas_cost, error_message) = if error_class.is_retryable() {
+            (0, format!("{error} (object changed concurrently; retry with fresh object refs)"))
         } else {
-            (requested_cost.min(balance).min(object_cap), error_message)
+            (requested_cost.min(balance).min(object_cap), error.to_string())
         };
         let mut changeset = ChangeSet::new();
         changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
@@ -2809,7 +2820,10 @@ impl BlockchainEngine {
             &gas_coin,
             tx,
         )?;
-        let state = state_arc.read().unwrap_or_else(|error| error.into_inner());
+        let state = state_arc.read().unwrap_or_else(|poisoned| {
+            error!("State lock poisoned while annotating failed-tx effects; recovering...");
+            poisoned.into_inner()
+        });
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
     }
@@ -2908,7 +2922,7 @@ impl BlockchainEngine {
 
     /// Reject malformed payloads at admission so they cannot occupy a mempool
     /// lane or later become zero-gas failed checkpoint effects.
-    pub(crate) fn validate_transaction_admission_shape(tx: &Transaction) -> Result<()> {
+    pub(crate) fn validate_transaction_admission_shape(&self, tx: &Transaction) -> Result<()> {
         ensure!(
             bcs::serialized_size(tx)? <= MAX_TRANSACTION_BYTES,
             "Transaction exceeds {} byte admission limit",
@@ -2953,14 +2967,10 @@ impl BlockchainEngine {
             Self::is_supported_gas_coin_type(&gas_coin),
             "Unsupported gas coin type: {gas_coin}"
         );
-        // Reject nonces that would overflow JSON safe integer range (2^53).
-        const MAX_NONCE: u64 = (1u64 << 53) - 1;
-        ensure!(
-            tx.nonce() <= MAX_NONCE,
-            "Transaction nonce {} exceeds maximum {}",
-            tx.nonce(),
-            MAX_NONCE,
-        );
+        // Nonce is a u64 in the protocol; the JSON safe-integer (2^53) limit is
+        // a client-side concern, not a protocol constraint. Any u64 nonce is
+        // valid at admission; replay protection is enforced by the nonce
+        // watermark at checkpoint commit time.
         // Backend fast-path transfers/burns must move a non-zero amount,
         // mirroring the Move coin module's EZERO_AMOUNT rule. Zero-amount
         // requests are client bugs, never valid state transitions.
@@ -3337,7 +3347,10 @@ impl BlockchainEngine {
             &gas_coin,
             tx,
         )?;
-        let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
+        let state = state_arc.read().unwrap_or_else(|poisoned| {
+            error!("State lock poisoned while annotating tx effects; recovering...");
+            poisoned.into_inner()
+        });
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
     }
@@ -3429,7 +3442,9 @@ impl BlockchainEngine {
             .object_inputs()
             .into_iter()
             .filter(|input| input.mutable)
-            .map(|input| input.object_ref.object_id)
+            .filter_map(|input| {
+                kanari_types::object::canonical_object_id(&input.object_ref.object_id)
+            })
             .collect::<HashSet<_>>();
 
         for input in tx.object_inputs() {
@@ -3538,8 +3553,16 @@ impl BlockchainEngine {
             );
             if strict_metadata {
                 ensure!(
-                    !gas_payment.payment_objects.is_empty(),
-                    "ExecuteFunction gas payment must declare at least one payment object"
+                    gas_payment.payment_objects.len() == 1,
+                    "ExecuteFunction gas payment must declare exactly one payment object"
+                );
+                ensure!(
+                    gas_payment.budget == tx.gas_limit(),
+                    "Gas payment budget must match transaction gas limit"
+                );
+                ensure!(
+                    gas_payment.price == tx.gas_price(),
+                    "Gas payment price must match transaction gas price"
                 );
             }
 
@@ -3582,7 +3605,11 @@ impl BlockchainEngine {
                 {
                     anyhow::bail!("Gas payment digest mismatch for {}", payment.object_id);
                 }
-                let is_same_native_transfer_coin = gas_coin == GAS_COIN
+                let payment_canonical_id =
+                    kanari_types::object::canonical_object_id(&payment.object_id)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid gas payment object id"))?;
+                // Sui allows only the native transfer coin to double as gas.
+                let is_native_transfer_coin = gas_coin == GAS_COIN
                     && tx.native_call().is_some_and(|native_call| {
                         let kanari_types::transaction::NativeCall::Transfer {
                             coin_object_id, ..
@@ -3592,18 +3619,25 @@ impl BlockchainEngine {
                         };
                         matches!(
                             (
-                                AccountAddress::from_hex_literal(&coin_object_id),
-                                AccountAddress::from_hex_literal(&payment.object_id),
+                                kanari_types::object::canonical_object_id(&coin_object_id),
+                                kanari_types::object::canonical_object_id(&payment.object_id),
                             ),
-                            (Ok(transfer_id), Ok(gas_id)) if transfer_id == gas_id
+                            (Some(transfer_id), Some(gas_id)) if transfer_id == gas_id
                         )
                     });
                 ensure!(
-                    !mutable_input_ids.contains(&payment.object_id) || is_same_native_transfer_coin,
+                    !mutable_input_ids.contains(&payment_canonical_id) || is_native_transfer_coin,
                     "Gas payment object {} cannot overlap with a mutable object input",
                     payment.object_id
                 );
             }
+        }
+
+        if strict_metadata {
+            ensure!(
+                tx.gas_payment().is_some(),
+                "ExecuteFunction transaction must declare an explicit gas payment object"
+            );
         }
 
         Ok(())
@@ -3670,6 +3704,7 @@ impl BlockchainEngine {
                         transferred: Vec::new(),
                         causal_edges: Vec::new(),
                         error_message: Some(error.to_string()),
+                        events: Vec::new(),
                     });
                     continue;
                 }
@@ -3677,7 +3712,10 @@ impl BlockchainEngine {
             };
             effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
 
-            let mut state_write = state_arc.write().unwrap_or_else(|e| e.into_inner());
+            let mut state_write = state_arc.write().unwrap_or_else(|poisoned| {
+                error!("State lock poisoned while applying owned fast-path batch; recovering...");
+                poisoned.into_inner()
+            });
             state_write.apply_changeset(&changeset)?;
         }
 
@@ -3758,7 +3796,7 @@ impl BlockchainEngine {
         }
 
         let (sequence, prev_hash, timestamp) = {
-            let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+            let chain = self.blockchain_read();
             (
                 chain.latest_checkpoint().sequence.saturating_add(1),
                 chain.latest_checkpoint().hash()?,
@@ -3775,6 +3813,11 @@ impl BlockchainEngine {
         let prepared_at = std::time::Instant::now();
         checkpoint.state_root = prepared.state_root;
         checkpoint.transaction_effects = prepared.effects.into();
+        // Align checkpoint.transactions with executed subset so index-based
+        // lookups in queries.rs always return the matching effect. Already-
+        // committed transactions are skipped during execution and have no
+        // effect entry, so keeping the full list would shift indices.
+        checkpoint.transactions = prepared.transactions.clone().into();
         let aggregated_at = std::time::Instant::now();
 
         let executed = checkpoint

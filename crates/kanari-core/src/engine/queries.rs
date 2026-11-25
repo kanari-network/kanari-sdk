@@ -10,10 +10,10 @@ use kanari_rpc_api::{
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use log::info;
+use std::sync::RwLockReadGuard;
 
 use super::*;
 use crate::{BlockchainEngine, Checkpoint, CheckpointSyncData};
-use std::sync::RwLockReadGuard;
 
 impl BlockchainEngine {
     // Checkpoint sync is sequential, so the receiver normally already has the
@@ -23,6 +23,12 @@ impl BlockchainEngine {
     // vertices carry transaction payloads.
     const DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 128;
     const MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC: usize = 512;
+    /// Maximum number of remote snapshot entries accepted for comparison,
+    /// preventing memory amplification from a malicious remote peer.
+    ///
+    /// For state at 100B+ entry scale, prefer pagination/streaming diff
+    /// protocols over loading entire snapshots into memory.
+    const MAX_REMOTE_SNAPSHOT_ENTRIES: usize = 100_000;
 
     fn dag_vertices_per_checkpoint_sync() -> usize {
         std::env::var("KANARI_DAG_VERTICES_PER_CHECKPOINT_SYNC")
@@ -31,6 +37,7 @@ impl BlockchainEngine {
             .map(|value| value.clamp(16, Self::MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC))
             .unwrap_or(Self::DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC)
     }
+
     /// Returns the current SMT (Sparse Merkle Tree) status with optional diagnostics.
     pub fn smt_status(&self, audit: bool) -> Result<SmtStatusResponse> {
         let diagnostics = self.state_read().smt_diagnostics(audit)?;
@@ -57,28 +64,42 @@ impl BlockchainEngine {
         })
     }
 
-    /// Returns a page of canonical state snapshot entries with optional prefix filtering.
+    const DEFAULT_MAX_SNAPSHOT_ENTRIES: usize = 4096;
+
+    /// Returns up to `limit` (capped at `DEFAULT_MAX_SNAPSHOT_ENTRIES`) canonical state
+    /// snapshot entries, optionally filtered by `prefix`.
     pub fn canonical_state_snapshot_entries(
         &self,
         limit: Option<usize>,
         prefix: Option<&str>,
     ) -> Result<Vec<CanonicalStateEntry>> {
-        let state = self.state_read();
-        let mut entries = state
-            .try_canonical_state_snapshot()?
-            .into_iter()
-            .map(|(key, value)| CanonicalStateEntry {
-                key: String::from_utf8_lossy(&key).into_owned(),
-                value: hex::encode(value),
-            })
-            .filter(|entry| match prefix {
-                Some(prefix) => entry.key.starts_with(prefix),
-                None => true,
-            })
-            .collect::<Vec<_>>();
-        if let Some(limit) = limit {
-            entries.truncate(limit);
+        let effective_limit = limit
+            .unwrap_or(Self::DEFAULT_MAX_SNAPSHOT_ENTRIES)
+            .min(Self::DEFAULT_MAX_SNAPSHOT_ENTRIES);
+
+        if effective_limit == 0 {
+            return Ok(Vec::new());
         }
+
+        let state = self.state_read();
+        let snapshot = state.try_canonical_state_snapshot()?;
+
+        let mut entries = Vec::with_capacity(effective_limit);
+        for (key, value) in snapshot {
+            if entries.len() >= effective_limit {
+                break;
+            }
+
+            let key_str = String::from_utf8_lossy(&key).into_owned();
+            if let Some(prefix) = prefix
+                && !key_str.starts_with(prefix)
+            {
+                continue;
+            }
+
+            entries.push(CanonicalStateEntry { key: key_str, value: hex::encode(value) });
+        }
+
         Ok(entries)
     }
 
@@ -98,11 +119,29 @@ impl BlockchainEngine {
     }
 
     /// Compares the local canonical state against a remote snapshot and reports differences.
+    ///
+    /// NOTE: This function loads the full local canonical state snapshot into memory
+    /// and compares it against the remote entries. For state at 100B+ entry scale,
+    /// prefer pagination/streaming diff protocols over loading entire snapshots,
+    /// as loading all entries simultaneously can cause OOM on very large states.
+    ///
+    /// No entry-count limit is enforced here; operators who want a hard cap should
+    /// validate `req.entries.len()` before calling this function, or implement a
+    /// streaming diff protocol that compares entries in bounded chunks.
     pub fn compare_canonical_state_snapshot(
         &self,
         req: &CompareCanonicalStateSnapshotRequest,
     ) -> Result<CanonicalStateDiffResponse> {
         use std::collections::BTreeMap;
+
+        // Validate remote input size FIRST to prevent memory amplification
+        // from a malicious remote peer sending millions of entries.
+        anyhow::ensure!(
+            req.entries.len() <= Self::MAX_REMOTE_SNAPSHOT_ENTRIES,
+            "Remote snapshot has {} entries, exceeds limit {}",
+            req.entries.len(),
+            Self::MAX_REMOTE_SNAPSHOT_ENTRIES
+        );
 
         let local_entries = self.canonical_state_snapshot_entries(None, None)?;
         let local_map = local_entries
@@ -136,15 +175,11 @@ impl BlockchainEngine {
         &self,
         limit: Option<usize>,
     ) -> Result<Vec<(String, String)>> {
-        let mut entries = self
+        Ok(self
             .canonical_state_snapshot_entries(limit, None)?
             .into_iter()
             .map(|entry| (entry.key, entry.value))
-            .collect::<Vec<_>>();
-        if let Some(limit) = limit {
-            entries.truncate(limit);
-        }
-        Ok(entries)
+            .collect())
     }
 
     /// Dumps the canonical state snapshot as key-value pairs.
@@ -166,7 +201,12 @@ impl BlockchainEngine {
         fmt_key: impl Fn(&K) -> String,
         fmt_val: impl Fn(&V) -> String,
     ) -> Option<String> {
-        for key in left.keys().chain(right.keys()) {
+        use std::collections::BTreeSet;
+        let mut all_keys: BTreeSet<&K> = BTreeSet::new();
+        all_keys.extend(left.keys());
+        all_keys.extend(right.keys());
+
+        for key in all_keys {
             match (left.get(key), right.get(key)) {
                 (Some(left_value), Some(right_value)) if left_value == right_value => {}
                 (Some(left_value), Some(right_value)) => {
@@ -223,13 +263,13 @@ impl BlockchainEngine {
 
     /// Returns the hex-encoded hash of the latest checkpoint.
     pub fn latest_checkpoint_hash_hex(&self) -> String {
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = self.blockchain_read_for_query("latest_checkpoint_hash_hex");
         chain.latest_checkpoint().hash().map(hex::encode).unwrap_or_default()
     }
 
     /// Returns the hex-encoded state root of the latest checkpoint.
     pub fn latest_checkpoint_state_root_hex(&self) -> String {
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = self.blockchain_read_for_query("latest_checkpoint_state_root_hex");
         hex::encode(&chain.latest_checkpoint().state_root)
     }
 
@@ -239,7 +279,7 @@ impl BlockchainEngine {
             Ok(stats) => stats,
             Err(error) => {
                 log::error!("Failed to compute blockchain stats: {error:#}");
-                let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+                let chain = self.blockchain_read_for_query("get_stats_fallback");
                 BlockchainStats {
                     height: chain.height(),
                     total_blocks: chain.dag_checkpoints.len(),
@@ -276,6 +316,28 @@ impl BlockchainEngine {
         })
     }
 
+    fn build_owner_info(
+        &self,
+        state: &StateManager,
+        owner_input: &str,
+        address: AccountAddress,
+        modules: Vec<String>,
+    ) -> Result<OwnerInfo> {
+        let owned_objects = self.resolve_account_objects(state, &address)?;
+        let balances = state
+            .resolve_owner_token_balances(address)
+            .with_context(|| format!("Failed to resolve token balances for owner {owner_input}"))?;
+
+        Ok(OwnerInfo {
+            owner: format!("{address:#x}"),
+            nonce: Some(self.get_expected_nonce(owner_input)),
+            modules,
+            balances,
+            owned_object_count: Some(owned_objects.len()),
+            owned_objects: Some(owned_objects),
+        })
+    }
+
     /// Returns owner info for an address, logging and returning None on failure.
     pub fn get_owner_info(&self, owner: &str) -> Option<OwnerInfo> {
         match self.try_get_owner_info(owner) {
@@ -299,31 +361,10 @@ impl BlockchainEngine {
             if owned_objects.is_empty() {
                 return Ok(None);
             }
-            let balances = state
-                .resolve_owner_token_balances(address)
-                .with_context(|| format!("Failed to resolve token balances for owner {owner}"))?;
-            return Ok(Some(OwnerInfo {
-                owner: format!("{address:#x}"),
-                nonce: Some(self.get_expected_nonce(owner)),
-                modules: Vec::new(),
-                balances,
-                owned_object_count: Some(owned_objects.len()),
-                owned_objects: Some(owned_objects),
-            }));
+            return self.build_owner_info(&state, owner, address, Vec::new()).map(Some);
         };
-        let final_owned_objects = self.resolve_account_objects(&state, &acc.address)?;
-        let balances = state
-            .resolve_owner_token_balances(acc.address)
-            .with_context(|| format!("Failed to resolve token balances for owner {owner}"))?;
-
-        Ok(Some(OwnerInfo {
-            owner: format!("{:#x}", acc.owner_address()),
-            nonce: Some(self.get_expected_nonce(owner)),
-            modules: acc.modules.iter().cloned().collect(),
-            balances,
-            owned_object_count: Some(final_owned_objects.len()),
-            owned_objects: Some(final_owned_objects),
-        }))
+        let modules = acc.modules.iter().cloned().collect();
+        self.build_owner_info(&state, owner, acc.owner_address(), modules).map(Some)
     }
 
     /// Returns all objects of a given type.
@@ -431,11 +472,24 @@ impl BlockchainEngine {
         checkpoint.hash().map(hex::encode).unwrap_or_default()
     }
 
-    fn blockchain_read_for_query(&self, context: &str) -> RwLockReadGuard<'_, Blockchain> {
-        self.blockchain.read().unwrap_or_else(|poisoned| {
-            log::error!("Blockchain lock poisoned in {context}, recovering...");
-            poisoned.into_inner()
-        })
+    fn blockchain_read_for_query(
+        &self,
+        context: &str,
+    ) -> RwLockReadGuard<'_, crate::blockchain::Blockchain> {
+        self.blockchain_read_with_context(context)
+    }
+
+    fn get_checkpoint_cloned(&self, context: &str, sequence: u64) -> Option<Checkpoint> {
+        let chain = self.blockchain_read_for_query(context);
+        chain.get_checkpoint(sequence).cloned()
+    }
+
+    fn checkpoint_events(checkpoint: &Checkpoint) -> Vec<kanari_types::event::Event> {
+        checkpoint
+            .transaction_effects
+            .iter()
+            .flat_map(|effects| effects.events.iter().cloned())
+            .collect()
     }
 
     fn block_data_from_checkpoint(checkpoint: &Checkpoint) -> BlockData {
@@ -448,7 +502,7 @@ impl BlockchainEngine {
             prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
-            events: Vec::new(),
+            events: Self::checkpoint_events(checkpoint),
             transaction_effects,
             object_changes,
             object_graph_edges,
@@ -465,7 +519,7 @@ impl BlockchainEngine {
             prev_hash: hex::encode(&checkpoint.prev_checkpoint_hash),
             state_root: hex::encode(&checkpoint.state_root),
             tx_count: checkpoint.transactions.len(),
-            events: Vec::new(),
+            events: Self::checkpoint_events(checkpoint),
             transactions: checkpoint.transactions.iter().cloned().collect(),
             transaction_effects,
             object_changes,
@@ -506,23 +560,23 @@ impl BlockchainEngine {
 
     /// Returns block data for a given height, or None if the block does not exist.
     pub fn get_block(&self, height: u64) -> Option<BlockData> {
-        let chain = self.blockchain_read_for_query("get_block");
-        chain.get_checkpoint(height).map(Self::block_data_from_checkpoint)
+        self.get_checkpoint_cloned("get_block", height)
+            .as_ref()
+            .map(Self::block_data_from_checkpoint)
     }
 
     /// Returns full block data including transactions for a given height.
     pub fn get_full_block(&self, height: u64) -> Option<FullBlockData> {
-        let chain = self.blockchain_read_for_query("get_full_block");
-        chain.get_checkpoint(height).map(Self::full_block_data_from_checkpoint)
+        self.get_checkpoint_cloned("get_full_block", height)
+            .as_ref()
+            .map(Self::full_block_data_from_checkpoint)
     }
 
     /// Returns checkpoint sync data including DAG vertices for a given sequence.
     pub fn get_checkpoint_sync(&self, sequence: u64) -> Result<Option<CheckpointSyncData>> {
-        let chain = self.blockchain_read_for_query("get_checkpoint_sync");
-        let Some(checkpoint) = chain.get_checkpoint(sequence).cloned() else {
+        let Some(checkpoint) = self.get_checkpoint_cloned("get_checkpoint_sync", sequence) else {
             return Ok(None);
         };
-        drop(chain);
         let dag_vertices = self.dag_vertices_for_checkpoint_sync(
             &checkpoint.vertices,
             Self::dag_vertices_per_checkpoint_sync(),
@@ -532,7 +586,7 @@ impl BlockchainEngine {
 
     /// Returns the hash of a checkpoint at the given sequence, or None if not found.
     pub fn checkpoint_hash(&self, sequence: u64) -> Result<Option<Vec<u8>>> {
-        let chain = self.blockchain.read().unwrap_or_else(|e| e.into_inner());
+        let chain = self.blockchain_read_for_query("checkpoint_hash");
         chain.get_checkpoint(sequence).map(Checkpoint::hash).transpose()
     }
 

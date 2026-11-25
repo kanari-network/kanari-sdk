@@ -48,7 +48,7 @@ private fun formatGasFee(tx: TransactionDetails, amount: Long): String {
     val decimals = settlementDecimalsOrNull(coinType)
     val symbol = coinType.substringAfterLast("::").ifBlank { "KANARI" }
     val formattedAmount = decimals?.let { formatAmountExact(amount, it) }
-        ?: "$amount (raw, decimals unknown)"
+        ?: "$amount (raw, decimals unknown; $coinType)"
     return "$formattedAmount $symbol"
 }
 
@@ -257,6 +257,25 @@ fun TransactionDetailSheet(
         DetailRowShared(label = "Gas Price", value = tx.gasPrice.toString())
         tx.gasFee?.let { DetailRowShared(label = "Gas Fee", value = formatGasFee(tx, it)) }
         tx.gasUsed?.let { DetailRowShared(label = "Gas Used", value = it.toString()) }
+        tx.gasPayment?.let { gp ->
+            DetailRowShared(label = "Gas Coin Type", value = gp.coinType ?: "0x2::kanari::KANARI")
+            DetailRowShared(label = "Gas Budget", value = gp.budget.toString())
+            DetailRowShared(label = "Gas Payment Price", value = gp.price.toString())
+            gp.priceVersion?.let { DetailRowShared(label = "Gas Price Version", value = it.toString()) }
+            DetailRowShared(label = "Gas Payment Owner", value = gp.owner)
+            if (gp.paymentObjects.isNotEmpty()) {
+                DetailRowShared(
+                    label = "Gas Payment Objects",
+                    value = gp.paymentObjects.joinToString(" | ") { ref ->
+                        listOfNotNull(
+                            ref.objectId,
+                            ref.version?.let { v -> "v$v" },
+                            ref.digest?.take(12)
+                        ).joinToString(" · ")
+                    }
+                )
+            }
+        }
         tx.blockHeight?.let { DetailRowShared(label = "Block Height", value = it.toString()) }
         tx.effects?.let { eff ->
             DetailRowShared(label = "Effects Status", value = eff.status)

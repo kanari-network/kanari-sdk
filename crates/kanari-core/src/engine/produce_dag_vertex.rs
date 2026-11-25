@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::consensus::Checkpoint;
+use kanari_crypto::hash_data_blake3_array;
 use kanari_types::event::Event;
 use kanari_types::transaction::SignedTransaction;
 
@@ -770,14 +771,18 @@ impl DagEngine {
         &self,
         batch: MysticetiCommittedBatch,
     ) -> Result<Option<Checkpoint>> {
-        if let Some(existing) = lock_read(&self.engine.blockchain)
-            .dag_checkpoints
-            .iter()
-            .find(|checkpoint| checkpoint.vertices == batch.vertices)
-            .cloned()
+        // O(1) duplicate detection via vertex-set hash index instead of O(n)
+        // linear scan of dag_checkpoints comparing full vertex vectors.
+        let vertex_set_hash = hash_data_blake3_array(
+            &batch.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
+        );
+        let chain = lock_read(&self.engine.blockchain);
+        if let Some(existing_seq) = chain.committed_vertex_sets.get(&vertex_set_hash)
+            && let Some(existing) = chain.get_checkpoint(*existing_seq)
         {
-            return Ok(Some(existing));
+            return Ok(Some(existing.clone()));
         }
+        drop(chain);
         let mut seen = HashSet::new();
         let mut transactions = Vec::new();
         for tx in batch.transactions {
@@ -859,6 +864,10 @@ impl DagEngine {
     }
 
     /// Returns vertices across all authorities for DAG synchronization, up to the given limit.
+    ///
+    /// Iterates from the newest round downward and stops once `limit` vertices
+    /// are collected, avoiding an unbounded full-history scan that can OOM a
+    /// remote peer on sync.
     pub fn vertices_for_sync(&self, limit: usize) -> Result<Vec<DagVertex>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -867,18 +876,26 @@ impl DagEngine {
         let state = lock_read(&self.state);
         let reader = state.mysticeti.core.block_reader();
         let highest_round = reader.highest_round();
-        let mut vertices = Vec::new();
-        for round in 1..=highest_round {
-            for block in reader.get_blocks_by_round(round) {
+        let mut vertices = Vec::with_capacity(limit.min(4096));
+        // Walk newest rounds first so we serve recent evidence without scanning
+        // the entire DAG history. `vertices_through_round_for_sync` already
+        // demonstrates this bounded pattern; reuse it here.
+        for round in (1..=highest_round).rev() {
+            let mut blocks = reader.get_blocks_by_round(round);
+            blocks.sort_by_key(|block| block.author().index());
+            for block in blocks {
                 vertices.push(state.mysticeti.block_to_vertex(&block).with_context(|| {
                     format!("Failed to convert Mysticeti block from round {round} for DAG sync")
                 })?);
+                if vertices.len() == limit {
+                    break;
+                }
+            }
+            if vertices.len() == limit {
+                break;
             }
         }
         Self::sort_vertices_for_sync(&mut vertices);
-        if vertices.len() > limit {
-            vertices.drain(..vertices.len() - limit);
-        }
         Ok(vertices)
     }
 
@@ -963,23 +980,30 @@ impl DagEngine {
         let reader = state.mysticeti.core.block_reader();
         let highest_round = reader.highest_round();
 
-        let mut recent = BTreeMap::new();
-        for round in 1..=highest_round {
-            for block in reader.get_blocks_by_round(round) {
-                let vertex = state.mysticeti.block_to_vertex(&block)?;
-                recent.insert(vertex.id, vertex);
-            }
-        }
-
-        // Traverse breadth-first so every checkpoint root is preferred over old
-        // ancestry when the bounded transport budget is exhausted. Missing old
-        // parents do not weaken checkpoint validation: receivers buffer these
-        // vertices until their own Mysticeti store has the parent, and a remote
-        // checkpoint is never applied before the local DAG commits it.
+        // Resolve each checkpoint vertex by scanning rounds downward (newest
+        // first), bounded by highest_round. Do NOT build an unbounded map of
+        // all vertices in the store — that OOMs remote peers on sync.
         let mut pending = VecDeque::with_capacity(checkpoint_vertices.len());
         let checkpoint_roots = checkpoint_vertices.iter().copied().collect::<HashSet<_>>();
         for vertex_id in checkpoint_vertices {
-            let vertex = recent.get(vertex_id).cloned().ok_or_else(|| {
+            let mut found = None;
+            for round in (1..=highest_round).rev() {
+                for block in reader.get_blocks_by_round(round) {
+                    if mysticeti_reference_to_vertex_id(block.reference()) == *vertex_id {
+                        found = Some(state.mysticeti.block_to_vertex(&block).with_context(|| {
+                            format!(
+                                "Failed to convert Mysticeti block from round {round} for checkpoint sync vertex {}",
+                                hex::encode(vertex_id)
+                            )
+                        })?);
+                        break;
+                    }
+                }
+                if found.is_some() {
+                    break;
+                }
+            }
+            let vertex = found.ok_or_else(|| {
                 anyhow::anyhow!(
                     "Checkpoint DAG vertex {} is missing from retained Mysticeti block store (highest_round={}); use snapshot recovery",
                     hex::encode(vertex_id),

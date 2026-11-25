@@ -63,7 +63,7 @@ param(
 
     [int]$BaseRpcPort = 21401,
 
-    [string]$KeystorePath = 'C:\Users\move-love\.kanari\kanari_config\kanari.keystore',
+    [string]$KeystorePath = 'C:\Users\TaroPukpui\.kanari\kanari_config\kanari.keystore',
 
     [ValidateSet('release', 'debug')]
     [string]$BuildProfile = 'release',
@@ -81,8 +81,8 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $loadScript = Join-Path $repoRoot 'scripts\run-local-four-node-parallel-tx-chaos.ps1'
 
 & $loadScript `
-    -Senders '0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3' `
-    -Recipient '0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3' `
+    -Senders '0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350' `
+    -Recipient '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350' `
     -SelfRecipient:$SelfRecipient `
     -Password $env:KANARI_LOAD_PASSWORD `
     -KeystorePath $KeystorePath `

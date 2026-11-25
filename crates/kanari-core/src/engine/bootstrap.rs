@@ -83,10 +83,9 @@ impl BlockchainEngine {
     }
 
     fn persistent_store_has_logical_entries(store: &PersistentStore) -> Result<bool> {
-        Ok(!store
-            .logical_entries()
-            .context("Failed to inspect persistent store before genesis fallback")?
-            .is_empty())
+        store
+            .has_any_logical_entry()
+            .context("Failed to inspect persistent store before genesis fallback")
     }
 
     fn persistent_store_can_use_fresh_genesis_metadata(
@@ -122,12 +121,19 @@ impl BlockchainEngine {
         reason: &str,
         require_recoverable_metadata: bool,
     ) -> Result<Arc<RwLock<Blockchain>>> {
+        // When strict metadata is required, refuse fresh genesis over an existing
+        // non-genesis store to prevent silently orphaning committed state.
         if require_recoverable_metadata
             && !Self::persistent_store_can_use_fresh_genesis_metadata(store)?
         {
             anyhow::bail!(
                 "Refusing to create fresh genesis because persistent store contains state but blockchain metadata could not be recovered: {reason}"
             );
+        }
+        // Non-strict mode: warn but allow (snapshot import writes entries first,
+        // then creates the engine).
+        if Self::persistent_store_has_logical_entries(store)? {
+            tracing::warn!("Creating fresh genesis over existing persistent store state: {reason}");
         }
         if require_recoverable_metadata {
             info!("No recoverable blockchain metadata found. Creating fresh genesis metadata.");
@@ -214,7 +220,10 @@ impl BlockchainEngine {
                 .load::<Checkpoint>(Self::pending_checkpoint_commit_key())
                 .context("Failed to load pending checkpoint commit marker")?
         {
-            let mut chain = blockchain.write().unwrap_or_else(|e| e.into_inner());
+            let mut chain = blockchain.write().unwrap_or_else(|poisoned| {
+                log::error!("Blockchain lock poisoned while bootstrapping genesis; recovering...");
+                poisoned.into_inner()
+            });
             match checkpoint.sequence.cmp(&chain.height()) {
                 std::cmp::Ordering::Greater => {
                     chain
@@ -248,7 +257,10 @@ impl BlockchainEngine {
         tracing::info!("Opening state database");
         let state = Self::load_state(&persistent_store)?;
         let shared_runtime_store = {
-            let state_guard = state.read().unwrap_or_else(|e| e.into_inner());
+            let state_guard = state.read().unwrap_or_else(|poisoned| {
+                log::error!("State lock poisoned while bootstrapping schema; recovering...");
+                poisoned.into_inner()
+            });
             state_guard.store()
         };
 
@@ -309,6 +321,12 @@ impl BlockchainEngine {
 
         let authority_id = "0xDEFAULT_AUTHORITY".to_string();
         let authorities = vec![authority_id.clone()];
+
+        tracing::warn!(
+            "SINGLE-AUTHORITY MODE: Only one authority configured. This is suitable for \
+             development and testing only. Production deployments MUST use multiple \
+             authorities with DAG consensus to prevent equivocation and ensure safety."
+        );
 
         let engine = Self {
             blockchain,

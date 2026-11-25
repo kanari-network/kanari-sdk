@@ -93,6 +93,7 @@ export function formatBalance(value: unknown, decimalsValue: unknown) {
 }
 
 export function formatGasFee(transaction: unknown, value: unknown) {
+  if (value === null || value === undefined || value === "") return "-";
   const tx = typeof transaction === "object" && transaction !== null && !Array.isArray(transaction)
     ? (transaction as Record<string, unknown>)
     : {};
@@ -110,6 +111,9 @@ export function formatGasFee(transaction: unknown, value: unknown) {
       ? "9"
       : null;
 
+  if (decimals === null) {
+    return `${String(value)} ${symbol} (raw; ${coinType})`;
+  }
   return `${formatBalance(value, decimals)} ${symbol}`;
 }
 

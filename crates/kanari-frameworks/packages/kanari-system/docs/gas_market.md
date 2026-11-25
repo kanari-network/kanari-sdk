@@ -11,10 +11,10 @@ stable price: <code>usd_fee = gas_units * usd_per_gas_unit</code>.
 - Fees are *settled* in any whitelisted <code>Coin&lt;T&gt;</code> the sender owns, including
 the native <code><a href="kanari.md#0x2_kanari_KANARI">0x2::kanari::KANARI</a></code>. Conversion uses integer math only and
 always rounds up so validators never under-collect.
-- <code><a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a></code> is an on-chain shared object. Every validator quotes with the
-same committed version, keeping checkpoints deterministic. Transactions
-pin <code>price_version</code> and a <code>max_price_per_unit</code> slippage cap; the backend
-(see <code><a href="kanari.md#0x2_kanari">kanari</a>-types::gas_market</code>) mirrors this math in Rust.
+- This Move <code><a href="gas_market.md#0x2_gas_market_PriceTable">PriceTable</a></code> is the intended dynamic oracle design, but the
+transaction executor currently enforces the protocol-fixed version-1
+table in Rust instead of reading this object. Do not treat updates here
+as active gas pricing until executor integration is implemented.
 
 Price encoding: <code>price_usd_micros</code> = USD value of ONE whole token, scaled by
 1e6. Example: KANARI at $2.00 -> 2_000_000.

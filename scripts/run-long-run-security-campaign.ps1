@@ -73,7 +73,7 @@ if (-not (Test-Path -LiteralPath $KeystorePath)) {
 }
 
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".codex-runlogs\security-campaign-$runId"
+$runRoot = Join-Path $repoRoot ".kanari-runlogs\security-campaign-$runId"
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 
 # Reserve one transfer coin and one independent gas coin per transaction.

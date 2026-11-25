@@ -1,5 +1,5 @@
 param(
-    [string]$StatusPath = (Join-Path $PSScriptRoot '..\.codex-runlogs\chaos-campaign-status.json'),
+    [string]$StatusPath = (Join-Path $PSScriptRoot '..\.kanari-runlogs\chaos-campaign-status.json'),
 
     [ValidateRange(15, 3600)]
     [int]$MaxHeartbeatAgeSec = 180

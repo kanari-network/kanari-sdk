@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jamesatomc.kanariapp.ui.components.ScaffoldWithBackBar
 import com.jamesatomc.kanariapp.ui.components.TokenIcon
+import com.jamesatomc.kanariapp.ui.components.formatAmountExact
 import com.jamesatomc.kanariapp.ui.theme.KanariColors
 import com.jamesatomc.kanariapp.wallet.WalletViewModel
 import com.jamesatomc.kanariapp.wallet.createEscrowDealAndGetId
@@ -50,7 +51,6 @@ fun EscrowScreen(
     var disputeReason by remember { mutableStateOf("") }
     var checkObjectId by remember { mutableStateOf("") }
     var checkTokenType by remember { mutableStateOf("") }
-    var buyerAddress by remember { mutableStateOf("") }
     var allDeals by remember { mutableStateOf<List<Map<String, Any>>>(emptyList()) }
     var selectedDealIdx by remember { mutableStateOf(0) }
     var status by remember { mutableStateOf<String?>(null) }
@@ -64,7 +64,10 @@ fun EscrowScreen(
     }
     LaunchedEffect(activeWallet) {
         if (seller.isEmpty()) activeWallet?.address?.let { seller = it }
-        if (buyerAddress.isEmpty()) activeWallet?.address?.let { buyerAddress = it }
+        allDeals = emptyList()
+        selectedDealIdx = 0
+        dealObjectId = ""
+        proofObjectId = ""
     }
     LaunchedEffect(Unit) { if (dealId.isEmpty()) dealId = makeDealId() }
 
@@ -180,8 +183,6 @@ fun EscrowScreen(
                     tokenBalances,
                     disputeReason,
                     { disputeReason = it },
-                    buyerAddress,
-                    { buyerAddress = it },
                     allDeals,
                     selectedDealIdx,
                     { idx ->
@@ -195,8 +196,7 @@ fun EscrowScreen(
                     {
                         scope.launch {
                             try {
-                                val deals =
-                                    viewModel.getAllEscrowDeals(buyerAddress.ifBlank { activeWallet?.address ?: "" })
+                                val deals = viewModel.getAllEscrowDeals()
                                 allDeals = deals
                                 status = if (deals.isEmpty()) "No deals found" else "Loaded ${deals.size} deal(s)"
                                 if (deals.isNotEmpty()) {
@@ -277,8 +277,7 @@ fun EscrowScreen(
                     {
                         scope.launch {
                             try {
-                                val deals =
-                                    viewModel.getAllEscrowDeals(buyerAddress.ifBlank { activeWallet?.address ?: "" })
+                                val deals = viewModel.getAllEscrowDeals()
                                 allDeals = deals
                                 status = if (deals.isEmpty()) "No deals found" else "Loaded ${deals.size} deal(s)"
                                 if (deals.isNotEmpty()) {
@@ -367,7 +366,6 @@ private fun ManageDealCard(
     tokenType: String, onTokenTypeChange: (String) -> Unit,
     tokenBalances: List<com.jamesatomc.kanariapp.network.models.TokenBalance>,
     disputeReason: String, onDisputeReasonChange: (String) -> Unit,
-    buyerAddress: String, onBuyerAddressChange: (String) -> Unit,
     allDeals: List<Map<String, Any>>, selectedDealIdx: Int, onSelectDeal: (Int) -> Unit,
     loading: Boolean,
     onLoadDeals: () -> Unit,
@@ -380,12 +378,6 @@ private fun ManageDealCard(
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Manage Escrow Deal", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
-            OutlinedTextField(
-                value = buyerAddress,
-                onValueChange = onBuyerAddressChange,
-                label = { Text("Buyer Address (load deals)") },
-                modifier = Modifier.fillMaxWidth()
-            )
             Button(onClick = onLoadDeals, modifier = Modifier.fillMaxWidth()) { Text("Load My Deals") }
             if (allDeals.isNotEmpty()) {
                 var expanded by remember { mutableStateOf(false) }
@@ -407,6 +399,26 @@ private fun ManageDealCard(
                         }
                     }
                 }
+                val selectedDeal = allDeals.getOrElse(selectedDealIdx) { emptyMap() }
+                val selectedCoinType = selectedDeal["coin_type"] as? String ?: ""
+                val selectedDecimals = tokenBalances.firstOrNull {
+                    it.tokenType.equals(selectedCoinType, ignoreCase = true)
+                }?.decimals
+                val rawAmount = when (val amt = selectedDeal["amount"]) {
+                    is Number -> amt.toLong()
+                    is String -> amt.toLongOrNull()
+                    is ULong -> amt.toLong()
+                    else -> null
+                }
+                val formattedAmount = when {
+                    rawAmount == null -> "—"
+                    selectedDecimals != null -> "${formatAmountExact(rawAmount, selectedDecimals)} $selectedCoinType"
+                    else -> "$rawAmount (raw${if (selectedCoinType.isNotBlank()) ", $selectedCoinType" else ""})"
+                }
+
+                Text("Buyer: ${selectedDeal["buyer"] ?: "—"}")
+                Text("Seller: ${selectedDeal["seller"] ?: "—"}")
+                Text("Amount: $formattedAmount")
             }
             OutlinedTextField(
                 value = dealObjectId,

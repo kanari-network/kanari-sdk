@@ -106,86 +106,84 @@ pub(crate) fn select_gas_payment_with_table(
     transfer_needs: &std::collections::BTreeMap<String, u64>,
     table: &kanari_types::gas_market::GasPriceTable,
 ) -> anyhow::Result<(GasPayment, u64)> {
-    let native_required = gas_limit.saturating_mul(effective_gas_price(gas_price));
     let excluded: HashSet<String> =
         exclude_object_ids.iter().map(|id| normalize_addr(id)).collect();
-    let mut balances = std::collections::BTreeMap::<String, u64>::new();
-    for object in owned_objects {
-        if excluded.contains(&normalize_addr(&object.id)) {
-            continue;
-        }
-        if pending_access_keys.contains(&format!("mut:gas:{}", object.id)) {
-            continue;
-        }
-        let Some(token) = CoinModule::token_type_of_coin_object(&object.type_) else {
-            continue;
-        };
-        let Some(balance) = CoinModule::read_balance(&object.data) else {
-            continue;
-        };
-        let normalized = CoinModule::normalize_token_type(&token);
-        let entry = balances.entry(normalized).or_insert(0);
-        *entry = entry.saturating_add(balance);
-    }
-    let (coin, quote) =
-        kanari_types::gas_market::select_gas_coin(&balances, gas_limit, table, transfer_needs)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "No spendable gas coin object found (tried KANARI and {} whitelisted coin(s))",
-                    table.entries.len().saturating_sub(1)
-                )
-            })?;
+    let required_for = |coin_type: &str| {
+        transfer_needs
+            .iter()
+            .find(|(token, _)| {
+                CoinModule::normalize_token_type(token)
+                    == CoinModule::normalize_token_type(coin_type)
+            })
+            .map(|(_, amount)| *amount)
+            .unwrap_or(0)
+    };
 
-    if CoinModule::is_native_token_type(&coin) {
-        // Native was affordable only with a different object than the first
-        // attempt allowed (e.g. exclusions); reselect honoring them.
-        let payment = select_native_gas_payment(
-            owned_objects,
-            sender,
-            native_required,
-            gas_limit,
-            gas_price,
-            exclude_object_ids,
-            pending_access_keys,
-        )?;
+    // USD gas is quoted from the gas-market table. KANARI is different: its
+    // charged unit price is the protocol gas price, so do not use the USD
+    // conversion quote as a KANARI balance threshold.
+    let usd_coin = kanari_types::usd_coin::USD_COIN;
+    if let Ok(usd_quote) = table.quote_in_token(gas_limit, usd_coin) {
+        let usd_required = usd_quote.saturating_add(required_for(usd_coin));
+        let mut candidates: Vec<(ObjectRef, u64)> = owned_objects
+            .iter()
+            .filter(|object| !excluded.contains(&normalize_addr(&object.id)))
+            .filter(|object| !pending_access_keys.contains(&format!("mut:gas:{}", object.id)))
+            .filter(|object| {
+                CoinModule::token_type_of_coin_object(&object.type_)
+                    .is_some_and(|token| CoinModule::normalize_token_type(&token) == usd_coin)
+            })
+            .filter_map(|object| {
+                CoinModule::read_balance(&object.data).map(|balance| {
+                    (
+                        ObjectRef::new(
+                            object.id.clone(),
+                            Some(object.version),
+                            object.digest.clone(),
+                        ),
+                        balance,
+                    )
+                })
+            })
+            .filter(|(_, balance)| *balance >= usd_required)
+            .collect();
+        candidates.sort_by_key(|(_, balance)| *balance);
+        if let Some((payment_ref, _)) = candidates.into_iter().next() {
+            let gas_units = gas_limit.max(1);
+            let unit_price = if usd_quote >= gas_units { usd_quote / gas_units } else { 1 };
+            return Ok((
+                GasPayment {
+                    payment_objects: vec![payment_ref],
+                    owner: sender.to_string(),
+                    budget: gas_limit,
+                    price: unit_price,
+                    coin_type: Some(usd_coin.to_string()),
+                    price_version: Some(table.version),
+                },
+                unit_price,
+            ));
+        }
+    }
+
+    let native_required = gas_limit
+        .saturating_mul(effective_gas_price(gas_price))
+        .saturating_add(required_for(GAS_COIN));
+    if let Ok(payment) = select_native_gas_payment(
+        owned_objects,
+        sender,
+        native_required,
+        gas_limit,
+        gas_price,
+        exclude_object_ids,
+        pending_access_keys,
+    ) {
         return Ok((payment, gas_price));
     }
 
-    let mut candidates: Vec<(ObjectRef, u64)> = owned_objects
-        .iter()
-        .filter(|object| !excluded.contains(&normalize_addr(&object.id)))
-        .filter(|object| !pending_access_keys.contains(&format!("mut:gas:{}", object.id)))
-        .filter(|object| {
-            CoinModule::token_type_of_coin_object(&object.type_)
-                .is_some_and(|token| CoinModule::normalize_token_type(&token) == coin)
-        })
-        .filter_map(|object| {
-            CoinModule::read_balance(&object.data).map(|balance| {
-                (
-                    ObjectRef::new(object.id.clone(), Some(object.version), object.digest.clone()),
-                    balance,
-                )
-            })
-        })
-        .filter(|(_, balance)| *balance >= quote)
-        .collect();
-    candidates.sort_by_key(|(_, balance)| *balance);
-    let (payment_ref, _) = candidates.into_iter().next().ok_or_else(|| {
-        anyhow::anyhow!("Selected gas coin {coin} has no single object covering {quote} base units")
-    })?;
-    // Per-unit settlement price, rounded up so `units * price >= quote`.
-    let unit_price = quote.div_ceil(gas_limit.max(1)).max(1);
-    Ok((
-        GasPayment {
-            payment_objects: vec![payment_ref],
-            owner: sender.to_string(),
-            budget: gas_limit,
-            price: unit_price,
-            coin_type: Some(coin),
-            price_version: Some(table.version),
-        },
-        unit_price,
-    ))
+    anyhow::bail!(
+        "No spendable gas coin object found (tried KANARI and {} whitelisted coin(s))",
+        table.entries.len().saturating_sub(1)
+    )
 }
 
 pub(crate) fn build_call_native_burn_amount(build_data: &BuildCallFunctionRequest) -> Option<u64> {
@@ -278,8 +276,15 @@ pub(crate) fn select_native_transfer_and_gas_payment(
         // policy.
         match &best_pair {
             Some(((best_transfer_ref, best_transfer_balance), (_, best_gas_balance)))
-                if (*best_gas_balance, *best_transfer_balance, &best_transfer_ref.object_id)
-                    <= (candidate.1.1, candidate.0.1, &candidate.0.0.object_id) => {}
+                if (
+                    *best_gas_balance,
+                    std::cmp::Reverse(*best_transfer_balance),
+                    &best_transfer_ref.object_id,
+                ) <= (
+                    candidate.1.1,
+                    std::cmp::Reverse(candidate.0.1),
+                    &candidate.0.0.object_id,
+                ) => {}
             _ => best_pair = Some(candidate),
         }
     }
@@ -366,7 +371,10 @@ pub(crate) fn select_native_coin_consolidation_step(
         if primary_balance >= required_amount {
             continue;
         }
-        let (merge_object, _) = remaining[1].clone();
+        let (merge_object, merge_balance) = remaining[1].clone();
+        if primary_balance.saturating_add(merge_balance) < required_amount {
+            continue;
+        }
 
         let gas_payment = GasPayment {
             payment_objects: vec![ObjectRef::new(
@@ -466,7 +474,7 @@ pub(crate) fn select_krc1155_balances<'a>(
         let Some(object_token) = Krc1155Module::token_type_from_balance_bcs(&object.data) else {
             continue;
         };
-        if normalize_addr(&format!("{:#x}", object_token)) != wanted {
+        if normalize_addr(&object_token.to_string()) != wanted {
             continue;
         }
         let Some(amount) = Krc1155Module::amount_from_balance_bcs(&object.data) else {

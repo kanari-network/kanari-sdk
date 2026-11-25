@@ -11,6 +11,27 @@ mod apply_phases;
 mod apply_snapshots;
 mod apply_treasury;
 
+/// Gas-debit context resolved once per changeset.
+///
+/// Passing this instead of three loose scalars (`native_gas_debit_total`,
+/// `implicit_gas_payer`, `has_dedicated_gas_object`) removes the chance of a
+/// phase forwarding a placeholder zero and silently disabling its own debit.
+#[derive(Clone, Copy)]
+struct GasDebitContext {
+    /// Total native gas debit to collect across all gas objects.
+    total: u64,
+    /// Implicit gas payer address (only used when no dedicated gas object exists).
+    implicit_payer: Option<AccountAddress>,
+    /// Whether at least one dedicated gas object is present.
+    has_dedicated_object: bool,
+}
+
+impl GasDebitContext {
+    fn enabled(&self, owner: &AccountAddress) -> bool {
+        self.has_dedicated_object && Some(*owner) == self.implicit_payer
+    }
+}
+
 impl StateManager {
     /// Apply ChangeSet from Move VM execution
     /// This is the ONLY way to modify state - all changes must come from Move VM
@@ -70,6 +91,9 @@ impl StateManager {
         self.apply_changeset_with_options(&mut changeset, false)
     }
 
+    /// Entry point for changeset application. When `validate_supply` is true,
+    /// validates on a cloned snapshot so rejected transactions cannot poison
+    /// live state; otherwise delegates directly to [`apply_changeset_core`].
     fn apply_changeset_with_options(
         &mut self,
         changeset: &mut ChangeSet,
@@ -95,79 +119,57 @@ impl StateManager {
             return Ok(());
         }
 
-        let supply_delta = changeset.native_supply_delta()?;
-        let next_total_supply = if supply_delta > 0 {
-            let mint_amount = u64::try_from(supply_delta)
-                .require("Native supply delta overflowed u64 total supply")?;
-            Some(
-                self.total_supply
-                    .checked_add(mint_amount)
-                    .require("Native total supply overflow")?,
-            )
-        } else if supply_delta < 0 {
-            let burn_amount = u64::try_from(supply_delta.unsigned_abs())
-                .require("Native supply delta overflowed u64 total supply")?;
-            ensure!(
-                self.total_supply >= burn_amount,
-                "Native total supply underflow: tried to burn {} from {}",
-                burn_amount,
-                self.total_supply
-            );
-            Some(
-                self.total_supply
-                    .checked_sub(burn_amount)
-                    .context("Native total supply underflow after burn precheck")?,
-            )
-        } else {
-            None
-        };
+        self.apply_changeset_core(changeset, profile_apply, apply_started_at)
+    }
+
+    /// Core changeset application (no validation clone). Orchestrates phases:
+    /// supply delta → gas debit → snapshot → owner deltas → created objects →
+    /// gas debits → indexes → reconciliation → move writes.
+    fn apply_changeset_core(
+        &mut self,
+        changeset: &mut ChangeSet,
+        profile_apply: bool,
+        apply_started_at: std::time::Instant,
+    ) -> Result<()> {
+        let snapshots_at = std::time::Instant::now();
+
+        // --- Phase 1: supply delta / total supply ---
+        let next_total_supply = self.compute_supply_delta(changeset)?;
+
+        // --- Phase 2: gas debit total ---
         let native_gas_debit_total =
             changeset.native_gas_credits.values().try_fold(0u64, |total, credit| {
                 total.checked_add(*credit).require("Native gas debit total overflow")
             })?;
-        let owner_native_debit = |owner: &AccountAddress| -> Result<u64> {
-            changeset
-                .owner_deltas
-                .get(owner)
-                .map(|change| change.balance_delta)
-                .filter(|delta| *delta < 0)
-                .map(|delta| {
-                    u64::try_from(delta.unsigned_abs())
-                        .require("Native debit overflowed u64 gas object adjustment")
-                })
-                .transpose()
-                .map(|debit| debit.unwrap_or(0))
-        };
-        let gas_payment_owner = changeset
+
+        // --- Phase 3: gas object setup ---
+        let gas_object_ids = changeset
+            .gas_object_refs
+            .iter()
+            .map(|gas_ref| Self::canonical_owned_object_id(&gas_ref.object_id))
+            .collect::<BTreeSet<_>>();
+        let created_object_owners_by_id = changeset
+            .created_objects
+            .iter()
+            .map(|(object_id, created)| (Self::canonical_owned_object_id(object_id), created.owner))
+            .collect::<BTreeMap<_, _>>();
+        let implicit_gas_payer = changeset
             .gas_payment
             .as_ref()
             .and_then(|payment| AccountAddress::from_hex_literal(&payment.owner).ok());
-        let mut debit_owners = changeset
-            .owner_deltas
-            .iter()
-            .filter(|(_, change)| change.balance_delta < 0)
-            .map(|(owner, _)| *owner);
-        let first_debit_owner = debit_owners.next();
-        let single_debit_owner =
-            if debit_owners.next().is_none() { first_debit_owner } else { None };
-        let implicit_gas_payer = gas_payment_owner.or(single_debit_owner);
-        let owner_native_gas_debit =
-            |owner: &AccountAddress, explicit_gas_object: bool| -> Result<u64> {
-                Ok(if explicit_gas_object || Some(*owner) == implicit_gas_payer {
-                    owner_native_debit(owner)?.min(native_gas_debit_total)
-                } else {
-                    0
-                })
-            };
+        let has_dedicated_gas_object =
+            native_gas_debit_total > 0 && !changeset.gas_object_refs.is_empty();
+        let gas_debit_ctx = GasDebitContext {
+            total: native_gas_debit_total,
+            implicit_payer: implicit_gas_payer,
+            has_dedicated_object: has_dedicated_gas_object,
+        };
 
-        // Capture native balances once before mutating the state. Debit validation and
-        // post-object recomputation both need this snapshot; independently resolving the
-        // same owner here used to scan every owned Coin object twice before the write pass.
+        // --- Phase 4: snapshot native balances + validate owner debits ---
         let native_balances_before = self.snapshot_native_balances(changeset)?;
-        let snapshots_at = std::time::Instant::now();
-
         self.validate_owner_debits(changeset, &native_balances_before)?;
 
+        // --- Phase 5: initialize mutable apply state ---
         let mut supplies_dirty = false;
         let mut owner_index_additions = Vec::with_capacity(changeset.owner_deltas.len());
         let reconcile_object_locked = self.needs_object_locked_reconciliation(changeset)?;
@@ -193,17 +195,215 @@ impl StateManager {
         );
         let mut owned_object_index_additions: BTreeMap<AccountAddress, Vec<String>> =
             BTreeMap::new();
-        let gas_object_ids = changeset
-            .gas_object_refs
-            .iter()
-            .map(|gas_ref| Self::canonical_owned_object_id(&gas_ref.object_id))
-            .collect::<BTreeSet<_>>();
-        let created_object_owners_by_id = changeset
-            .created_objects
-            .iter()
-            .map(|(object_id, created)| (Self::canonical_owned_object_id(object_id), created.owner))
-            .collect::<BTreeMap<_, _>>();
 
+        // --- Phase 6: owner deltas ---
+        self.apply_owner_deltas(
+            changeset,
+            &native_balances_before,
+            &mut owner_index_additions,
+            &mut supplies_dirty,
+            &mut native_balance_after_owner_deltas,
+        )?;
+        let owner_deltas_at = std::time::Instant::now();
+
+        // --- Phase 7: update total supply ---
+        if let Some(next_total_supply) = next_total_supply {
+            self.save_native_total_supply(next_total_supply)?;
+        }
+
+        // --- Phase 8: treasury/NFT + deleted objects ---
+        self.apply_treasury_nft_balances(changeset, &mut owners_to_recompute)?;
+        self.apply_deleted_objects(
+            changeset,
+            &mut native_object_before_from_changes,
+            &mut native_object_after_from_changes,
+            &mut native_object_owner_changed_owners,
+            &mut owners_to_recompute,
+            &mut native_object_changed_owners,
+            &mut non_native_object_changed_owners,
+        )?;
+        self.index_collections(changeset)?;
+
+        // --- Phase 9: created objects ---
+        self.apply_created_objects(
+            changeset,
+            &gas_object_ids,
+            &mut native_object_before_from_changes,
+            &mut native_object_after_from_changes,
+            &mut native_object_owner_changed_owners,
+            &mut owners_to_recompute,
+            &mut native_object_changed_owners,
+            &mut non_native_object_changed_owners,
+            &mut native_object_created_owners,
+            &mut native_object_gas_adjusted,
+            &mut supplies_dirty,
+            gas_debit_ctx,
+            &mut object_index_additions,
+            &mut object_owner_index_additions,
+            &mut owned_object_index_additions,
+        )?;
+        let created_objects_at = std::time::Instant::now();
+
+        // --- Phase 10: gas object debits ---
+        self.apply_gas_object_debits(
+            changeset,
+            &gas_object_ids,
+            &created_object_owners_by_id,
+            gas_debit_ctx,
+            &mut native_object_gas_adjusted,
+            &mut native_object_after_from_changes,
+            &mut object_index_additions,
+            &mut object_owner_index_additions,
+            &mut native_object_changed_owners,
+            &mut non_native_object_changed_owners,
+            &mut owners_to_recompute,
+        )?;
+        let gas_objects_at = std::time::Instant::now();
+
+        // --- Phase 11: index updates ---
+        for (owner, object_ids) in owned_object_index_additions {
+            self.add_many_owned_object_index(owner, object_ids)?;
+        }
+        self.add_many_to_index_list(b"object_index", object_index_additions)?;
+        self.add_many_to_index_list(OWNER_INDEX_KEY, object_owner_index_additions)?;
+        let indexes_at = std::time::Instant::now();
+
+        // --- Phase 12: reconcile owner balances ---
+        self.reconcile_owner_balances(
+            changeset,
+            &native_balances_before,
+            &native_object_before_from_changes,
+            &native_object_after_from_changes,
+            &native_balance_after_owner_deltas,
+            &owners_to_recompute,
+            &mut supplies_dirty,
+            &native_object_changed_owners,
+            &non_native_object_changed_owners,
+            &native_object_owner_changed_owners,
+            &native_object_created_owners,
+        )?;
+        let recompute_at = std::time::Instant::now();
+
+        // --- Phase 13: object locked reconciliation ---
+        if reconcile_object_locked {
+            self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
+        }
+
+        // --- Phase 14: save supplies ---
+        if supplies_dirty {
+            let supplies_clone = self.global_token_supplies.clone();
+            self.save_internal(b"global_token_supplies", &supplies_clone)?;
+        }
+
+        // --- Phase 15: validate no lost tokens ---
+        if let Err(error) = self.validate_no_lost_tokens() {
+            log::warn!("Post-apply supply audit: {}", error);
+        }
+
+        // --- Phase 16: move writes, dynamic fields, access versions ---
+        self.apply_move_writes(changeset)?;
+        let move_writes_at = std::time::Instant::now();
+
+        self.apply_dynamic_fields(changeset)?;
+        let dynamic_fields_at = std::time::Instant::now();
+
+        self.advance_access_versions(&changeset.deterministic_access_set())?;
+        let access_versions_at = std::time::Instant::now();
+
+        // --- Phase 17: profiling ---
+        if profile_apply {
+            eprintln!(
+                "state apply profile: owners={} created={} gas_refs={} move_writes={} snapshots={:.6}s owner_deltas={:.6}s created_objects={:.6}s gas_objects={:.6}s indexes={:.6}s recompute={:.6}s move_writes={:.6}s dynamic={:.6}s access_versions={:.6}s total={:.6}s",
+                changeset.owner_deltas.len(),
+                changeset.created_objects.len(),
+                changeset.gas_object_refs.len(),
+                changeset.move_writes.len(),
+                snapshots_at.duration_since(apply_started_at).as_secs_f64(),
+                owner_deltas_at.duration_since(snapshots_at).as_secs_f64(),
+                created_objects_at.duration_since(owner_deltas_at).as_secs_f64(),
+                gas_objects_at.duration_since(created_objects_at).as_secs_f64(),
+                indexes_at.duration_since(gas_objects_at).as_secs_f64(),
+                recompute_at.duration_since(indexes_at).as_secs_f64(),
+                move_writes_at.duration_since(recompute_at).as_secs_f64(),
+                dynamic_fields_at.duration_since(move_writes_at).as_secs_f64(),
+                access_versions_at.duration_since(move_writes_at).as_secs_f64(),
+                access_versions_at.duration_since(apply_started_at).as_secs_f64(),
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Compute the post-apply native total supply from the changeset's supply delta.
+    /// Returns `None` when there is no mint/burn (delta == 0).
+    fn compute_supply_delta(&self, changeset: &ChangeSet) -> Result<Option<u64>> {
+        let supply_delta = changeset.native_supply_delta()?;
+        if supply_delta > 0 {
+            let mint_amount = u64::try_from(supply_delta)
+                .require("Native supply delta overflowed u64 total supply")?;
+            Ok(Some(
+                self.total_supply
+                    .checked_add(mint_amount)
+                    .require("Native total supply overflow")?,
+            ))
+        } else if supply_delta < 0 {
+            let burn_amount = u64::try_from(supply_delta.unsigned_abs())
+                .require("Native supply delta overflowed u64 total supply")?;
+            ensure!(
+                self.total_supply >= burn_amount,
+                "Native total supply underflow: tried to burn {} from {}",
+                burn_amount,
+                self.total_supply
+            );
+            Ok(Some(
+                self.total_supply
+                    .checked_sub(burn_amount)
+                    .context("Native total supply underflow after burn precheck")?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Native debit for an owner from owner_deltas (negative delta only).
+    fn owner_native_debit(&self, changeset: &ChangeSet, owner: &AccountAddress) -> Result<u64> {
+        changeset
+            .owner_deltas
+            .get(owner)
+            .map(|change| change.balance_delta)
+            .filter(|delta| *delta < 0)
+            .map(|delta| {
+                u64::try_from(delta.unsigned_abs())
+                    .require("Native debit overflowed u64 gas object adjustment")
+            })
+            .transpose()
+            .map(|debit| debit.unwrap_or(0))
+    }
+
+    /// Native gas debit for an owner. Only non-zero when the owner is the
+    /// explicit gas object payer or the implicit gas payer with a dedicated
+    /// gas object present.
+    fn owner_native_gas_debit(
+        &self,
+        changeset: &ChangeSet,
+        owner: &AccountAddress,
+        explicit_gas_object: bool,
+        ctx: GasDebitContext,
+    ) -> Result<u64> {
+        let enabled = explicit_gas_object || ctx.enabled(owner);
+        Ok(if enabled { self.owner_native_debit(changeset, owner)?.min(ctx.total) } else { 0 })
+    }
+
+    /// Apply owner balance deltas (credits and debits) from the changeset.
+    /// Updates owner records, owner index, and tracks post-delta balances.
+    fn apply_owner_deltas(
+        &mut self,
+        changeset: &ChangeSet,
+        native_balances_before: &BTreeMap<AccountAddress, (u64, u64)>,
+        owner_index_additions: &mut Vec<String>,
+        supplies_dirty: &mut bool,
+        native_balance_after_owner_deltas: &mut BTreeMap<AccountAddress, u64>,
+    ) -> Result<()> {
         for (address, change) in &changeset.owner_deltas {
             let mut owner_state = self.load_owner_state_or_default(*address)?;
             let old_balances = owner_state.token_balances.clone();
@@ -253,33 +453,33 @@ impl StateManager {
                 self.save_owner_record(&owner_state)?;
                 owner_index_additions.push(owner_state.address.to_hex_literal());
             }
-            supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances)?;
+            *supplies_dirty |= self.capture_supply_changed(&owner_state, &old_balances)?;
         }
+        self.add_many_to_index_list(OWNER_INDEX_KEY, std::mem::take(owner_index_additions))?;
+        Ok(())
+    }
 
-        self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)?;
-        let owner_deltas_at = std::time::Instant::now();
-
-        // Update total supply if there was mint/burn (supply_delta != 0)
-        if let Some(next_total_supply) = next_total_supply {
-            self.save_native_total_supply(next_total_supply)?;
-        }
-
-        // Apply treasury records, NFT caps, and token-balance hints; balances
-        // themselves come from objects during the write passes below.
-        self.apply_treasury_nft_balances(changeset, &mut owners_to_recompute)?;
-
-        self.apply_deleted_objects(
-            changeset,
-            &mut native_object_before_from_changes,
-            &mut native_object_after_from_changes,
-            &mut native_object_owner_changed_owners,
-            &mut owners_to_recompute,
-            &mut native_object_changed_owners,
-            &mut non_native_object_changed_owners,
-        )?;
-
-        self.index_collections(changeset)?;
-
+    /// Apply created objects: versioning, gas adjustments, treasury/NFT
+    /// persistence, index updates, and coin metadata.
+    #[allow(clippy::too_many_arguments)]
+    fn apply_created_objects(
+        &mut self,
+        changeset: &ChangeSet,
+        gas_object_ids: &BTreeSet<String>,
+        native_object_before_from_changes: &mut BTreeMap<AccountAddress, u64>,
+        native_object_after_from_changes: &mut BTreeMap<AccountAddress, u64>,
+        native_object_owner_changed_owners: &mut BTreeSet<AccountAddress>,
+        owners_to_recompute: &mut BTreeSet<AccountAddress>,
+        native_object_changed_owners: &mut BTreeSet<AccountAddress>,
+        non_native_object_changed_owners: &mut BTreeSet<AccountAddress>,
+        native_object_created_owners: &mut BTreeSet<AccountAddress>,
+        native_object_gas_adjusted: &mut BTreeMap<AccountAddress, u64>,
+        supplies_dirty: &mut bool,
+        gas_debit_ctx: GasDebitContext,
+        object_index_additions: &mut Vec<String>,
+        object_owner_index_additions: &mut Vec<String>,
+        owned_object_index_additions: &mut BTreeMap<AccountAddress, Vec<String>>,
+    ) -> Result<()> {
         for (obj_id, created) in &changeset.created_objects {
             let mut new_obj = created.clone();
             let existing_obj = self.load_stored_object_by_any_id(obj_id)?;
@@ -322,19 +522,15 @@ impl StateManager {
                         .require("Native object balance snapshot overflow")?;
                 }
                 let is_designated_gas_object = gas_object_ids.contains(&canonical_obj_id);
-                // Older/internal ChangeSets do not carry an explicit gas object. In that
-                // case, charge a native coin already being written by the transaction so
-                // object-backed balance reconciliation cannot erase the owner debit.
-                // Explicit gas references always take precedence when they are present.
-                let is_implicit_gas_object = changeset.gas_object_refs.is_empty()
-                    && native_gas_debit_total > 0
-                    && changeset
-                        .owner_deltas
-                        .get(&existing.owner)
-                        .is_some_and(|change| change.balance_delta < 0);
-                if existing_native_coin && (is_designated_gas_object || is_implicit_gas_object) {
-                    let sender_native_debit =
-                        owner_native_gas_debit(&existing.owner, is_designated_gas_object)?;
+                // Only explicitly declared gas objects are adjusted here. There is
+                // intentionally no implicit fallback to some coin written by Move.
+                if existing_native_coin && is_designated_gas_object {
+                    let sender_native_debit = self.owner_native_gas_debit(
+                        changeset,
+                        &existing.owner,
+                        is_designated_gas_object,
+                        gas_debit_ctx,
+                    )?;
                     let already_adjusted =
                         native_object_gas_adjusted.get(&existing.owner).copied().unwrap_or(0);
                     let remaining_debit = sender_native_debit.saturating_sub(already_adjusted);
@@ -380,9 +576,9 @@ impl StateManager {
                     self.overlay.insert(object_key(&stored_id), None);
                 }
                 Self::record_object_balance_owner_if_needed(
-                    &mut owners_to_recompute,
-                    &mut native_object_changed_owners,
-                    &mut non_native_object_changed_owners,
+                    owners_to_recompute,
+                    native_object_changed_owners,
+                    non_native_object_changed_owners,
                     existing.owner,
                     &existing.type_name,
                     &existing.data,
@@ -394,9 +590,9 @@ impl StateManager {
                 }
             }
             Self::record_object_balance_owner_if_needed(
-                &mut owners_to_recompute,
-                &mut native_object_changed_owners,
-                &mut non_native_object_changed_owners,
+                owners_to_recompute,
+                native_object_changed_owners,
+                non_native_object_changed_owners,
                 new_obj.owner,
                 &new_obj.type_,
                 &new_obj.data,
@@ -417,7 +613,7 @@ impl StateManager {
             if let Some((token_type, total_supply)) =
                 Self::treasury_cap_token_supply(&new_obj.type_, &new_obj.data)
             {
-                supplies_dirty |=
+                *supplies_dirty |=
                     self.persist_treasury_cap_state(&token_type, new_obj.owner, total_supply)?;
             }
 
@@ -458,30 +654,37 @@ impl StateManager {
                 self.persist_coin_metadata(token_type, &new_obj.data)?;
             }
         }
-        let created_objects_at = std::time::Instant::now();
+        Ok(())
+    }
 
-        // A separate gas coin is normally not passed into the Move function, so
-        // it will not appear in `created_objects`. Debit the explicitly declared
-        // gas object here instead of charging whichever coin happened to
-        // be mutated first by the transfer. In particular, a transfer coin whose
-        // entire balance was split has amount zero and must never receive gas.
-        //
-        // Multi-coin gas: the expected coin comes from the changeset settlement
-        // type (native KANARI by default). Native fees keep the ledger-backed
-        // debit; other coins debit the `Coin<T>` object directly while the DAO
-        // fee pool (not an owner ledger) receives the credit.
+    /// Apply gas object debits: debit the explicitly declared gas object(s)
+    /// rather than charging whichever coin happened to be mutated first.
+    #[allow(clippy::too_many_arguments)]
+    fn apply_gas_object_debits(
+        &mut self,
+        changeset: &ChangeSet,
+        _gas_object_ids: &BTreeSet<String>,
+        created_object_owners_by_id: &BTreeMap<String, AccountAddress>,
+        gas_debit_ctx: GasDebitContext,
+        native_object_gas_adjusted: &mut BTreeMap<AccountAddress, u64>,
+        native_object_after_from_changes: &mut BTreeMap<AccountAddress, u64>,
+        object_index_additions: &mut Vec<String>,
+        object_owner_index_additions: &mut Vec<String>,
+        native_object_changed_owners: &mut BTreeSet<AccountAddress>,
+        non_native_object_changed_owners: &mut BTreeSet<AccountAddress>,
+        owners_to_recompute: &mut BTreeSet<AccountAddress>,
+    ) -> Result<()> {
         let gas_coin_normalized = CoinModule::normalize_token_type(changeset.gas_coin_type());
         let is_native_gas = gas_coin_normalized == GAS_COIN;
-        let sender_token_debit = |owner: &AccountAddress| -> Result<u64> {
-            if is_native_gas {
-                return owner_native_gas_debit(owner, true);
-            }
-            Ok(changeset.token_gas_credits.get(&gas_coin_normalized).copied().unwrap_or(0))
-        };
+
         for gas_ref in &changeset.gas_object_refs {
             let canonical_gas_id = Self::canonical_owned_object_id(&gas_ref.object_id);
             if let Some(owner) = created_object_owners_by_id.get(&canonical_gas_id) {
-                let sender_debit = sender_token_debit(owner)?;
+                let sender_debit = if is_native_gas {
+                    self.owner_native_gas_debit(changeset, owner, true, gas_debit_ctx)?
+                } else {
+                    changeset.token_gas_credits.get(&gas_coin_normalized).copied().unwrap_or(0)
+                };
                 let already_adjusted = native_object_gas_adjusted.get(owner).copied().unwrap_or(0);
                 if sender_debit > 0 && already_adjusted >= sender_debit {
                     continue;
@@ -492,7 +695,11 @@ impl StateManager {
             else {
                 continue;
             };
-            let sender_debit = sender_token_debit(&existing.owner)?;
+            let sender_debit = if is_native_gas {
+                self.owner_native_gas_debit(changeset, &existing.owner, true, gas_debit_ctx)?
+            } else {
+                changeset.token_gas_credits.get(&gas_coin_normalized).copied().unwrap_or(0)
+            };
             let already_adjusted =
                 native_object_gas_adjusted.get(&existing.owner).copied().unwrap_or(0);
             let remaining_debit = sender_debit.saturating_sub(already_adjusted);
@@ -547,9 +754,9 @@ impl StateManager {
                 )?;
             }
             Self::record_object_balance_owner_if_needed(
-                &mut owners_to_recompute,
-                &mut native_object_changed_owners,
-                &mut non_native_object_changed_owners,
+                owners_to_recompute,
+                native_object_changed_owners,
+                non_native_object_changed_owners,
                 next_object.owner,
                 &next_object.type_name,
                 &next_object.data,
@@ -566,38 +773,49 @@ impl StateManager {
             }
             native_object_gas_adjusted.insert(existing.owner, sender_debit);
         }
-        let gas_objects_at = std::time::Instant::now();
+        Ok(())
+    }
 
-        for (owner, object_ids) in owned_object_index_additions {
-            self.add_many_owned_object_index(owner, object_ids)?;
-        }
-        self.add_many_to_index_list(b"object_index", object_index_additions)?;
-        self.add_many_to_index_list(OWNER_INDEX_KEY, object_owner_index_additions)?;
-        let indexes_at = std::time::Instant::now();
-
+    /// Reconcile per-owner native balances after object mutations, repairing
+    /// overcounts when object-backed balances diverge from the ledger.
+    #[allow(clippy::too_many_arguments)]
+    fn reconcile_owner_balances(
+        &mut self,
+        changeset: &ChangeSet,
+        native_balances_before: &BTreeMap<AccountAddress, (u64, u64)>,
+        native_object_before_from_changes: &BTreeMap<AccountAddress, u64>,
+        native_object_after_from_changes: &BTreeMap<AccountAddress, u64>,
+        native_balance_after_owner_deltas: &BTreeMap<AccountAddress, u64>,
+        owners_to_recompute: &BTreeSet<AccountAddress>,
+        supplies_dirty: &mut bool,
+        native_object_changed_owners: &BTreeSet<AccountAddress>,
+        non_native_object_changed_owners: &BTreeSet<AccountAddress>,
+        native_object_owner_changed_owners: &BTreeSet<AccountAddress>,
+        native_object_created_owners: &BTreeSet<AccountAddress>,
+    ) -> Result<()> {
         for owner in owners_to_recompute {
             let native_delta = changeset
                 .owner_deltas
-                .get(&owner)
+                .get(owner)
                 .map(|change| change.balance_delta)
                 .unwrap_or(0i128);
-            let native_object_changed = native_object_changed_owners.contains(&owner);
-            let native_gas_credit = changeset.native_gas_credits.get(&owner).copied().unwrap_or(0);
+            let native_object_changed = native_object_changed_owners.contains(owner);
+            let native_gas_credit = changeset.native_gas_credits.get(owner).copied().unwrap_or(0);
             let (native_ledger_before, native_object_before) =
-                native_balances_before.get(&owner).copied().unwrap_or((0, 0));
+                native_balances_before.get(owner).copied().unwrap_or((0, 0));
             let native_object_before = if native_object_before > 0 {
                 native_object_before
             } else {
-                native_object_before_from_changes.get(&owner).copied().unwrap_or(0)
+                native_object_before_from_changes.get(owner).copied().unwrap_or(0)
             };
             if (native_delta <= 0 || native_gas_credit == 0)
                 && native_object_changed
-                && !non_native_object_changed_owners.contains(&owner)
-                && !native_object_owner_changed_owners.contains(&owner)
-                && !native_object_created_owners.contains(&owner)
-                && let Some(native_object_after) = native_object_after_from_changes.get(&owner)
+                && !non_native_object_changed_owners.contains(owner)
+                && !native_object_owner_changed_owners.contains(owner)
+                && !native_object_created_owners.contains(owner)
+                && let Some(native_object_after) = native_object_after_from_changes.get(owner)
                 && let Some(current_native_balance) =
-                    native_balance_after_owner_deltas.get(&owner).copied()
+                    native_balance_after_owner_deltas.get(owner).copied()
                 && current_native_balance > 0
             {
                 let prior_non_object_balance =
@@ -616,7 +834,7 @@ impl StateManager {
                 }
             }
             let changed = self.recompute_token_balances_for_owner(
-                owner,
+                *owner,
                 native_delta,
                 native_object_changed,
                 native_gas_credit,
@@ -624,62 +842,12 @@ impl StateManager {
                 native_object_before,
             )?;
             if changed {
-                supplies_dirty = true;
+                *supplies_dirty = true;
             }
         }
-        let recompute_at = std::time::Instant::now();
-
-        if reconcile_object_locked {
-            self.reconcile_object_locked_coin_records(changeset, &issued_before, &visible_before)?;
-        }
-
-        if supplies_dirty {
-            let supplies_clone = self.global_token_supplies.clone();
-            self.save_internal(b"global_token_supplies", &supplies_clone)?;
-        }
-
-        // Post-apply supply audit: detect lost tokens (total != wallet + locked).
-        // Non-fatal: log warning but don't fail the apply, as transitions may
-        // legitimately have in-flight tokens. Full validation happens at checkpoint.
-        if let Err(error) = self.validate_no_lost_tokens() {
-            log::warn!("Post-apply supply audit: {}", error);
-        }
-
-        // Move modules/resources are part of the same canonical overlay as objects and
-        // balances. Keeping them here prevents speculative VM execution from mutating the
-        // shared database before the checkpoint is validated and committed.
-        self.apply_move_writes(changeset)?;
-        let move_writes_at = std::time::Instant::now();
-
-        self.apply_dynamic_fields(changeset)?;
-        let dynamic_fields_at = std::time::Instant::now();
-
-        self.advance_access_versions(&changeset.deterministic_access_set())?;
-        let access_versions_at = std::time::Instant::now();
-        if profile_apply {
-            eprintln!(
-                "state apply profile: owners={} created={} gas_refs={} move_writes={} snapshots={:.6}s owner_deltas={:.6}s created_objects={:.6}s gas_objects={:.6}s indexes={:.6}s recompute={:.6}s move_writes={:.6}s dynamic={:.6}s access_versions={:.6}s total={:.6}s",
-                changeset.owner_deltas.len(),
-                changeset.created_objects.len(),
-                changeset.gas_object_refs.len(),
-                changeset.move_writes.len(),
-                snapshots_at.duration_since(apply_started_at).as_secs_f64(),
-                owner_deltas_at.duration_since(snapshots_at).as_secs_f64(),
-                created_objects_at.duration_since(owner_deltas_at).as_secs_f64(),
-                gas_objects_at.duration_since(created_objects_at).as_secs_f64(),
-                indexes_at.duration_since(gas_objects_at).as_secs_f64(),
-                recompute_at.duration_since(indexes_at).as_secs_f64(),
-                move_writes_at.duration_since(recompute_at).as_secs_f64(),
-                dynamic_fields_at.duration_since(move_writes_at).as_secs_f64(),
-                access_versions_at.duration_since(dynamic_fields_at).as_secs_f64(),
-                access_versions_at.duration_since(apply_started_at).as_secs_f64(),
-            );
-        }
-
         Ok(())
     }
 
-    /// Try to apply a batch of owned native burn changesets without supply validation.
     pub fn try_apply_owned_native_burn_batch_without_supply_validation(
         &mut self,
         changesets: &[ChangeSet],

@@ -13,8 +13,8 @@ data class GasSettings(
 
 internal val DEFAULT_GAS_SETTINGS = GasSettings()
 
-// Default gas-market quote: $1e-6 per gas unit, KANARI at $2, 9 decimals.
-internal val DEFAULT_GAS_RESERVE_MIST: ULong = DEFAULT_GAS_LIMIT * 500uL
+// Native KANARI settles at the protocol unit price, not the USD gas-market quote.
+internal val DEFAULT_GAS_RESERVE_MIST: ULong = DEFAULT_GAS_LIMIT * DEFAULT_GAS_PRICE
 // USD uses 6 decimals and is priced at $1, so one gas unit maps to one
 // micro-USD base unit under the default gas table.
 internal val DEFAULT_GAS_RESERVE_USD: ULong = DEFAULT_GAS_LIMIT

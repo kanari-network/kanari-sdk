@@ -613,6 +613,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
             text.contains("no spendable native gas coin") ->
                 "Insufficient gas coin. Need a separate Coin<KANARI> with enough Mist to pay gas (gas_limit * gas_price)."
 
+            text.contains("out_of_gas") || text.contains("execution limit exceeded") ->
+                "Transaction ran out of execution gas. The app now requests a larger limit for escrow creation; if this continues, contact the node operator."
+
             text.contains("krc_1155") && (text.contains("sub_status: some(2)") ||
                     text.contains("e_insufficient_balance")) ->
                 "Transfer failed: the KRC-1155 balance object holds less than the amount requested. Refresh balances and send a smaller amount."
@@ -628,6 +631,9 @@ class WalletViewModel(application: Application) : AndroidViewModel(application) 
 
             text.contains("missing a valid nonce") || text.contains("nonce must be non-zero") ->
                 "Transfer failed: Transaction nonce error. Please try again."
+
+            text.contains("stack_trace") || text.contains("exec_state") || text.contains("vmerror") ->
+                "Transaction failed during on-chain execution. Check the transaction details or contact support."
 
             raw.startsWith("Transfer failed:") -> raw
             else -> "Transfer failed: $raw"

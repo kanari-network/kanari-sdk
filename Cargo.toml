@@ -117,7 +117,7 @@ axum-client-ip = "1.3.1"                                                        
 serde = { version = "1.0.229", default-features = true, features = ["rc"] }
 serde_json = { version = "1.0.154", default-features = true }
 serde_yaml = { version = "0.9.34", default-features = true }
-toml = { version = "1.2.2", default-features = true }
+toml = { version = "1.2.3", default-features = true }
 
 ## Blockchain-specific serialization
 bcs = { version = "0.2.2" }
@@ -176,13 +176,13 @@ fs2 = "0.4.3"                                                                   
 # Database & Persistent Storage
 # ============================================================================
 rocksdb = "0.25.0"                                                                  # High-performance embedded DB
-zstd = "0.14.4"                                                                     # Compression for storage/network
+zstd = "0.14.5"                                                                     # Compression for storage/network
 
 # ============================================================================
 # Caching & Performance Optimization
 # ============================================================================
 lru = "0.19.2"                                                                      # LRU cache
-ahash = "0.8.12"                                                                    # Fast non-cryptographic hasher
+ahash = "0.8.13"                                                                    # Fast non-cryptographic hasher
 
 # ============================================================================
 # Error Handling & Result Types
@@ -202,7 +202,7 @@ dotenvy = "0.15.7"
 # ============================================================================
 # CLI, Configuration & Utilities
 # ============================================================================
-clap = { version = "4.6.9", features = ["derive"] }                                 # CLI argument parsing
+clap = { version = "4.6.10", features = ["derive"] }                                 # CLI argument parsing
 dirs = "7.0.0"                                                                      # Platform-specific directories
 tree-sitter = "0.27.2"                                                              # Incremental parsing (Move formatter)
 pretty = "0.12.5"                                                                   # Wadler-style pretty printing (Move formatter)

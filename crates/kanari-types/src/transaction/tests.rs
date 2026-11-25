@@ -381,6 +381,7 @@ fn bcs_round_trips_sparse_transaction_effects() {
         transferred: Vec::new(),
         causal_edges: Vec::new(),
         error_message: None,
+        events: Vec::new(),
     };
     let bytes = bcs::to_bytes(&effects).unwrap();
     assert_eq!(bcs::from_bytes::<TransactionEffects>(&bytes).unwrap(), effects);

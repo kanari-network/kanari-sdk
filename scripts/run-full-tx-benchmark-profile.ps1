@@ -15,11 +15,11 @@ param(
 
     [string]$KeystorePath = "$env:USERPROFILE\.kanari\kanari_config\kanari.keystore",
 
-    [string]$Recipient = '0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3',
+    [string]$Recipient = '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350',
 
     [string[]]$BaseSenders = @(
         '0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146',
-        '0x3141a487d7a5382bb435c0ad39a6060067765e60e45b50953a0050bcf24b03a3'
+        '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350'
     ),
 
     [ValidateRange(0.000000001, 1000000000)]
@@ -81,7 +81,7 @@ if ($Wallets -lt $BaseSenders.Count) {
     throw "Wallets=$Wallets is smaller than BaseSenders=$($BaseSenders.Count)"
 }
 
-$summaryPath = Join-Path $repoRoot ".codex-runlogs\full-tx-benchmark-profile-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
+$summaryPath = Join-Path $repoRoot ".kanari-runlogs\full-tx-benchmark-profile-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $summaryPath) | Out-Null
 'timestamp,target_txs,wallets,count_per_sender,requested_txs,base_p2p_port,base_rpc_port,status' |
     Set-Content -LiteralPath $summaryPath

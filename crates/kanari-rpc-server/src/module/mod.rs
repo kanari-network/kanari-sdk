@@ -140,7 +140,7 @@ pub async fn handle_verify_module(_state: &RpcServerState, request: &RpcRequest)
         Err(response) => return *response,
     };
 
-    // Try to deserialize module
+    // The RPC dispatcher polls this handler on its bounded blocking pool.
     match CompiledModule::deserialize_with_defaults(&params.module_bytes) {
         Ok(module) => {
             let module_id = module.self_id();

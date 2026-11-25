@@ -91,6 +91,12 @@ pub(crate) fn validate_object_inputs_and_gas(
                 )));
             }
         }
+        if gas_payment.payment_objects.len() > 1 {
+            return Err(Box::new(invalid_params_response(
+                id,
+                "Gas payment must contain exactly one object",
+            )));
+        }
     }
 
     Ok(())

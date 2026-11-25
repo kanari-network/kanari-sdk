@@ -178,7 +178,25 @@ export default function TransactionDetailsModal({
   const deletedCount = readArrayLength(effects, "deleted");
   const transferredCount = readArrayLength(effects, "transferred");
   const graphEdgeCount = readArrayLength(effects, "causal_edges");
-  const gasPaymentObjectCount = readArrayLength(readObject(transaction, "gas_payment"), "payment_objects");
+  const gasPayment = readObject(transaction, "gas_payment");
+  const gasPaymentObjectCount = readArrayLength(gasPayment, "payment_objects");
+  const gasPaymentCoinType = readFirstString(gasPayment, ["coin_type"], "-");
+  const gasPaymentBudget = readFirstString(gasPayment, ["budget"], "-");
+  const gasPaymentPrice = readFirstString(gasPayment, ["price"], "-");
+  const gasPaymentVersion = readFirstString(gasPayment, ["price_version"], "-");
+  const gasPaymentOwner = readFirstString(gasPayment, ["owner"], "-");
+  const gasPaymentObjects = readArray(gasPayment, "payment_objects");
+  const gasPaymentRefs = gasPaymentObjects
+    .map((item) => {
+      const ref = typeof item === "object" && item !== null && !Array.isArray(item) ? (item as Record<string, unknown>) : {};
+      const id = readString(ref, "object_id", "");
+      const version = readString(ref, "version", "");
+      const digest = readString(ref, "digest", "");
+      if (!id) return "";
+      return [id, version ? `v${version}` : "", digest ? shortHash(digest, 8, 6) : ""].filter(Boolean).join(" · ");
+    })
+    .filter(Boolean)
+    .join(" | ");
   const effectInputObjects = readArray(effects, "input_objects");
   const effectSharedInputs = readArray(effects, "shared_inputs");
   const effectImmutableInputs = readArray(effects, "immutable_inputs");
@@ -186,7 +204,6 @@ export default function TransactionDetailsModal({
   const effectObjectChangesList = readArray(effects, "object_changes");
   const effectGraphEdgesList = readArray(effects, "causal_edges");
   const declaredObjectInputs = readArray(transaction, "object_inputs");
-  const gasPaymentObjects = readArray(readObject(transaction, "gas_payment"), "payment_objects");
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Transaction details">
@@ -281,6 +298,12 @@ export default function TransactionDetailsModal({
                   value={formatGasFee(transaction, readFirstString(transaction, ["gas_fee"], ""))}
                   mono
                 />
+                <DetailItem label="Gas Coin Type" value={gasPaymentCoinType} mono wide />
+                <DetailItem label="Gas Budget" value={gasPaymentBudget} mono />
+                <DetailItem label="Gas Payment Price" value={gasPaymentPrice} mono />
+                <DetailItem label="Gas Price Version" value={gasPaymentVersion} mono />
+                <DetailItem label="Gas Payment Owner" value={gasPaymentOwner} mono wide />
+                <DetailItem label="Gas Payment Objects" value={gasPaymentRefs || (gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-")} mono wide />
                 <DetailItem label="Object Inputs" value={objectInputs > 0 ? String(objectInputs) : "-"} mono />
                 <DetailItem label="Gas Objects" value={gasPaymentObjectCount > 0 ? String(gasPaymentObjectCount) : "-"} mono />
                 <DetailItem label="Object Changes" value={effectObjectChanges > 0 ? String(effectObjectChanges) : "-"} mono />

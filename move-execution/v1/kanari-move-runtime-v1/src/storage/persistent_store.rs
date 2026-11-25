@@ -224,6 +224,43 @@ impl PersistentStore {
         Ok(entries)
     }
 
+    /// Check whether any key exists with the given byte prefix, without
+    /// materializing all matching entries. Uses a RocksDB prefix-bound
+    /// iterator so the scan stops at the first key outside the prefix.
+    pub fn has_prefix(&self, prefix: &[u8]) -> std::result::Result<bool, PersistentStoreError> {
+        if let Some(db) = &self.db {
+            let mut iter = db.iterator(IteratorMode::From(prefix, rocksdb::Direction::Forward));
+            if let Some(Ok((key, _))) = iter.next() {
+                return Ok(key.starts_with(prefix));
+            }
+            Ok(false)
+        } else if let Some(store) = &self.memory_store {
+            let guard = Self::read_memory_store(store);
+            Ok(guard.keys().any(|k| k.starts_with(prefix)))
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Returns `true` if any logical (non-SMT-internal) entry exists, without
+    /// dumping the entire store. Stops at the first qualifying key.
+    pub fn has_any_logical_entry(&self) -> std::result::Result<bool, PersistentStoreError> {
+        if let Some(db) = &self.db {
+            for item in db.iterator(IteratorMode::Start) {
+                let (key, _) = item?;
+                if !Self::is_internal_smt_key(&key) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        } else if let Some(store) = &self.memory_store {
+            let guard = Self::read_memory_store(store);
+            Ok(guard.keys().any(|k| !k.starts_with(b"n:") && !k.starts_with(b"d:")))
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Apply raw state key updates/deletes atomically where the backend supports it.
     pub fn apply_raw_changes(
         &self,

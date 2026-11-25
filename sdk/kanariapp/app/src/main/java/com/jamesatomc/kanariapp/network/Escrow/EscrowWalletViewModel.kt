@@ -11,6 +11,7 @@ import com.jamesatomc.kanariapp.network.KanariClient
 import com.jamesatomc.kanariapp.network.buildEscrowCreateDeal
 import com.jamesatomc.kanariapp.network.callViewFunction
 import com.jamesatomc.kanariapp.network.toViewULong
+import com.jamesatomc.kanariapp.network.toViewAddress
 import com.jamesatomc.kanariapp.network.buildEscrowConfirmDelivery
 import com.jamesatomc.kanariapp.network.buildEscrowReleaseFunds
 import com.jamesatomc.kanariapp.network.buildEscrowRaiseDispute
@@ -121,7 +122,7 @@ suspend fun WalletViewModel.createEscrowDeal(
         _error.value = "Google session file is from an old app version - sign in again."
         false
     } catch (e: Exception) {
-        _error.value = "Escrow create failed: ${e.message}"
+        _error.value = mapTransferError("Escrow create failed: ${e.message}")
         false
     }
 }
@@ -162,7 +163,7 @@ suspend fun WalletViewModel.confirmEscrowDelivery(
         _error.value = "Google session file is from an old app version - sign in again."
         false
     } catch (e: Exception) {
-        _error.value = "Escrow confirm failed: ${e.message}"
+        _error.value = mapTransferError("Escrow confirm failed: ${e.message}")
         false
     }
 }
@@ -203,7 +204,7 @@ suspend fun WalletViewModel.releaseEscrowFunds(
         _error.value = "Google session file is from an old app version - sign in again."
         false
     } catch (e: Exception) {
-        _error.value = "Escrow release failed: ${e.message}"
+        _error.value = mapTransferError("Escrow release failed: ${e.message}")
         false
     }
 }
@@ -250,7 +251,7 @@ suspend fun WalletViewModel.raiseEscrowDispute(
         _error.value = "Google session file is from an old app version - sign in again."
         false
     } catch (e: Exception) {
-        _error.value = "Escrow dispute failed: ${e.message}"
+        _error.value = mapTransferError("Escrow dispute failed: ${e.message}")
         false
     }
 }
@@ -400,7 +401,7 @@ suspend fun WalletViewModel.createEscrowDealAndGetId(
         _error.value = "Google session file is from an old app version - sign in again."
         null
     } catch (e: Exception) {
-        _error.value = "Escrow create failed: ${e.message}"
+        _error.value = mapTransferError("Escrow create failed: ${e.message}")
         null
     }
 }
@@ -471,13 +472,27 @@ private fun extractCoinType(objectType: String?): String? {
     return if (ct.isEmpty()) null else ct
 }
 
-suspend fun WalletViewModel.getAllEscrowDeals(buyerAddress: String): List<Map<String, Any>> {
-    val objects = ownedEscrowObjects(buyerAddress)
+suspend fun WalletViewModel.getAllEscrowDeals(): List<Map<String, Any>> {
+    val walletAddress = activeWallet.value?.address ?: return emptyList()
+    val normalizedWallet = canonicalEscrowAddress(walletAddress) ?: return emptyList()
+    val objects = ownedEscrowObjects(walletAddress)
     val dealObjects = objects.filter { isEscrowDealType(it.getEffectiveType()) }
     val proofObjects = objects.filter { isEscrowProofType(it.getEffectiveType()) }
     val result = mutableListOf<Map<String, Any>>()
     for (obj in dealObjects) {
         val coinType = extractCoinType(obj.getEffectiveType()) ?: continue
+        // Fetch current on-chain details through the reference-based getter.
+        // EscrowDeal is shared, so the global index can contain other wallets'
+        // objects; only display records where this wallet is a participant.
+        val details = try {
+            getEscrowDealDetails(obj.id, coinType)
+        } catch (_: Exception) {
+            null
+        } ?: continue
+        val (buyer, seller, amount) = details
+        if (normalizedWallet != canonicalEscrowAddress(buyer) &&
+            normalizedWallet != canonicalEscrowAddress(seller)
+        ) continue
         val state = try {
             getEscrowDealState(obj.id, coinType)
         } catch (_: Exception) {
@@ -492,11 +507,57 @@ suspend fun WalletViewModel.getAllEscrowDeals(buyerAddress: String): List<Map<St
                 "object_id" to obj.id,
                 "coin_type" to coinType,
                 "proof_id" to proofId,
-                "state" to state
+                "state" to state,
+                "buyer" to buyer,
+                "seller" to seller,
+                "amount" to amount
             )
         )
     }
     return result
+}
+
+private suspend fun WalletViewModel.getEscrowDealDetails(
+    dealObjectId: String,
+    coinType: String
+): Triple<String, String, ULong>? {
+    val obj = client.getObject(dealObjectId)
+    val objectInput = kotlinx.serialization.json.buildJsonObject {
+        put("object_ref", kotlinx.serialization.json.buildJsonObject {
+            put("object_id", kotlinx.serialization.json.JsonPrimitive(client.normalizeAddress(obj.id)))
+            put("version", kotlinx.serialization.json.JsonPrimitive(obj.version))
+            put("digest", kotlinx.serialization.json.JsonPrimitive(obj.digest ?: ""))
+        })
+        when (val owner = obj.ownerKind) {
+            ObjectOwnerKind.Shared -> put("owner", kotlinx.serialization.json.JsonPrimitive("Shared"))
+            ObjectOwnerKind.Immutable -> put("owner", kotlinx.serialization.json.JsonPrimitive("Immutable"))
+            is ObjectOwnerKind.AddressOwner -> put("owner", kotlinx.serialization.json.buildJsonObject {
+                put("AddressOwner", kotlinx.serialization.json.JsonPrimitive(client.normalizeAddress(owner.address)))
+            })
+            null -> put("owner", kotlinx.serialization.json.buildJsonObject {
+                put("AddressOwner", kotlinx.serialization.json.JsonPrimitive(client.normalizeAddress(obj.owner)))
+            })
+        }
+        put("mutable", kotlinx.serialization.json.JsonPrimitive(false))
+    }
+    val result = client.callViewFunction(
+        environment.value.escrow.packageId,
+        ESCROW_MODULE,
+        "get_deal_details_ref",
+        listOf(coinType),
+        objectInputs = listOf(objectInput)
+    ) as? kotlinx.serialization.json.JsonArray ?: return null
+    if (result.size < 4) return null
+    val buyer = result[1].toViewAddress() ?: return null
+    val seller = result[2].toViewAddress() ?: return null
+    val amount = result[3].toViewULong() ?: return null
+    return Triple(buyer, seller, amount)
+}
+
+private fun canonicalEscrowAddress(address: String): String? {
+    val hex = address.trim().removePrefix("0x").removePrefix("0X")
+    if (hex.isEmpty() || hex.any { it.digitToIntOrNull(16) == null } || hex.length > 64) return null
+    return hex.lowercase(Locale.US).padStart(64, '0')
 }
 
 private fun decodeObjectDealLabel(obj: com.jamesatomc.kanariapp.network.models.ObjectInfo): String? {

@@ -242,7 +242,7 @@ fn submit_pending_response(
     }
 }
 
-async fn submit_after_immediate_execution(
+fn submit_after_immediate_execution(
     state: &RpcServerState,
     signed_tx: SignedTransaction,
     metadata: PendingTransactionMetadata,
@@ -299,9 +299,7 @@ async fn execute_or_submit_response(
                     preview_gas_used: Some(changeset.gas_used),
                     preview_effects: Some(preview_effects.clone()),
                 },
-            )
-            .await
-            {
+            ) {
                 error!("Failed to submit executed transaction: {}", e);
                 return RpcResponse {
                     jsonrpc: "2.0".into(),

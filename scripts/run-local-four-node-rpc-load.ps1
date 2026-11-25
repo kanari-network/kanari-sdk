@@ -37,7 +37,7 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $nodeExe = Join-Path $repoRoot 'target\release\kanari-node.exe'
 $loadScript = Join-Path $repoRoot 'scripts\run-production-rpc-load.ps1'
 $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".codex-runlogs\four-node-rpc-load-$runId"
+$runRoot = Join-Path $repoRoot ".kanari-runlogs\four-node-rpc-load-$runId"
 
 New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 
