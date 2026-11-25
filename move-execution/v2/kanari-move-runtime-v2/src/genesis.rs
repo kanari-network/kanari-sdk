@@ -11,8 +11,8 @@ use crate::ChangeSet;
 use crate::move_runtime::{MoveRuntime, SupplyValidation, load_system_modules};
 use crate::state::StateManager;
 use anyhow::{Context, Result};
-use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::hash::blake3;
 use move_core_types::account_address::AccountAddress;
 
 use std::format;
@@ -215,7 +215,7 @@ fn execute_framework_init(
 
     let move_module_addr = module_addr;
 
-    let init_tx_hash = hash_data_blake3(tx_hash_seed).to_vec();
+    let init_tx_hash = blake3(tx_hash_seed).to_vec();
 
     match runtime.execute_init_function_with_context(
         move_module_addr,

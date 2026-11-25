@@ -42,8 +42,8 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 use crate::consensus::Checkpoint;
-use kanari_crypto::hash_data_blake3_array;
 use kanari_types::event::Event;
+use kanari_types::hash::blake3;
 use kanari_types::transaction::SignedTransaction;
 
 use super::*;
@@ -773,9 +773,8 @@ impl DagEngine {
     ) -> Result<Option<Checkpoint>> {
         // O(1) duplicate detection via vertex-set hash index instead of O(n)
         // linear scan of dag_checkpoints comparing full vertex vectors.
-        let vertex_set_hash = hash_data_blake3_array(
-            &batch.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
-        );
+        let vertex_set_hash =
+            blake3(&batch.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>());
         let chain = lock_read(&self.engine.blockchain);
         if let Some(existing_seq) = chain.committed_vertex_sets.get(&vertex_set_hash)
             && let Some(existing) = chain.get_checkpoint(*existing_seq)
@@ -817,11 +816,13 @@ impl DagEngine {
         let prepared = self.engine.prepare_checkpoint_state(&checkpoint)?;
         checkpoint.state_root = prepared.state_root;
         checkpoint.transaction_effects = prepared.effects.into();
+        let requires_runtime_side_effect_persistence =
+            BlockchainEngine::requires_runtime_side_effect_persistence(&prepared.transactions);
         self.engine.apply_prepared_checkpoint(
             checkpoint.clone(),
             prepared.state,
             prepared.smt_changes,
-            prepared.transactions,
+            requires_runtime_side_effect_persistence,
             true,
         )?;
         info!(
@@ -1186,16 +1187,14 @@ impl DagEngine {
 // ---------------------------------------------------------------------------
 
 fn lock_read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    lock.read().unwrap_or_else(|e| {
+    kanari_types::sync::rw_read_or_recover_with(lock, || {
         log::error!("RwLock poisoned, recovering");
-        e.into_inner()
     })
 }
 
 fn lock_write<T>(lock: &RwLock<T>) -> std::sync::RwLockWriteGuard<'_, T> {
-    lock.write().unwrap_or_else(|e| {
+    kanari_types::sync::rw_write_or_recover_with(lock, || {
         log::error!("RwLock poisoned, recovering");
-        e.into_inner()
     })
 }
 

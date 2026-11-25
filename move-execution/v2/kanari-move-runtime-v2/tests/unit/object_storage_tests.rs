@@ -2,7 +2,7 @@ use super::*;
 use kanari_types::transaction::ObjectOwnerKind;
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
-    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+    ObjectOwnerKind::address_owner(&owner)
 }
 
 #[test]

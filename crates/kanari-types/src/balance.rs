@@ -4,7 +4,9 @@
 use crate::address::Address;
 use anyhow::{Context, Result};
 use move_core_types::{
-    account_address::AccountAddress, identifier::Identifier, language_storage::ModuleId,
+    account_address::AccountAddress,
+    identifier::Identifier,
+    language_storage::{ModuleId, StructTag},
 };
 use serde::{Deserialize, Serialize};
 
@@ -86,6 +88,24 @@ impl BalanceModule {
     pub const BALANCE_STRUCT: &'static str = "Balance";
     /// Name of the Supply struct in Move
     pub const SUPPLY_STRUCT: &'static str = "Supply";
+
+    /// Whether a struct tag is the canonical `0x2::balance::Balance<T>`.
+    #[must_use]
+    pub fn is_balance_struct_tag(struct_tag: &StructTag) -> bool {
+        struct_tag.module.as_str() == Self::BALANCE_MODULE
+            && struct_tag.name.as_str() == Self::BALANCE_STRUCT
+    }
+
+    /// Read a `Balance<T>` value from the tail of a blob.
+    #[must_use]
+    pub fn read_balance(data: &[u8]) -> Option<u64> {
+        crate::layout::read_tail_u64(data)
+    }
+
+    /// Write a `Balance<T>` value to the tail of a blob.
+    pub fn write_balance(data: &mut [u8], amount: u64) -> bool {
+        crate::layout::write_tail_u64(data, amount)
+    }
 
     /// Abort codes from `balance.move`.
     pub const ERR_INSUFFICIENT_BALANCE: u64 = 1;

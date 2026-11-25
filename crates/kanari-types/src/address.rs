@@ -383,6 +383,18 @@ impl FromStr for Address {
     }
 }
 
+/// Canonical lowercase hex (without `0x`) for user-supplied addresses.
+///
+/// Mempool and indexing code used to reimplement this fallback locally. Keeping
+/// the canonical form here ensures sender keys agree across crates even for
+/// tagged addresses and malformed input.
+#[must_use]
+pub fn normalize_address(addr: &str) -> String {
+    addr.parse::<Address>()
+        .map(|address| address.to_hex())
+        .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
+}
+
 /// Rust-side binding for Move `kanari_system::address`.
 ///
 /// Keep this file aligned with:

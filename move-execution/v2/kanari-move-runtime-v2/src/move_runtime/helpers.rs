@@ -101,11 +101,6 @@ impl ChildIndexResolver for RuntimeChildIndexResolver {
     }
 }
 
-/// Size of a Move object UID in bytes (address)
-const UID_SIZE: usize = 32;
-/// Size of a u64 field in bytes
-const U64_SIZE: usize = 8;
-
 impl super::MoveRuntime {
     pub(crate) fn dynamic_field_storage_ext(
         &self,
@@ -414,13 +409,6 @@ impl super::MoveRuntime {
 
     /// Extract total supply from TreasuryCap bytes
     pub(crate) fn extract_treasury_total_from_bytes(&self, bytes: &[u8]) -> Option<u64> {
-        // TreasuryCap: [32-byte address][8-byte total_supply]
-        if bytes.len() >= (UID_SIZE + U64_SIZE) {
-            let supply_bytes: [u8; U64_SIZE] =
-                bytes[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
-            Some(u64::from_le_bytes(supply_bytes))
-        } else {
-            None
-        }
+        CoinModule::read_treasury_cap_supply(bytes)
     }
 }

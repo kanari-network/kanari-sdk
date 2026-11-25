@@ -9,6 +9,12 @@ use kanari_types::transaction::SignedTransaction;
 use log::info;
 use std::sync::{Arc, RwLock};
 
+/// Checkpoint transaction hashes are canonical 32-byte digests. Converting once
+/// here keeps the fixed-size set allocations out of the hot finalize path.
+fn committed_hash_key(hash: &[u8], label: &'static str) -> [u8; 32] {
+    kanari_types::hash::bytes32_expect(hash, label)
+}
+
 pub(crate) struct PreparedCheckpointState {
     pub state_root: Vec<u8>,
     pub smt_changes: Option<PrecomputedSmtChanges>,
@@ -42,7 +48,9 @@ impl BlockchainEngine {
             || !changeset.gas_object_refs.is_empty()
     }
 
-    fn requires_runtime_side_effect_persistence(transactions: &[SignedTransaction]) -> bool {
+    pub(crate) fn requires_runtime_side_effect_persistence(
+        transactions: &[SignedTransaction],
+    ) -> bool {
         transactions.iter().any(|signed_tx| {
             if signed_tx.transaction.is_native_balance_call() {
                 return false;
@@ -118,21 +126,24 @@ impl BlockchainEngine {
         &self,
         checkpoint: &Checkpoint,
     ) -> Result<PreparedCheckpointState> {
-        self.prepare_checkpoint_state_inner(checkpoint, false)
+        self.prepare_checkpoint_state_inner(checkpoint, false, None)
     }
 
-    /// Prepares checkpoint state assuming conflict-free transaction execution.
-    pub(crate) fn prepare_conflict_free_checkpoint_state(
+    /// Owned-fastpath variant that consumes the already-selected transactions
+    /// instead of cloning every signed transaction out of the checkpoint.
+    pub(crate) fn prepare_conflict_free_checkpoint_state_with_transactions(
         &self,
         checkpoint: &Checkpoint,
+        transactions: Vec<SignedTransaction>,
     ) -> Result<PreparedCheckpointState> {
-        self.prepare_checkpoint_state_inner(checkpoint, true)
+        self.prepare_checkpoint_state_inner(checkpoint, true, Some(transactions))
     }
 
     fn prepare_checkpoint_state_inner(
         &self,
         checkpoint: &Checkpoint,
         assume_conflict_free: bool,
+        owned_transactions: Option<Vec<SignedTransaction>>,
     ) -> Result<PreparedCheckpointState> {
         let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_PREPARE_PROFILE");
         let started_at = std::time::Instant::now();
@@ -142,24 +153,30 @@ impl BlockchainEngine {
         )?;
         let state_arc = Arc::new(RwLock::new(state_snapshot));
         let cloned_at = std::time::Instant::now();
-        let mut to_execute = Vec::new();
-        for signed_tx in checkpoint.transactions.iter() {
+        let candidate_txs =
+            owned_transactions.unwrap_or_else(|| checkpoint.transactions.iter().cloned().collect());
+        let has_transactions = !candidate_txs.is_empty();
+        let mut to_execute = Vec::with_capacity(candidate_txs.len());
+        for signed_tx in candidate_txs {
             if !self.try_is_transaction_committed(signed_tx.transaction_hash())? {
-                to_execute.push(signed_tx.clone());
+                to_execute.push(signed_tx);
             }
         }
 
-        if !checkpoint.transactions.is_empty() {
+        if has_transactions {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;
         }
         let prologue_at = std::time::Instant::now();
 
         let (_, _, transaction_effects) = if assume_conflict_free {
             self.execute_conflict_free_transactions_parallel_with_effects(
-                to_execute.clone(),
+                &to_execute,
                 &state_arc,
                 Some(checkpoint.timestamp),
                 false,
+                // This entry point is only used for owned-fastpath snapshots
+                // whose conflict keys were already validated at selection.
+                true,
             )?
         } else {
             self.execute_tx_waves_deterministic_parallel_with_effects(
@@ -179,7 +196,13 @@ impl BlockchainEngine {
         }
         let repaired_at = std::time::Instant::now();
 
-        let verified_state = state_arc.read().unwrap_or_else(|e| e.into_inner()).clone();
+        // No other task holds the execution state at this point. Move it out
+        // instead of cloning the full overlay/access-version maps on the
+        // checkpoint hot path.
+        let verified_state = match Arc::try_unwrap(state_arc) {
+            Ok(lock) => lock.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner()),
+            Err(arc) => arc.read().unwrap_or_else(|e| e.into_inner()).clone(),
+        };
         let (computed_root, smt_changes) =
             verified_state.try_compute_state_root_with_smt_changes()?;
         let rooted_at = std::time::Instant::now();
@@ -225,16 +248,10 @@ impl BlockchainEngine {
         });
         let inspected_at = std::time::Instant::now();
         if validate_supply {
-            new_state
-                .validate_supply_invariants()
-                .context("Supply invariants failed before checkpoint commit")?;
-            // Stricter check: no tokens may be lost (total == wallet + locked).
-            // This catches Coin objects deleted without being burned first.
-            // Fatal at checkpoint boundary: all transactions are applied, so
-            // in-flight tokens should not exist.
-            new_state
-                .validate_no_lost_tokens()
-                .context("Lost tokens detected at checkpoint commit (total != wallet + locked)")?;
+            // Single canonical scan: bounds, index consistency, and no-lost-tokens.
+            new_state.validate_no_lost_tokens().context(
+                "Supply invariants failed before checkpoint commit (lost/overcount/index mismatch)",
+            )?;
         }
         let validated_at = std::time::Instant::now();
         let inline_checkpoint_metadata = self.persistent_store.as_ref().is_some_and(|store| {
@@ -325,10 +342,21 @@ impl BlockchainEngine {
         let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_METADATA_PROFILE");
         let started_at = std::time::Instant::now();
         let tx_count = checkpoint.transactions.len();
+        let checkpoint_sequence = checkpoint.sequence;
+        // Capture committed hashes before moving the checkpoint into chain
+        // storage; cloning 100k signed transactions just to drain the mempool
+        // is pure hot-path overhead.
+        // Fixed-size keys avoid one heap allocation per committed transaction;
+        // checkpoint hashes are canonical 32-byte digests.
+        let committed_hashes: ahash::AHashSet<[u8; 32]> = checkpoint
+            .transactions
+            .iter()
+            .map(|tx| committed_hash_key(tx.transaction_hash(), "transaction hash"))
+            .collect();
         // 1. Update blockchain metadata in-memory.
         {
             let mut chain = self.blockchain_write();
-            chain.add_checkpoint_with_validation(checkpoint.clone(), true)?;
+            chain.add_checkpoint_with_validation(checkpoint, true)?;
         }
         let chain_added_at = std::time::Instant::now();
 
@@ -339,7 +367,7 @@ impl BlockchainEngine {
                 drop(chain);
                 anyhow::bail!(
                     "Failed to persist blockchain metadata for checkpoint {}: {}. The committed state is protected by a durable recovery marker; restart the node to finish metadata recovery.",
-                    checkpoint.sequence,
+                    checkpoint_sequence,
                     e
                 );
             }
@@ -349,32 +377,27 @@ impl BlockchainEngine {
         // 3. Remove committed transactions from pending pool.
         {
             let mut mempool = self.mempool_write();
-            let committed_hashes_vec = checkpoint
-                .transactions
-                .iter()
-                .map(|tx| tx.transaction_hash().to_vec())
-                .collect::<Vec<_>>();
-            let can_clear_all_pending = mempool.pending_txs.len() == committed_hashes_vec.len()
-                && mempool
-                    .pending_txs
-                    .iter()
-                    .zip(committed_hashes_vec.iter())
-                    .all(|(pending, committed_hash)| pending.tx_hash == *committed_hash);
+            // The mempool and checkpoint use different sort keys, so compare as
+            // sets instead of relying on zip order. When every pending tx is
+            // committed, all derived indexes can be cleared in O(1).
+            let can_clear_all_pending = mempool.pending_txs.len() == committed_hashes.len()
+                && mempool.pending_txs.iter().all(|tx| {
+                    committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
+                });
             if can_clear_all_pending {
-                mempool.pending_txs.clear();
-                mempool.pending_tx_hashes.clear();
-                mempool.pending_sender_counts.clear();
-                mempool.pending_access_counts.clear();
-                mempool.pending_primary_access_counts.clear();
-                mempool.pending_congestion_access_counts.clear();
-                mempool.pending_bytes = 0;
+                // Dropping 100k pending records (each with several owned key
+                // strings) is pure cleanup work. Move the whole state out and
+                // release it off the checkpoint critical path; the live mempool
+                // is already empty from the caller's perspective.
+                let drained = std::mem::take(&mut *mempool);
+                std::thread::spawn(move || drop(drained));
             } else {
-                let committed_hashes: ahash::AHashSet<_> =
-                    committed_hashes_vec.into_iter().collect();
                 let removed_metadata = mempool
                     .pending_txs
                     .iter()
-                    .filter(|tx| committed_hashes.contains(&tx.tx_hash))
+                    .filter(|tx| {
+                        committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
+                    })
                     .map(|tx| {
                         (
                             tx.normalized_sender.clone(),
@@ -389,9 +412,13 @@ impl BlockchainEngine {
                     removed_metadata.iter().fold(0usize, |total, (_, _, _, _, size_bytes)| {
                         total.saturating_add(*size_bytes)
                     });
-                mempool.pending_txs.retain(|tx| !committed_hashes.contains(&tx.tx_hash));
+                mempool.pending_txs.retain(|tx| {
+                    !committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
+                });
                 mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
-                mempool.pending_tx_hashes.retain(|hash| !committed_hashes.contains(hash));
+                mempool.pending_tx_hashes.retain(|hash| {
+                    !committed_hashes.contains(&committed_hash_key(hash, "pending hash"))
+                });
                 for (sender, primary_access_key, congestion_access_key, access_keys, _) in
                     removed_metadata
                 {
@@ -438,10 +465,10 @@ impl BlockchainEngine {
         checkpoint: Checkpoint,
         verified_state: StateManager,
         smt_changes: Option<PrecomputedSmtChanges>,
-        to_execute: Vec<SignedTransaction>,
+        requires_runtime_side_effect_persistence: bool,
         validate_supply: bool,
     ) -> Result<()> {
-        if !to_execute.is_empty() && Self::requires_runtime_side_effect_persistence(&to_execute) {
+        if requires_runtime_side_effect_persistence {
             tracing::debug!(
                 checkpoint = checkpoint.sequence,
                 "Skipping checkpoint side-effect replay: verified_state commit is the canonical source of truth, and replaying persistence against the same backing store can skew object versions during restart/recovery paths."
@@ -462,11 +489,13 @@ impl BlockchainEngine {
         let prepared = self.prepare_checkpoint_state(&checkpoint)?;
         self.ensure_checkpoint_root_matches(&checkpoint, &prepared.state_root)?;
 
+        let requires_runtime_side_effect_persistence =
+            Self::requires_runtime_side_effect_persistence(&prepared.transactions);
         self.apply_prepared_checkpoint(
             checkpoint,
             prepared.state,
             prepared.smt_changes,
-            prepared.transactions,
+            requires_runtime_side_effect_persistence,
             true,
         )
     }

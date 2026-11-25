@@ -31,11 +31,12 @@ impl BlockchainEngine {
     const MAX_REMOTE_SNAPSHOT_ENTRIES: usize = 100_000;
 
     fn dag_vertices_per_checkpoint_sync() -> usize {
-        std::env::var("KANARI_DAG_VERTICES_PER_CHECKPOINT_SYNC")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .map(|value| value.clamp(16, Self::MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC))
-            .unwrap_or(Self::DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC)
+        kanari_types::env::env_usize_clamped(
+            "KANARI_DAG_VERTICES_PER_CHECKPOINT_SYNC",
+            Self::DEFAULT_DAG_VERTICES_PER_CHECKPOINT_SYNC,
+            16,
+            Self::MAX_DAG_VERTICES_PER_CHECKPOINT_SYNC,
+        )
     }
 
     /// Returns the current SMT (Sparse Merkle Tree) status with optional diagnostics.

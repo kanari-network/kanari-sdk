@@ -10,6 +10,7 @@ use crate::workload::{
     build_funded_owned_fastpath_workload, build_signed_workload, prepare_engine,
 };
 use anyhow::{Result, bail};
+use kanari_types::env::env_flag;
 use std::time::Instant;
 
 pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
@@ -51,29 +52,29 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     let mut submit_secs = None;
     let mut produce_secs = None;
     let start = Instant::now();
-    let (block_info, duration_secs) = match config.mode {
+    let block_info = match config.mode {
         HarnessMode::Admission => {
             let (block_info, submit) = execute_admission_path(engine, signed_txs)?;
             submit_secs = Some(submit);
-            (block_info, submit)
+            block_info
         }
         HarnessMode::OwnedFastPath => {
             let (block_info, submit, produce) = execute_owned_fast_path(engine, signed_txs)?;
             submit_secs = Some(submit);
             produce_secs = Some(produce);
-            (block_info, submit + produce)
+            block_info
         }
         HarnessMode::Production => {
             let (block_info, submit, produce) = execute_production_path(engine, signed_txs)?;
             submit_secs = Some(submit);
             produce_secs = Some(produce);
-            (block_info, submit + produce)
+            block_info
         }
-        HarnessMode::Immediate => {
-            let block_info = execute_immediate(engine, signed_txs)?;
-            (block_info, start.elapsed().as_secs_f64())
-        }
+        HarnessMode::Immediate => execute_immediate(engine, signed_txs)?,
     };
+    // TPS must reflect real elapsed wall time so overlapped submit/produce
+    // pipelines are measured honestly. The per-phase counters stay diagnostic.
+    let duration_secs = start.elapsed().as_secs_f64();
     maybe_print_rocksdb_profile(engine);
     let tps = if duration_secs > 0.0 {
         block_info.tx_count as f64 / duration_secs
@@ -94,15 +95,7 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
 }
 
 fn rocksdb_profile_enabled() -> bool {
-    std::env::var("KANARI_BENCH_ROCKSDB_PROFILE")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false)
-}
-
-fn env_flag(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false)
+    env_flag("KANARI_BENCH_ROCKSDB_PROFILE")
 }
 
 fn maybe_print_rocksdb_profile(engine: &kanari_core::BlockchainEngine) {

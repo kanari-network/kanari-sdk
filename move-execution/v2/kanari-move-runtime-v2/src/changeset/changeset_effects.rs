@@ -4,10 +4,10 @@
 //! Object changes, effects, and recorded writes on a changeset.
 
 use crate::changeset::{ChangeSet, CreatedObject};
-use kanari_crypto::hash_data_blake3_array;
 use kanari_types::balance::BalanceRecord;
 use kanari_types::coin::{CoinModule, TreasuryCap};
 use kanari_types::event::Event;
+use kanari_types::hash::blake3;
 use kanari_types::object::{IDRecord, UIDRecord, object_id_for_address};
 use kanari_types::transaction::{
     GasPayment, ObjectChange, ObjectChangeKind, ObjectGraphEdge, ObjectGraphEdgeKind, ObjectInput,
@@ -131,7 +131,7 @@ impl ChangeSet {
             let mut input = Vec::new();
             input.extend_from_slice(owner.as_ref());
             input.extend_from_slice(type_.as_bytes());
-            let hash = hash_data_blake3_array(&input);
+            let hash = blake3(&input);
             object_id_for_address(&AccountAddress::new(hash))
         };
 
@@ -157,7 +157,7 @@ impl ChangeSet {
                     owner,
                     uid,
                     id,
-                    owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+                    owner_kind: ObjectOwnerKind::address_owner(&owner),
                     type_,
                     data,
                     version,

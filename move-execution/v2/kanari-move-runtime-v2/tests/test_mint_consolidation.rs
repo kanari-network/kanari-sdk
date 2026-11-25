@@ -11,7 +11,7 @@ use kanari_types::transaction::ObjectOwnerKind;
 use move_core_types::account_address::AccountAddress;
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
-    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+    ObjectOwnerKind::address_owner(&owner)
 }
 
 fn coin_data(marker: u8, amount: u64) -> Vec<u8> {

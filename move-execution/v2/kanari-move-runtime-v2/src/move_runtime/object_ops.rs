@@ -67,7 +67,7 @@ impl super::MoveRuntime {
             } else if obj.is_shared {
                 kanari_types::transaction::ObjectOwnerKind::Shared
             } else {
-                kanari_types::transaction::ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+                kanari_types::transaction::ObjectOwnerKind::address_owner(&owner)
             };
 
             if persist_runtime_state {

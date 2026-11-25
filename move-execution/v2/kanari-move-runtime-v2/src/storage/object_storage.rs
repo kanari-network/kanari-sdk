@@ -72,10 +72,7 @@ pub struct StoredObject {
 impl StoredObject {
     /// Returns the current address owner recorded by `owner_kind`.
     pub fn current_address_owner(&self) -> Option<AccountAddress> {
-        match &self.owner_kind {
-            ObjectOwnerKind::AddressOwner(owner) => AccountAddress::from_hex_literal(owner).ok(),
-            ObjectOwnerKind::Shared | ObjectOwnerKind::Immutable => None,
-        }
+        self.owner_kind.address_account_strict()
     }
 
     /// Keeps the legacy owner field aligned with the canonical ownership tag.
@@ -260,7 +257,7 @@ impl ObjectStorage {
         let transaction_guard = self.persistent.as_ref().map(|store| store.transaction_guard());
 
         {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let state = kanari_types::sync::rw_read_or_recover(&self.state);
             if let Some(existing) = state.objects.get(&id) {
                 old_owner = Some(existing.current_address_owner().unwrap_or(existing.owner));
                 old_owner_kind = Some(existing.owner_kind.clone());
@@ -322,7 +319,7 @@ impl ObjectStorage {
         }
 
         // Publish to the live cache only after every persistent write succeeded.
-        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.insert(id, obj);
+        kanari_types::sync::rw_write_or_recover(&self.state).objects.insert(id, obj);
 
         drop(transaction_guard);
         Ok(())
@@ -334,7 +331,7 @@ impl ObjectStorage {
     fn refresh_cached_object(&self, mut obj: StoredObject) {
         obj.normalize_owner();
         let id = obj.id.clone();
-        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.insert(id, obj);
+        kanari_types::sync::rw_write_or_recover(&self.state).objects.insert(id, obj);
     }
 
     fn get_object(&self, id: &str) -> Result<Option<StoredObject>, ObjectStorageError> {
@@ -344,7 +341,7 @@ impl ObjectStorage {
             return Ok(None);
         };
         {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let state = kanari_types::sync::rw_read_or_recover(&self.state);
             if let Some(obj) = state.objects.get(&canonical_id) {
                 let mut obj = obj.clone();
                 obj.normalize_owner();
@@ -357,7 +354,7 @@ impl ObjectStorage {
                 store.load::<StoredObject>(&crate::common::keys::object_key(&canonical_id))?
         {
             obj.normalize_owner();
-            let mut write_state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            let mut write_state = kanari_types::sync::rw_write_or_recover(&self.state);
             write_state.objects.insert(canonical_id, obj.clone());
             return Ok(Some(obj));
         }
@@ -378,7 +375,7 @@ impl ObjectStorage {
             return results;
         }
 
-        let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+        let state = kanari_types::sync::rw_read_or_recover(&self.state);
         let mut results: Vec<_> = state
             .objects
             .values()
@@ -394,7 +391,7 @@ impl ObjectStorage {
         let transaction_guard = self.persistent.as_ref().map(|store| store.transaction_guard());
 
         {
-            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
+            let state = kanari_types::sync::rw_read_or_recover(&self.state);
             if let Some(obj) = state.objects.get(id) {
                 old_object = Some(obj.clone());
             }
@@ -426,7 +423,7 @@ impl ObjectStorage {
         }
 
         // Keep the old cache entry available if persistence failed above.
-        self.state.write().unwrap_or_else(|e| e.into_inner()).objects.remove(id);
+        kanari_types::sync::rw_write_or_recover(&self.state).objects.remove(id);
 
         drop(transaction_guard);
         Ok(())
@@ -434,11 +431,11 @@ impl ObjectStorage {
 
     #[cfg(test)]
     fn count(&self) -> usize {
-        self.state.read().unwrap_or_else(|e| e.into_inner()).objects.len()
+        kanari_types::sync::rw_read_or_recover(&self.state).objects.len()
     }
 
     fn clear(&self) -> Result<(), ObjectStorageError> {
-        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        let mut state = kanari_types::sync::rw_write_or_recover(&self.state);
         state.objects.clear();
         Ok(())
     }

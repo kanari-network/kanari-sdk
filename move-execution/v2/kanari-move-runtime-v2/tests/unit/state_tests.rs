@@ -1,11 +1,12 @@
 use super::*;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::layout::{MOVE_U64_BYTES as U64_SIZE, MOVE_UID_BYTES as UID_SIZE};
 use kanari_types::transaction::{ObjectOwnerKind, ObjectRef};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Barrier};
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
-    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+    ObjectOwnerKind::address_owner(&owner)
 }
 
 /// An address-owned object with no UID/ID record.

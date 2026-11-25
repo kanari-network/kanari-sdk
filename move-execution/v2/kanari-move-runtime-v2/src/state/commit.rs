@@ -25,8 +25,7 @@ impl StateManager {
         verified_root: &[u8],
         smt_changes: Option<PrecomputedSmtChanges>,
     ) -> Result<()> {
-        let root: [u8; 32] =
-            verified_root.try_into().context("Verified state root must be 32 bytes")?;
+        let root = kanari_types::hash::bytes32_exact(verified_root, "Verified state root")?;
         self.commit_with_raw_updates_and_root(updates, deletes, Some(root), smt_changes)
     }
 
@@ -44,16 +43,8 @@ impl StateManager {
         verified_root: Option<[u8; 32]>,
         precomputed_smt_changes: Option<PrecomputedSmtChanges>,
     ) -> Result<()> {
-        for (key, val_opt) in &self.overlay {
-            if let Some(val) = val_opt {
-                updates.push((key.clone(), val.clone()));
-            } else {
-                deletes.push(key.clone());
-            }
-        }
-
         // Derive SMT deltas before writing the overlay so index transitions can
-        // compare the old persisted membership with the new overlay membership.
+        // compare old persisted membership with the new overlay membership.
         let smt_changes = if self.smt.is_some() {
             match precomputed_smt_changes {
                 Some(changes) => Some(changes),
@@ -80,6 +71,16 @@ impl StateManager {
         } else {
             None
         };
+
+        // Move the overlay into the write batch. All derived views above have
+        // already inspected it, so cloning 100k values here is unnecessary.
+        for (key, val_opt) in std::mem::take(&mut self.overlay) {
+            if let Some(val) = val_opt {
+                updates.push((key, val));
+            } else {
+                deletes.push(key);
+            }
+        }
 
         // Update SMT if available
         if let (Some(smt), Some((smt_updates, smt_deletes, node_overlay))) =
@@ -108,7 +109,7 @@ impl StateManager {
                 return Ok(());
             }
 
-            self.store.apply_raw_changes(&updates, &deletes)?;
+            self.store.apply_raw_changes_owned(updates, deletes)?;
             let update_result = (|| -> Result<()> {
                 if let Some(root) = verified_root {
                     if node_overlay.is_empty() {
@@ -139,7 +140,7 @@ impl StateManager {
                 })?;
             }
         } else {
-            self.store.apply_raw_changes(&updates, &deletes)?;
+            self.store.apply_raw_changes_owned(updates, deletes)?;
         }
 
         self.overlay.clear();

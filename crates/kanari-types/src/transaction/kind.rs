@@ -78,6 +78,14 @@ impl Transaction {
         hash_data_blake3(&serialized)
     }
 
+    /// Hash transaction bytes that were already serialized from this value.
+    /// Callers on hot paths use this to avoid serializing the same transaction
+    /// multiple times for hashing and size accounting.
+    #[must_use]
+    pub fn hash_from_serialized(serialized: &[u8]) -> Vec<u8> {
+        hash_data_blake3(serialized)
+    }
+
     pub fn sender(&self) -> &str {
         match self {
             Transaction::PublishModule { sender, .. }
@@ -125,12 +133,7 @@ impl Transaction {
     /// Get conflict keys for this transaction.
     /// Transactions with overlapping conflict keys must be executed sequentially.
     pub fn get_conflict_keys(&self) -> Vec<String> {
-        let sender_norm = if let Ok(addr) = AccountAddress::from_hex_literal(self.sender()) {
-            addr.to_hex_literal()
-        } else {
-            let s = self.sender();
-            if !s.starts_with("0x") { format!("0x{}", s) } else { s.to_string() }
-        };
+        let sender_norm = super::access_keys::normalized_sender(self.sender());
 
         let mut keys = Vec::new();
 
@@ -190,12 +193,38 @@ impl Transaction {
     }
 
     pub fn object_inputs(&self) -> Vec<ObjectInput> {
+        self.object_inputs_ref().to_vec()
+    }
+
+    /// Borrowed object inputs for hot admission paths that only read metadata.
+    pub fn object_inputs_ref(&self) -> &[ObjectInput] {
         match self {
-            Transaction::ExecuteFunction { object_inputs, .. } => object_inputs.clone(),
+            Transaction::ExecuteFunction { object_inputs, .. } => object_inputs.as_slice(),
             Transaction::PublishModule { .. }
             | Transaction::PublishPackage { .. }
             | Transaction::UpgradeModule { .. }
-            | Transaction::UpgradePackage { .. } => Vec::new(),
+            | Transaction::UpgradePackage { .. } => &[],
+        }
+    }
+
+    /// Borrowed gas payment for hot admission paths that only read metadata.
+    pub fn gas_payment_ref(&self) -> Option<&GasPayment> {
+        match self {
+            Transaction::ExecuteFunction { gas_payment, .. }
+            | Transaction::PublishModule { gas_payment, .. }
+            | Transaction::PublishPackage { gas_payment, .. }
+            | Transaction::UpgradeModule { gas_payment, .. }
+            | Transaction::UpgradePackage { gas_payment, .. } => gas_payment.as_ref(),
+        }
+    }
+
+    /// Non-cloning shared-input probe for hot-path eligibility checks.
+    pub fn has_shared_object_input(&self) -> bool {
+        match self {
+            Transaction::ExecuteFunction { object_inputs, .. } => object_inputs
+                .iter()
+                .any(|input| matches!(input.owner, Some(ObjectOwnerKind::Shared))),
+            _ => false,
         }
     }
 
@@ -222,18 +251,18 @@ impl Transaction {
 
     pub fn object_access_keys(&self) -> Vec<String> {
         let mut keys = self
-            .object_inputs()
-            .into_iter()
+            .object_inputs_ref()
+            .iter()
             // Conflict identity is the object itself. Access role must not create a
             // separate namespace, otherwise read/write and gas/input aliases look disjoint.
             .map(|input| format!("object:{}", input.object_ref.object_id))
             .collect::<Vec<_>>();
 
-        if let Some(gas_payment) = self.gas_payment() {
+        if let Some(gas_payment) = self.gas_payment_ref() {
             keys.extend(
                 gas_payment
                     .payment_objects
-                    .into_iter()
+                    .iter()
                     .map(|payment| format!("object:{}", payment.object_id)),
             );
         }
@@ -244,31 +273,29 @@ impl Transaction {
     }
 
     pub fn primary_access_key(&self) -> String {
-        if let Some(key) = self
-            .object_inputs()
-            .into_iter()
-            .find(|input| input.mutable)
-            .map(|input| format!("mut:object:{}", input.object_ref.object_id))
-        {
-            return key;
+        use super::access_keys::PreferredAccess;
+        match super::access_keys::preferred_access(self) {
+            PreferredAccess::MutObject(input) => {
+                format!("mut:object:{}", input.object_ref.object_id)
+            }
+            PreferredAccess::Object(input) => {
+                format!("ro:object:{}", input.object_ref.object_id)
+            }
+            PreferredAccess::GasPayment(payment) => format!("mut:gas:{}", payment.object_id),
+            PreferredAccess::Owner(sender) => format!("owner:{sender}"),
         }
+    }
 
-        if let Some(key) = self.object_inputs().into_iter().next().map(|input| {
-            let mutability = if input.mutable { "mut" } else { "ro" };
-            format!("{mutability}:object:{}", input.object_ref.object_id)
-        }) {
-            return key;
+    /// Congestion key for the hot object touched by this transaction.
+    pub fn congestion_access_key(&self) -> String {
+        use super::access_keys::PreferredAccess;
+        match super::access_keys::preferred_access(self) {
+            PreferredAccess::MutObject(input) | PreferredAccess::Object(input) => {
+                format!("object:{}", input.object_ref.object_id)
+            }
+            PreferredAccess::GasPayment(payment) => format!("object:{}", payment.object_id),
+            PreferredAccess::Owner(sender) => format!("owner:{sender}"),
         }
-
-        if let Some(key) = self
-            .gas_payment()
-            .and_then(|gas_payment| gas_payment.payment_objects.into_iter().next())
-            .map(|payment| format!("mut:gas:{}", payment.object_id))
-        {
-            return key;
-        }
-
-        format!("owner:{}", self.sender())
     }
 
     pub fn native_call(&self) -> Option<NativeCall> {

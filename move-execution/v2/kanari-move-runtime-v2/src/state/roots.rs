@@ -4,6 +4,7 @@
 //! Sparse Merkle tree maintenance: schema, consistency, and overlay deltas.
 
 use super::*;
+use kanari_types::env::env_flag;
 
 impl StateManager {
     pub(crate) fn migrate_runtime_state_schema(&mut self) -> Result<()> {
@@ -353,10 +354,7 @@ impl StateManager {
     pub fn try_compute_state_root_with_smt_changes(
         &self,
     ) -> Result<(Vec<u8>, Option<PrecomputedSmtChanges>)> {
-        let profile_root = matches!(
-            std::env::var("KANARI_STATE_ROOT_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile_root = env_flag("KANARI_STATE_ROOT_PROFILE");
         let started_at = std::time::Instant::now();
         if let Some(smt) = &self.smt {
             let (updates, deletes) = self.smt_changes_from_overlay()?;

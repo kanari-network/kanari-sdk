@@ -634,6 +634,17 @@ fn admission_rejects_client_faults_fail_closed() {
     let engine = BlockchainEngine::new_in_memory().unwrap();
     engine.validate_transaction_admission_shape(&good_tx).unwrap();
 
+    // Price version newer than the protocol-fixed quote table must be rejected.
+    let mut bad_version_tx = good_tx.clone();
+    if let Transaction::ExecuteFunction { gas_payment: Some(payment), .. } = &mut bad_version_tx {
+        payment.price_version = Some(2);
+    }
+    let error = engine.validate_transaction_admission_shape(&bad_version_tx).unwrap_err();
+    assert!(
+        error.to_string().contains("price version"),
+        "newer gas price version must be rejected: {error:#}"
+    );
+
     // Object-count overflow.
     let mut many_objects_tx = Transaction::new_transfer_with_object_ref_and_gas(
         sender.tagged_address(),
@@ -3056,9 +3067,7 @@ fn usd_shared_cap_mint_pays_out_twice_to_any_recipient() {
             .query_objects(None, None, Some(&usd_coin_type), None, None)
             .unwrap()
             .into_iter()
-            .filter(|(_, coin)| {
-                coin.owner_kind == ObjectOwnerKind::AddressOwner(dao_address.to_hex_literal())
-            })
+            .filter(|(_, coin)| coin.owner_kind == ObjectOwnerKind::address_owner(&dao_address))
             .map(|(_, coin)| kanari_types::coin::CoinModule::read_balance(&coin.data).unwrap())
             .sum::<u64>();
         assert_eq!(dao_usd_coins, total_dao_gas_fees);
@@ -3167,6 +3176,7 @@ fn usd_shared_cap_mint_funded_usd_gas_keeps_supply_invariant() {
     );
     let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
     assert_eq!(state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(), 1_000_000);
+    state.validate_no_lost_tokens().unwrap();
 }
 
 /// Regression: two shared-cap mint legs paid in USD gas must keep the invariant
@@ -3194,6 +3204,7 @@ fn usd_shared_cap_mint_twice_funded_usd_gas_keeps_supply_invariant() {
             state.resolve_owner_token_balance(recipient_addr, USD_COIN).unwrap(),
             1_000_000 * (leg as u64 + 1)
         );
+        state.validate_no_lost_tokens().unwrap();
     }
 }
 
@@ -3453,6 +3464,78 @@ fn usd_shared_cap_mint_total_equals_visible_supply() {
     let cap = state.get_object(&caps[0].0).unwrap().unwrap();
     let tracked_total = u64::from_le_bytes(cap.data[32..40].try_into().unwrap_or([0; 8]));
     assert_eq!(tracked_total, visible, "tracked={} visible={}", tracked_total, visible);
+}
+
+/// Regression: a USD-funded action followed by a native KANARI-gas checkpoint
+/// must not leave native gas fees unaccounted (`Lost tokens detected`).
+#[test]
+fn usd_action_then_kanari_gas_checkpoint_keeps_native_supply() {
+    let engine = BlockchainEngine::new_in_memory().unwrap();
+    let sender = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient = generate_keypair(CurveType::Ed25519).unwrap();
+    let recipient_addr = AccountAddress::from_hex_literal(&recipient.address).unwrap();
+
+    // First exercise the non-native gas path with a USD shared-cap mint.
+    fund_sender_with_coin_type(
+        &engine,
+        &sender.address,
+        "0x00000000000000000000000000000000000000000000000000000000000000ab",
+        1_000_000,
+        USD_COIN,
+    );
+    usd_shared_cap_mint_leg(
+        &engine,
+        sender.address.clone(),
+        sender.tagged_address(),
+        recipient_addr,
+        1,
+        "0x00000000000000000000000000000000000000000000000000000000000000ab",
+        0,
+    );
+
+    // Then commit a native KANARI-gas transfer through checkpoint production.
+    fund_sender_with_coin(
+        &engine,
+        &sender.address,
+        "0x00000000000000000000000000000000000000000000000000000000000000ac",
+        1_000_000,
+    );
+    fund_sender_with_coin(
+        &engine,
+        &sender.address,
+        "0x00000000000000000000000000000000000000000000000000000000000000ad",
+        20_000_000,
+    );
+    // Use the protocol price-table KANARI quote (500 base units/gas, v3.1
+    // effective price 100) so the fee is materially larger than one Mist.
+    let mut transfer_tx = Transaction::new_transfer_with_object_ref_and_gas(
+        sender.tagged_address(),
+        native_coin_object_ref(
+            "0x00000000000000000000000000000000000000000000000000000000000000ac",
+            1_000_000,
+        ),
+        recipient.address.clone(),
+        1,
+        1,
+        100_000,
+        500,
+    );
+    if let Transaction::ExecuteFunction { gas_payment: Some(gas_payment), .. } = &mut transfer_tx {
+        gas_payment.payment_objects = vec![native_coin_object_ref(
+            "0x00000000000000000000000000000000000000000000000000000000000000ad",
+            20_000_000,
+        )];
+        gas_payment.price = 500;
+        gas_payment.price_version = Some(1);
+    }
+    let mut transfer = SignedTransaction::new(transfer_tx);
+    transfer.sign(&sender.private_key, sender.curve_type).unwrap();
+    engine.submit_transactions_batch(vec![transfer]).unwrap();
+    let info = engine.produce_owned_fast_checkpoint().unwrap();
+    assert_eq!(info.executed, 1, "{:?}", info);
+
+    let state = engine.state.read().unwrap_or_else(|e| e.into_inner());
+    state.validate_no_lost_tokens().unwrap();
 }
 
 /// Resolve a test move package directory under tests/move_packages.

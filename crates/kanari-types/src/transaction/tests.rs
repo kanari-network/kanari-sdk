@@ -355,6 +355,41 @@ fn object_access_identity_unifies_read_write_and_gas_roles() {
     };
 
     assert_eq!(tx.object_access_keys(), vec!["object:0x42".to_string()]);
+    assert_eq!(tx.primary_access_key(), "ro:object:0x42");
+    assert_eq!(tx.congestion_access_key(), "object:0x42");
+}
+
+#[test]
+fn access_key_helpers_prefer_mutable_object_then_gas() {
+    let object_ref = ObjectRef::new("0x42", Some(1), Some("digest".to_string()));
+    let gas_ref = ObjectRef::new("0x99", Some(1), Some("gasdigest".to_string()));
+    let tx = Transaction::ExecuteFunction {
+        sender: "0x1".to_string(),
+        module: "example".to_string(),
+        function: "call".to_string(),
+        type_args: Vec::new(),
+        args: Vec::new(),
+        object_inputs: vec![ObjectInput {
+            object_ref: object_ref.clone(),
+            owner: Some(ObjectOwnerKind::AddressOwner("0x1".to_string())),
+            mutable: true,
+        }],
+        gas_payment: Some(GasPayment {
+            payment_objects: vec![gas_ref],
+            owner: "0x1".to_string(),
+            budget: 100,
+            price: 1,
+            coin_type: None,
+            price_version: None,
+        }),
+        gas_limit: 100,
+        gas_price: 1,
+        nonce: 0,
+    };
+
+    assert_eq!(tx.primary_access_key(), "mut:object:0x42");
+    assert_eq!(tx.congestion_access_key(), "object:0x42");
+    assert_eq!(tx.object_access_keys(), vec!["object:0x42".to_string(), "object:0x99".to_string()]);
 }
 
 #[test]
@@ -385,4 +420,12 @@ fn bcs_round_trips_sparse_transaction_effects() {
     };
     let bytes = bcs::to_bytes(&effects).unwrap();
     assert_eq!(bcs::from_bytes::<TransactionEffects>(&bytes).unwrap(), effects);
+}
+
+#[test]
+fn nonce_watermark_sanitization_preserves_json_safe_values() {
+    assert_eq!(sanitize_nonce_watermark(0), Some(0));
+    assert_eq!(sanitize_nonce_watermark(MAX_JSON_SAFE_NONCE_WATERMARK - 1), Some((1u64 << 53) - 1));
+    assert_eq!(sanitize_nonce_watermark(MAX_JSON_SAFE_NONCE_WATERMARK), None);
+    assert_eq!(sanitize_nonce_watermark(u64::MAX), None);
 }

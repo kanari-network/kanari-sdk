@@ -1,7 +1,7 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use kanari_crypto::keys::CurveType;
 use kanari_crypto::verify_signature;
 use kanari_crypto::{hash_data_blake3, signatures::sign_message};
@@ -71,12 +71,24 @@ impl SignedTransaction {
             return Ok(false);
         }
 
+        self.verify_signature_against_hash(tx_hash)
+    }
+
+    /// Verify a signature against a hash that the caller derived from
+    /// `bcs::to_bytes(&self.transaction)`. This skips the defensive
+    /// re-serialization in `verify_signature_for_hash`; callers must guarantee
+    /// the bytes came from this exact transaction.
+    pub fn verify_signature_against_hash(&self, tx_hash: &[u8]) -> Result<bool> {
+        if self.signature.is_empty() {
+            anyhow::bail!("Transaction not signed");
+        }
+
         let signature = &self.signature;
         if self
             .cached_verified_signature
             .get()
             .map(|(cached_hash, cached_signature)| {
-                cached_hash.as_slice() == current_hash.as_slice() && cached_signature == signature
+                cached_hash.as_slice() == tx_hash && cached_signature == signature
             })
             .unwrap_or(false)
         {
@@ -90,7 +102,7 @@ impl SignedTransaction {
         if !verified {
             return Ok(false);
         }
-        let _ = self.cached_verified_signature.set((current_hash, signature.clone()));
+        let _ = self.cached_verified_signature.set((tx_hash.to_vec(), signature.clone()));
         Ok(true)
     }
 
@@ -124,6 +136,19 @@ impl SignedTransaction {
 
     pub fn into_verified(self) -> Result<VerifiedSignedTransaction> {
         let tx_hash = self.verified_transaction_hash()?;
+        Ok(VerifiedSignedTransaction { signed: self, tx_hash })
+    }
+
+    /// Build a verified wrapper using transaction bytes the caller already
+    /// serialized from `self.transaction`. The hash is derived once from those
+    /// bytes and cached, so downstream code never re-serializes the transaction.
+    pub fn into_verified_from_serialized_transaction(
+        self,
+        serialized_transaction: &[u8],
+    ) -> Result<VerifiedSignedTransaction> {
+        let tx_hash = Transaction::hash_from_serialized(serialized_transaction);
+        ensure!(self.verify_signature_against_hash(&tx_hash)?, "Invalid transaction signature");
+        let _ = self.cached_transaction_hash.set(tx_hash.clone());
         Ok(VerifiedSignedTransaction { signed: self, tx_hash })
     }
 

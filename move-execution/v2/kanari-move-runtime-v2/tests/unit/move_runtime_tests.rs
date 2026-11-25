@@ -294,7 +294,7 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
     let coin_type = format!("0x2::coin::Coin<{}>", kanari_types::gas_coin::GAS_COIN);
     let transfer_coin_id = "0x15fd69ee1ac3b3e43b0348b5c59202059404f529a23d4c054d56841193fdb45a";
     let gas_coin_id = "0xdfa10cddb4fb9b10fdb5083fe6bc1e03970cbdd891b1e31e894070c33462e672";
-    let owner_kind = ObjectOwnerKind::AddressOwner(sender.to_hex_literal());
+    let owner_kind = ObjectOwnerKind::address_owner(&sender);
     let transfer_coin = StoredObject {
         id: transfer_coin_id.to_string(),
         owner: sender,
@@ -329,7 +329,7 @@ fn kanari_transfer_keeps_distinct_sender_gas_coin_objects() -> Result<()> {
                     Some(transfer_coin.version),
                     None,
                 ),
-                owner: Some(ObjectOwnerKind::AddressOwner(sender.to_hex_literal())),
+                owner: Some(ObjectOwnerKind::address_owner(&sender)),
                 mutable: true,
             }],
             sender: Some(sender),
@@ -391,7 +391,7 @@ fn entry_can_borrow_coin_id_after_string_address_and_u64_args() -> Result<()> {
     let coin = StoredObject {
         id: coin_id.to_string(),
         owner: sender,
-        owner_kind: ObjectOwnerKind::AddressOwner(sender.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&sender),
         type_name: coin_type,
         data: coin_data(coin_id, 1_000_000_000)?,
         version: 1,
@@ -474,7 +474,7 @@ fn entry_cannot_mutably_borrow_address_owned_coin_from_other_owner() -> Result<(
     runtime.object_storage.store_object(StoredObject {
         id: coin_id.to_string(),
         owner: other_owner,
-        owner_kind: ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&other_owner),
         type_name: coin_type,
         data: coin_data(coin_id, 1_000_000_000)?,
         version: 1,
@@ -525,7 +525,7 @@ fn run_gas_transfer(
     runtime.object_storage.store_object(StoredObject {
         id: coin_id.to_string(),
         owner: sender,
-        owner_kind: ObjectOwnerKind::AddressOwner(sender.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&sender),
         type_name: coin_type,
         data: coin_data(coin_id, 1_000_000_000)?,
         version: 1,
@@ -540,7 +540,7 @@ fn run_gas_transfer(
             EntryFunctionObjectContext {
                 object_inputs: vec![ObjectInput {
                     object_ref: ObjectRef::new(coin_id.to_string(), Some(1), None),
-                    owner: Some(ObjectOwnerKind::AddressOwner(sender.to_hex_literal())),
+                    owner: Some(ObjectOwnerKind::address_owner(&sender)),
                     mutable: true,
                 }],
                 sender: Some(sender),
@@ -630,7 +630,7 @@ fn raw_address_arg_cannot_mutably_borrow_non_coin_object_from_other_owner() -> R
     runtime.object_storage.store_object(StoredObject {
         id: marker_id.to_string(),
         owner: other_owner,
-        owner_kind: ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&other_owner),
         type_name: format!(
             "{}::escrow_like_object_input::Marker",
             module_id.address().to_hex_literal()
@@ -685,7 +685,7 @@ fn explicit_object_input_cannot_mutably_borrow_address_owned_defi_object_from_ot
     runtime.object_storage.store_object(StoredObject {
         id: marker_id.to_string(),
         owner: other_owner,
-        owner_kind: ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&other_owner),
         type_name: format!(
             "{}::escrow_like_object_input::Marker",
             module_id.address().to_hex_literal()
@@ -703,7 +703,7 @@ fn explicit_object_input_cannot_mutably_borrow_address_owned_defi_object_from_ot
             EntryFunctionObjectContext {
                 object_inputs: vec![ObjectInput {
                     object_ref: ObjectRef::new(marker_id.to_string(), Some(1), None),
-                    owner: Some(ObjectOwnerKind::AddressOwner(other_owner.to_hex_literal())),
+                    owner: Some(ObjectOwnerKind::address_owner(&other_owner)),
                     mutable: true,
                 }],
                 sender: Some(sender),

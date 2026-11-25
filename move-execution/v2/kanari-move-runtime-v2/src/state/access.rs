@@ -4,6 +4,7 @@
 //! Overlay key-value access and monotonic access versions.
 
 use super::*;
+use kanari_types::env::env_flag_default_true;
 
 impl StateManager {
     // Helper to write to overlay (pub for genesis module)
@@ -64,14 +65,28 @@ impl StateManager {
 
     /// Bump the monotonic version counters for keys written by the access set.
     pub(crate) fn advance_access_versions(&mut self, access: &StateAccessSet) -> Result<()> {
-        let persist_access_versions = std::env::var("KANARI_PERSIST_ACCESS_VERSIONS")
-            .map(|value| !matches!(value.as_str(), "0" | "false" | "FALSE" | "no" | "NO"))
-            .unwrap_or(true);
-        if !access.writes.is_empty() {
-            self.access_epoch =
-                self.access_epoch.checked_add(1).context("State access epoch overflow")?;
+        self.advance_access_versions_for_keys(access.writes.iter().cloned())
+    }
+
+    /// Bump the monotonic version counters for an explicit key iterator.
+    ///
+    /// Equivalent to building a write-only `StateAccessSet`, but batch fast
+    /// paths can pass the keys they already collected without cloning each
+    /// key into another wrapper set.
+    pub(crate) fn advance_access_versions_for_keys<I>(&mut self, keys: I) -> Result<()>
+    where
+        I: IntoIterator<Item = Vec<u8>>,
+    {
+        let writes: BTreeSet<Vec<u8>> = keys.into_iter().collect();
+        if writes.is_empty() {
+            return Ok(());
         }
-        for key in &access.writes {
+        let persist_access_versions = env_flag_default_true("KANARI_PERSIST_ACCESS_VERSIONS");
+        let epoch = self.access_epoch.checked_add(1).context("State access epoch overflow")?;
+        self.access_epoch = epoch;
+
+        let mut batch = BTreeMap::new();
+        for key in &writes {
             let next = self
                 .access_versions
                 .get(key)
@@ -81,10 +96,19 @@ impl StateManager {
                 .context("State access version overflow")?;
             self.access_versions.insert(key.clone(), next);
             if persist_access_versions {
-                let mut persisted_key = ACCESS_VERSION_PREFIX.to_vec();
-                persisted_key.extend_from_slice(key);
-                self.save_internal(&persisted_key, &next)?;
+                batch.insert(key.clone(), next);
             }
+        }
+
+        if persist_access_versions {
+            // Persist one ordered delta blob per batch instead of one overlay
+            // entry per state key. Restart recovery replays batches in epoch
+            // order, so the same versions are restored without amplifying the
+            // overlay/root hot path.
+            let mut batch_key = ACCESS_VERSION_BATCH_PREFIX.to_vec();
+            batch_key.extend_from_slice(&epoch.to_be_bytes());
+            self.save_internal(&batch_key, &batch)?;
+            self.save_internal(ACCESS_EPOCH_KEY, &epoch)?;
         }
         Ok(())
     }

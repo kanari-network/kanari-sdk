@@ -72,7 +72,7 @@ static DB_GENESIS_LOCKS: OnceLock<Mutex<HashMap<usize, Weak<Mutex<()>>>>> = Once
 fn genesis_lock_for_db(db: &Arc<DB>) -> Arc<Mutex<()>> {
     let key = Arc::as_ptr(db) as usize;
     let registry = DB_GENESIS_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut registry = registry.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut registry = kanari_types::sync::mutex_lock_or_recover(registry);
     registry.retain(|_, lock| lock.strong_count() > 0);
     if let Some(lock) = registry.get(&key).and_then(Weak::upgrade) {
         return lock;
@@ -99,12 +99,12 @@ pub struct PersistentStore {
 impl PersistentStore {
     /// Serialize read-modify-write transactions that maintain secondary indexes.
     pub(crate) fn transaction_guard(&self) -> MutexGuard<'_, ()> {
-        self.transaction_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::mutex_lock_or_recover(&self.transaction_lock)
     }
 
     /// Serialize first-time genesis initialization for this store's database.
     pub(crate) fn genesis_init_guard(&self) -> MutexGuard<'_, ()> {
-        self.genesis_init_lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::mutex_lock_or_recover(&self.genesis_init_lock)
     }
 
     /// Open default store path (same behavior as previous implementation).
@@ -137,11 +137,11 @@ impl PersistentStore {
     }
 
     fn read_memory_store(store: &MemoryStore) -> RwLockReadGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
-        store.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::rw_read_or_recover(store)
     }
 
     fn write_memory_store(store: &MemoryStore) -> RwLockWriteGuard<'_, HashMap<Vec<u8>, Vec<u8>>> {
-        store.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::rw_write_or_recover(store)
     }
 
     fn read_raw(&self, key: &[u8]) -> std::result::Result<Option<Vec<u8>>, PersistentStoreError> {
@@ -259,6 +259,28 @@ impl PersistentStore {
         } else {
             Ok(false)
         }
+    }
+
+    /// Apply owned raw state changes, moving values into the in-memory backend
+    /// instead of cloning the whole checkpoint overlay.
+    pub fn apply_raw_changes_owned(
+        &self,
+        updates: Vec<(Vec<u8>, Vec<u8>)>,
+        deletes: Vec<Vec<u8>>,
+    ) -> std::result::Result<(), PersistentStoreError> {
+        if self.db.is_some() {
+            return self.apply_raw_changes(&updates, &deletes);
+        }
+        if let Some(store) = &self.memory_store {
+            let mut guard = Self::write_memory_store(store);
+            for (key, value) in updates {
+                guard.insert(key, value);
+            }
+            for key in deletes {
+                guard.remove(&key);
+            }
+        }
+        Ok(())
     }
 
     /// Apply raw state key updates/deletes atomically where the backend supports it.

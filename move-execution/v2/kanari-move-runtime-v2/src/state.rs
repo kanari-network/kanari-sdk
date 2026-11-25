@@ -50,8 +50,8 @@ const WALLET_SUPPLY_INDEX_VERSION_KEY: &[u8] = b"runtime:wallet_supply_index_ver
 const WALLET_SUPPLY_INDEX_VERSION: u32 = 1;
 const ACCESS_VERSIONS_KEY: &[u8] = b"runtime:state_access_versions";
 const ACCESS_VERSION_PREFIX: &[u8] = b"runtime:state_access_version:";
-const UID_SIZE: usize = 32;
-const U64_SIZE: usize = 8;
+const ACCESS_VERSION_BATCH_PREFIX: &[u8] = b"runtime:state_access_version_batch:";
+const ACCESS_EPOCH_KEY: &[u8] = b"runtime:state_access_epoch";
 
 type RawStateKey = Vec<u8>;
 type RawStateValue = Vec<u8>;
@@ -244,15 +244,28 @@ impl StateManager {
             .load::<BTreeMap<Vec<u8>, u64>>(ACCESS_VERSIONS_KEY)
             .context("Failed to load state access versions")?
             .unwrap_or_default();
+        let mut highest_access_epoch = store
+            .load::<u64>(ACCESS_EPOCH_KEY)
+            .context("Failed to load state access epoch")?
+            .unwrap_or(0);
         for (key, value) in
             store.logical_entries().context("Failed to load per-key state access versions")?
         {
-            let Some(state_key) = key.strip_prefix(ACCESS_VERSION_PREFIX) else {
-                continue;
-            };
-            let version =
-                bcs::from_bytes::<u64>(&value).context("Malformed per-key state access version")?;
-            access_versions.insert(state_key.to_vec(), version);
+            if let Some(state_key) = key.strip_prefix(ACCESS_VERSION_PREFIX) {
+                let version = bcs::from_bytes::<u64>(&value)
+                    .context("Malformed per-key state access version")?;
+                access_versions.insert(state_key.to_vec(), version);
+            } else if let Some(epoch_bytes) = key.strip_prefix(ACCESS_VERSION_BATCH_PREFIX) {
+                let epoch_bytes: [u8; 8] =
+                    epoch_bytes.try_into().context("Malformed batched state access version key")?;
+                let epoch = u64::from_be_bytes(epoch_bytes);
+                highest_access_epoch = highest_access_epoch.max(epoch);
+                let deltas = bcs::from_bytes::<BTreeMap<Vec<u8>, u64>>(&value)
+                    .context("Malformed batched state access versions")?;
+                // Batch keys are ordered by big-endian epoch, so later writes
+                // correctly override earlier versions for the same state key.
+                access_versions.extend(deltas);
+            }
         }
 
         // Recover native total supply from older databases that persisted the
@@ -286,7 +299,8 @@ impl StateManager {
         let genesis_already_initialized =
             genesis_marker || recovered_total_supply > 0 || legacy_zero_supply_evidence;
 
-        // Initialize SMT if store is backed by RocksDB
+        // Initialize SMT only for the durable RocksDB backend. The in-memory
+        // fallback recomputes the canonical root from a full scan.
         let smt = store.get_db().map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
 
         let mut state = Self {
@@ -297,7 +311,7 @@ impl StateManager {
             smt,
             events: Vec::new(),
             access_versions,
-            access_epoch: 0,
+            access_epoch: highest_access_epoch,
         };
 
         state.ensure_smt_initialized().context("Failed to initialize state SMT")?;
@@ -408,7 +422,7 @@ pub(crate) fn default_owner_kind_for_type(
     } else if CoinModule::is_coin_metadata_type(type_name) {
         ObjectOwnerKind::Immutable
     } else {
-        ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+        ObjectOwnerKind::address_owner(&owner)
     }
 }
 

@@ -89,9 +89,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.8.13"
+version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fca89247609239eeb6915e6991111866b92d7b31025e69302bbf430cc4d2c38"
+checksum = "54dae3d1d7b8956f3506c4e999a74e77f932a59153ccf38ab8cf96db74bb9dc0"
 dependencies = [
  "cfg-if",
  "getrandom 0.4.3",
@@ -3842,6 +3842,7 @@ dependencies = [
 name = "kanari-move-runtime-v2"
 version = "0.4.0"
 dependencies = [
+ "ahash",
  "anyhow",
  "arbitrary",
  "bcs",
@@ -3861,6 +3862,7 @@ dependencies = [
  "move-vm-runtime",
  "move-vm-types",
  "proptest",
+ "rayon",
  "rocksdb",
  "serde",
  "serde_json",

@@ -18,7 +18,6 @@
 use crate::state::default_owner_kind_for_type;
 use crate::storage::resolver::KanariMoveResolver;
 use anyhow::{Context, Result, ensure};
-use kanari_crypto::hash_data_blake3;
 use kanari_system_natives::child::ChildIndexExt;
 use kanari_system_natives::dynamic_field::{DynamicFieldOp, DynamicFieldsExt};
 use kanari_system_natives::event::CapturedEvent;
@@ -30,6 +29,7 @@ use kanari_system_natives::object::{
 use kanari_system_natives::transfer_natives::{TransferredObject, TransferredObjectsExt};
 use kanari_system_natives::types::ClaimedWitnessesExt;
 use kanari_types::clock::{Clock, ClockModule};
+use kanari_types::hash::{blake3, blake3_hex_0x};
 
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::event::Event;
@@ -358,7 +358,7 @@ impl MoveRuntime {
     }
 
     fn object_digest(data: &[u8]) -> String {
-        format!("0x{}", hex::encode(hash_data_blake3(data)))
+        blake3_hex_0x(data)
     }
 
     fn load_object_by_ref_checked(&self, object_ref: &ObjectRef) -> Result<StoredObject> {

@@ -67,7 +67,7 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
         vec![
             ObjectInput {
                 object_ref: ObjectRef::new("0x1", Some(7), Some("0xaaa".to_string())),
-                owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+                owner: Some(ObjectOwnerKind::address_owner(&owner)),
                 mutable: true,
             },
             ObjectInput {
@@ -100,7 +100,7 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
             object_ref: ObjectRef::new("0xc", Some(1), Some("0x1".to_string())),
             previous_object_ref: None,
             type_: Some("0x2::test::Created".to_string()),
-            owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+            owner: Some(ObjectOwnerKind::address_owner(&owner)),
             previous_owner: None,
             previous_version: None,
             amount: None,
@@ -118,7 +118,7 @@ fn effects_bucket_object_changes_and_preserve_input_refs() {
                 Some("0xold".to_string()),
             )),
             type_: Some("0x2::test::Transferred".to_string()),
-            owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+            owner: Some(ObjectOwnerKind::address_owner(&owner)),
             previous_owner: Some(ObjectOwnerKind::Shared),
             previous_version: Some(1),
             amount: None,

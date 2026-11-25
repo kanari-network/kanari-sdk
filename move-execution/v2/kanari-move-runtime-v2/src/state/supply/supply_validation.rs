@@ -75,48 +75,45 @@ impl StateManager {
     }
 
     /// Validate that no tokens are lost: total_supply == wallet_visible + object_locked
-    /// for every known fungible token. This is stricter than `validate_supply_invariants`
-    /// (which uses <=) and should only be called at checkpoint boundaries.
-    /// Reuses the same token-type enumeration as `validate_supply_invariants`.
+    /// for every known fungible token. Stricter than bounds-only validation and
+    /// intended for checkpoint boundaries.
     pub fn validate_no_lost_tokens(&self) -> Result<()> {
-        let token_types = self.known_token_types()?;
-
-        for token_type in token_types {
-            let summary = self.token_supply_summary(&token_type)?;
-            let accounted = summary
-                .wallet_visible_supply
-                .checked_add(summary.object_locked_supply)
-                .require("Accounted token supply overflow")?;
-            ensure!(
-                accounted == summary.total_supply,
-                "Lost tokens detected: token_type={} total_supply={} accounted={} wallet_visible={} object_locked={}",
-                token_type,
-                summary.total_supply,
-                accounted,
-                summary.wallet_visible_supply,
-                summary.object_locked_supply
-            );
-        }
-        Ok(())
+        self.validate_supply_invariants_inner(true)
     }
 
-    /// Enumerate all known fungible token types (tracked + canonical index).
+    /// Enumerate all known fungible token types (tracked + canonical index keys).
+    /// Prefer passing an already-computed canonical index when available.
     pub fn known_token_types(&self) -> Result<BTreeSet<String>> {
         let canonical_index = self.compute_wallet_supply_index()?;
-        let mut token_types = self.tracked_fungible_token_types()?;
+        Ok(Self::known_token_types_from_index(
+            &canonical_index,
+            &self.tracked_fungible_token_types()?,
+        ))
+    }
+
+    fn known_token_types_from_index(
+        canonical_index: &BTreeMap<String, u64>,
+        tracked: &BTreeSet<String>,
+    ) -> BTreeSet<String> {
+        let mut token_types = tracked.clone();
         token_types.extend(
             canonical_index.keys().map(|token_type| CoinModule::normalize_token_type(token_type)),
         );
-        Ok(token_types)
+        token_types
     }
 
     /// Validate supply bounds for every known fungible token using canonical object
     /// state.
     pub fn validate_supply_invariants(&self) -> Result<()> {
+        self.validate_supply_invariants_inner(false)
+    }
+
+    fn validate_supply_invariants_inner(&self, strict_no_lost: bool) -> Result<()> {
         self.validate_persisted_native_supply()?;
 
         let canonical_index = self.compute_wallet_supply_index()?;
-        let token_types = self.known_token_types()?;
+        let tracked = self.tracked_fungible_token_types()?;
+        let token_types = Self::known_token_types_from_index(&canonical_index, &tracked);
 
         for token_type in token_types {
             let summary = self.token_supply_summary(&token_type)?;
@@ -135,6 +132,22 @@ impl StateManager {
                 canonical_visible,
                 summary.wallet_visible_supply
             );
+
+            if strict_no_lost {
+                let accounted = summary
+                    .wallet_visible_supply
+                    .checked_add(summary.object_locked_supply)
+                    .require("Accounted token supply overflow")?;
+                ensure!(
+                    accounted == summary.total_supply,
+                    "Lost tokens detected: token_type={} total_supply={} accounted={} wallet_visible={} object_locked={}",
+                    token_type,
+                    summary.total_supply,
+                    accounted,
+                    summary.wallet_visible_supply,
+                    summary.object_locked_supply
+                );
+            }
         }
 
         ensure!(

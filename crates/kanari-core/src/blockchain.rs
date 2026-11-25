@@ -11,8 +11,8 @@
 
 use crate::consensus::Checkpoint;
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3_array;
 use kanari_types::error::KanariUnwrapExt;
+use kanari_types::hash::blake3;
 use kanari_types::transaction::{SignedTransaction, TransactionEffects};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -102,6 +102,11 @@ impl Blockchain {
     /// and is present in the replay-protection index.
     pub fn is_transaction_hash_executed(&self, tx_hash: &[u8]) -> bool {
         self.executed_tx_hashes.contains(tx_hash)
+    }
+
+    /// Whether replay-protection currently holds any committed transaction.
+    pub(crate) fn has_executed_transactions(&self) -> bool {
+        !self.executed_tx_hashes.is_empty()
     }
 
     /// Restore the deterministic genesis checkpoint in snapshots written by
@@ -212,7 +217,7 @@ impl Blockchain {
         self.track_checkpoint_transactions(&checkpoint);
 
         // Index the vertex set for O(1) duplicate detection during commit.
-        let vertex_set_hash = hash_data_blake3_array(
+        let vertex_set_hash = blake3(
             &checkpoint.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
         );
         self.committed_vertex_sets.insert(vertex_set_hash, checkpoint.sequence);
@@ -230,7 +235,7 @@ impl Blockchain {
                 self.tx_location_index.remove(&hash);
             }
             // Remove evicted checkpoint's vertex set from the index.
-            let evicted_vertex_set_hash = hash_data_blake3_array(
+            let evicted_vertex_set_hash = blake3(
                 &evicted.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
             );
             self.committed_vertex_sets.remove(&evicted_vertex_set_hash);

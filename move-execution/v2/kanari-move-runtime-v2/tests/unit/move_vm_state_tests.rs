@@ -31,7 +31,7 @@ fn canonical_stored_object_is_available_to_resource_fallback_and_coin_mirror() -
     let object = StoredObject {
         id: owner_id,
         owner,
-        owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&owner),
         type_name: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
         data: vec![1, 2, 3],
         version: 1,
@@ -69,7 +69,7 @@ fn overlay_object_update_and_delete_shadow_persistent_state() -> Result<()> {
     let mut object = StoredObject {
         id: object_id_hex,
         owner: object_id,
-        owner_kind: ObjectOwnerKind::AddressOwner(object_id.to_hex_literal()),
+        owner_kind: ObjectOwnerKind::address_owner(&object_id),
         type_name: "0x2::test::Value".to_string(),
         data: vec![1],
         version: 1,

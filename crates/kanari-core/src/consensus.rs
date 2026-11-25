@@ -7,7 +7,6 @@
 //! This module only defines kanari-specific types such as [`Checkpoint`].
 
 use anyhow::Result;
-use kanari_crypto::hash_data_blake3;
 use kanari_types::transaction::{
     ObjectChange, ObjectGraphEdge, SignedTransaction, TransactionEffects,
 };
@@ -123,7 +122,7 @@ impl Checkpoint {
                 &self.prev_checkpoint_hash,
             ))?
         };
-        Ok(hash_data_blake3(&serialized))
+        Ok(kanari_types::hash::blake3(&serialized).to_vec())
     }
 
     pub fn genesis() -> Self {

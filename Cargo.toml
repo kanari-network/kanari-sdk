@@ -182,7 +182,7 @@ zstd = "0.14.5"                                                                 
 # Caching & Performance Optimization
 # ============================================================================
 lru = "0.19.2"                                                                      # LRU cache
-ahash = "0.8.13"                                                                    # Fast non-cryptographic hasher
+ahash = "0.8.14"                                                                    # Fast non-cryptographic hasher
 
 # ============================================================================
 # Error Handling & Result Types

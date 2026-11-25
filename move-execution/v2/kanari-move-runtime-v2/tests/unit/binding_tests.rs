@@ -201,7 +201,7 @@ proptest! {
         prop_assert!(!MoveRuntime::can_mutably_borrow_preloaded_object(
             requested_mutable,
             &object_type,
-            &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+            &ObjectOwnerKind::address_owner(&owner),
             owner,
             Some(sender),
         ));
@@ -217,7 +217,7 @@ proptest! {
         let allowed = MoveRuntime::can_mutably_borrow_preloaded_object(
             requested_mutable,
             "0x48::escrow_like::Marker",
-            &ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+            &ObjectOwnerKind::address_owner(&owner),
             owner,
             Some(sender),
         );
@@ -237,7 +237,7 @@ proptest! {
         } else if use_shared {
             ObjectOwnerKind::Shared
         } else {
-            ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+            ObjectOwnerKind::address_owner(&owner)
         };
 
         let allowed = MoveRuntime::can_mutably_borrow_preloaded_object(

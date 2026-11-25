@@ -4,13 +4,9 @@
 use super::*;
 
 pub(crate) fn strict_guard_required(network: &str, override_value: Option<&str>) -> bool {
-    override_value
-        .map(|value| {
-            matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or_else(|| {
-            !(network.eq_ignore_ascii_case("local") || network.eq_ignore_ascii_case("test"))
-        })
+    override_value.map(kanari_types::env::flag_enabled_loose).unwrap_or_else(|| {
+        !(network.eq_ignore_ascii_case("local") || network.eq_ignore_ascii_case("test"))
+    })
 }
 
 /// Configuration flags controlling production runtime safety guards.

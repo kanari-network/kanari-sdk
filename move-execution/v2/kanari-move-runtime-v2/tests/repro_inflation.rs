@@ -6,7 +6,7 @@ use kanari_move_runtime_v2::{ChangeSet, changeset::CreatedObject, state::StateMa
 use move_core_types::account_address::AccountAddress;
 
 fn address_owner(owner: AccountAddress) -> ObjectOwnerKind {
-    ObjectOwnerKind::AddressOwner(owner.to_hex_literal())
+    ObjectOwnerKind::address_owner(&owner)
 }
 
 fn canonical_object_id(object_id: &str) -> String {

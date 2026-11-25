@@ -1,7 +1,9 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::address::{Address, AddressParseError};
 use crate::event::Event;
+use move_core_types::account_address::AccountAddress;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,6 +11,32 @@ pub enum ObjectOwnerKind {
     AddressOwner(String),
     Shared,
     Immutable,
+}
+
+impl ObjectOwnerKind {
+    /// Build an address owner using the runtime's canonical `to_hex_literal`
+    /// spelling. Do not switch this to full object-ID form: it is persisted.
+    #[must_use]
+    pub fn address_owner(address: &AccountAddress) -> Self {
+        Self::AddressOwner(address.to_hex_literal())
+    }
+
+    /// Parse with the strict runtime rule (`AccountAddress::from_hex_literal`).
+    #[must_use]
+    pub fn address_account_strict(&self) -> Option<AccountAddress> {
+        match self {
+            Self::AddressOwner(owner) => AccountAddress::from_hex_literal(owner).ok(),
+            Self::Shared | Self::Immutable => None,
+        }
+    }
+
+    /// Parse with the tolerant SDK-boundary rule used for API transactions.
+    pub fn address_account_parsed(&self) -> Result<Option<AccountAddress>, AddressParseError> {
+        match self {
+            Self::AddressOwner(owner) => Address::parse_to_account_address(owner).map(Some),
+            Self::Shared | Self::Immutable => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -70,6 +98,17 @@ impl GasPayment {
     /// Whether this payment settles in native KANARI (legacy path).
     pub fn is_native_payment(&self) -> bool {
         crate::coin::CoinModule::is_native_token_type(&self.gas_coin_type())
+    }
+
+    /// Parse the payment owner with the strict runtime rule.
+    #[must_use]
+    pub fn owner_account_strict(&self) -> Option<AccountAddress> {
+        AccountAddress::from_hex_literal(&self.owner).ok()
+    }
+
+    /// Parse the payment owner with the tolerant SDK-boundary rule.
+    pub fn owner_account_parsed(&self) -> Result<AccountAddress, AddressParseError> {
+        Address::parse_to_account_address(&self.owner)
     }
 
     /// Constructor used by wallets: explicit coin selection.

@@ -80,6 +80,13 @@ impl GasPriceTable {
         Self::default()
     }
 
+    /// Shared protocol table used by admission and execution. The v1 table is
+    /// fixed, so build it once instead of allocating per transaction.
+    pub fn protocol() -> &'static Self {
+        static TABLE: std::sync::OnceLock<GasPriceTable> = std::sync::OnceLock::new();
+        TABLE.get_or_init(Self::default)
+    }
+
     /// Canonical lookup (accepts `0x02..` style spellings).
     pub fn entry_for(&self, coin_type: &str) -> Option<&GasCoinEntry> {
         let wanted = CoinModule::normalize_token_type(coin_type);

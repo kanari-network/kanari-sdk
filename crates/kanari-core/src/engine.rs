@@ -13,6 +13,10 @@ use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
 use kanari_rpc_api::ObjectInfo;
 use kanari_types::address::Address as KanariAddress;
 use kanari_types::coin::CoinModule;
+use kanari_types::env::{
+    env_flag, env_flag_default_true, env_u64_interval, env_u64_positive, env_u64_positive_opt,
+    env_usize_positive,
+};
 use kanari_types::error::KanariUnwrapExt;
 use kanari_types::gas_coin::GAS_COIN;
 use kanari_types::object::object_id_for_address;
@@ -88,31 +92,12 @@ fn compatible_protocol_version(manifest: &str, local: &str) -> bool {
 pub const GENESIS_MANIFEST_FORMAT_VERSION: u32 = 1;
 pub const STATE_SCHEMA_VERSION: &str = "canonical-state-root-v1";
 
-/// Returns the canonical representation used for a consensus authority ID.
-///
-/// Configuration files and command-line inputs may omit the `0x` prefix, but
-/// the engine stores and compares authority IDs with it. Keeping this rule in
-/// core means every caller uses the same identity when configuring consensus.
-pub fn normalize_consensus_authority_id(authority_id: impl AsRef<str>) -> String {
-    let authority_id = authority_id.as_ref();
-    if authority_id.starts_with("0x") {
-        authority_id.to_owned()
-    } else {
-        format!("0x{authority_id}")
-    }
-}
-
-/// Decodes a hexadecimal value, accepting an optional `0x` prefix, and
-/// verifies its byte length before the value is used as key material.
-pub fn decode_hex_exact(label: &str, value: &str, expected_len: usize) -> Result<Vec<u8>> {
-    let value = value.strip_prefix("0x").unwrap_or(value);
-    let bytes =
-        hex::decode(value).map_err(|error| anyhow::anyhow!("Invalid {label} hex: {error}"))?;
-    if bytes.len() != expected_len {
-        anyhow::bail!("Invalid {label} length: expected {expected_len} bytes, got {}", bytes.len());
-    }
-    Ok(bytes)
-}
+/// Configuration identity and key-decoding rules live in `kanari-types` so
+/// node setup and RPC queries cannot drift apart. Re-exported here to preserve
+/// the existing `kanari_core` public API.
+pub use kanari_types::encoding::{
+    decode_hex_exact, normalize_0x_prefixed_id as normalize_consensus_authority_id,
+};
 
 /// A single key-value entry in a state snapshot export.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -145,7 +130,7 @@ pub const MAX_DAG_VERTEX_TRANSACTIONS: usize = 512;
 // Vertex JSON/hex encoding can approach 2x the BCS transaction bytes.
 pub const MAX_DAG_VERTEX_TRANSACTION_BYTES: usize = 350 * 1024;
 const DEFAULT_MAX_DAG_VERTEX_TXS_PER_HOT_OBJECT: usize = 64;
-const DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS: usize = 65_536;
+const DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS: usize = 100_000;
 pub const MAX_TRANSACTION_BYTES: usize = 256 * 1024;
 pub const MAX_TRANSACTION_GAS_LIMIT: u64 = 10_000_000;
 /// Maximum number of objects (declared inputs plus gas payment objects) one
@@ -156,6 +141,7 @@ pub const MAX_TRANSACTION_OBJECTS: usize = 1_000;
 mod apply_checkpoint;
 mod bootstrap;
 mod mempool;
+mod mempool_metadata;
 mod produce_dag_vertex;
 mod queries;
 mod runtime_guards;
@@ -206,9 +192,15 @@ pub struct PendingTransactionRecord {
     pub metadata: PendingTransactionMetadata,
     tx_hash: Vec<u8>,
     normalized_sender: String,
+    /// Exact sender string used by checkpoint transaction ordering.
+    sender_address: String,
+    nonce: u64,
     primary_access_key: String,
     congestion_access_key: String,
     access_keys: Vec<String>,
+    /// Deterministic conflict keys, computed once at admission and reused by
+    /// owned-fastpath selection instead of re-deriving them for every tx.
+    conflict_keys: Vec<String>,
     size_bytes: usize,
 }
 
@@ -302,6 +294,10 @@ pub struct BlockchainEngine {
     // deterministic demo keys for tests/local development only.
     consensus_signing_key: Option<ed25519_dalek::SigningKey>,
     consensus_public_keys: BTreeMap<String, Vec<u8>>,
+    // Highest peer height observed by sync. Used to gate tx admission on
+    // nodes that are far behind so they catch up instead of stalling on
+    // missing DAG/quorum evidence.
+    observed_network_height: Arc<AtomicU64>,
 }
 
 /// Basic recursive parser for simple type-argument strings used by RPC/tests.
@@ -313,7 +309,7 @@ fn parse_type_tag(s: &str) -> Option<TypeTag> {
 
 impl BlockchainEngine {
     fn snapshot_entries_hash(entries: &[SnapshotEntry]) -> Result<String> {
-        Ok(hex::encode(kanari_crypto::hash_data_blake3(&bcs::to_bytes(entries)?)))
+        kanari_types::hash::bcs_blake3_hex(entries)
     }
 
     /// Exports the current blockchain state to a JSON snapshot file.
@@ -634,7 +630,7 @@ impl BlockchainEngine {
         amount: u64,
         gas_cost: u64,
         changeset: &mut ChangeSet,
-    ) -> Result<()> {
+    ) -> Result<Vec<ObjectChange>> {
         ensure!(amount > 0, "Native burn amount must be non-zero");
         let gas_coin = Self::tx_gas_coin_type(tx);
         let gas_payment = tx.gas_payment().context("Native burn requires prepared gas payment")?;
@@ -645,23 +641,44 @@ impl BlockchainEngine {
         let gas_object = state.get_object(&gas_object_ref.object_id)?.with_context(|| {
             format!("Native burn gas object {} was not found in state", gas_object_ref.object_id)
         })?;
+        Self::execute_backend_native_burn_with_object(
+            tx,
+            sender_addr,
+            amount,
+            gas_cost,
+            &gas_coin,
+            &gas_object_ref.object_id,
+            &gas_object,
+            changeset,
+        )
+    }
 
+    fn execute_backend_native_burn_with_object(
+        _tx: &Transaction,
+        sender_addr: AccountAddress,
+        amount: u64,
+        gas_cost: u64,
+        gas_coin: &str,
+        object_id: &str,
+        gas_object: &CreatedObject,
+        changeset: &mut ChangeSet,
+    ) -> Result<Vec<ObjectChange>> {
         ensure!(
-            Self::is_gas_coin_type(&gas_object.type_, &gas_coin),
+            Self::is_gas_coin_type(&gas_object.type_, gas_coin),
             "Native burn gas object {} must be Coin<{}>, found {}",
-            gas_object_ref.object_id,
+            object_id,
             gas_coin,
             gas_object.type_
         );
         ensure!(
             gas_object.owner == sender_addr,
             "Native burn gas object {} is not owned by sender {}",
-            gas_object_ref.object_id,
+            object_id,
             sender_addr.to_hex_literal()
         );
 
         let object_balance = CoinModule::read_balance(&gas_object.data).with_context(|| {
-            format!("Native burn gas object {} has invalid coin bytes", gas_object_ref.object_id)
+            format!("Native burn gas object {} has invalid coin bytes", object_id)
         })?;
         // Legacy KANARI path: one object covers burn amount + gas. Multi-coin
         // path: the burn amount stays native-ledger denominated while gas
@@ -676,7 +693,7 @@ impl BlockchainEngine {
             "Native burn requires one Coin<{}> object with at least {} base units for burn + gas; selected object {} only has {}",
             gas_coin,
             total_required,
-            gas_object_ref.object_id,
+            object_id,
             object_balance
         );
 
@@ -686,32 +703,133 @@ impl BlockchainEngine {
         // untouched here. `StateManager::apply_changeset` debits exactly
         // `gas_cost` from it via the gas-refs loop (emitting the remainder
         // here too would debit twice, because that loop reads overlay state).
+        let previous_ref = gas_object.object_ref(object_id);
+        let previous_owner = gas_object.owner_kind();
+        let mut object_changes = Vec::new();
         if object_balance == total_required {
-            changeset.deleted_objects.push(gas_object_ref.object_id.clone());
+            changeset.deleted_objects.push(object_id.to_string());
+            object_changes.push(ObjectChange {
+                change_type: ObjectChangeKind::Deleted,
+                object_ref: previous_ref.clone(),
+                previous_object_ref: Some(previous_ref),
+                type_: None,
+                owner: None,
+                previous_owner: Some(previous_owner),
+                previous_version: Some(gas_object.version),
+                amount: None,
+            });
         } else if gas_coin == GAS_COIN {
             let burned_coin_balance = object_balance
                 .checked_sub(amount)
                 .context("Native burn coin balance underflow after precheck")?;
-            changeset.created_objects.push((
-                gas_object_ref.object_id.clone(),
-                CreatedObject {
-                    owner: gas_object.owner,
-                    owner_kind: gas_object.owner_kind,
-                    uid: gas_object.uid,
-                    id: gas_object.id,
-                    type_: gas_object.type_.clone(),
-                    data: Self::native_coin_data_with_balance(
-                        &gas_object_ref.object_id,
-                        &gas_object.data,
-                        burned_coin_balance,
-                        &gas_object.type_,
-                    )?,
-                    version: gas_object.version,
-                },
-            ));
+            let created = CreatedObject {
+                owner: gas_object.owner,
+                owner_kind: gas_object.owner_kind.clone(),
+                uid: gas_object.uid.clone(),
+                id: gas_object.id.clone(),
+                type_: gas_object.type_.clone(),
+                data: Self::native_coin_data_with_balance(
+                    object_id,
+                    &gas_object.data,
+                    burned_coin_balance,
+                    &gas_object.type_,
+                )?,
+                version: gas_object.version,
+            };
+            let next_ref = created.object_ref(object_id);
+            object_changes.push(ObjectChange {
+                change_type: ObjectChangeKind::Mutated,
+                object_ref: next_ref,
+                previous_object_ref: Some(previous_ref),
+                type_: Some(created.type_.clone()),
+                owner: Some(created.owner_kind()),
+                previous_owner: Some(previous_owner),
+                previous_version: Some(gas_object.version),
+                amount: None,
+            });
+            changeset.created_objects.push((object_id.to_string(), created));
         }
 
-        Ok(())
+        Ok(object_changes)
+    }
+
+    fn try_execute_native_burn_fast_path(
+        state: &StateManager,
+        tx: &Transaction,
+        sender_addr: AccountAddress,
+        gas_cost: u64,
+        max_gas_cost: u64,
+        gas_used: u64,
+        gas_coin: &str,
+    ) -> Result<Option<ChangeSet>> {
+        if gas_coin != GAS_COIN || !tx.object_inputs().is_empty() {
+            return Ok(None);
+        }
+        let Some(kanari_types::transaction::NativeCall::Burn { amount: native_amount }) =
+            tx.native_call()
+        else {
+            return Ok(None);
+        };
+        let Some(payment) = tx.gas_payment() else {
+            return Ok(None);
+        };
+        if payment.payment_objects.len() != 1
+            || payment.budget != tx.gas_limit()
+            || payment.price != tx.gas_price()
+        {
+            return Ok(None);
+        }
+        let payment_ref = &payment.payment_objects[0];
+        let (Some(expected_version), Some(expected_digest)) =
+            (payment_ref.version, payment_ref.digest.as_ref())
+        else {
+            return Ok(None);
+        };
+        let Ok(payment_owner) = AccountAddress::from_hex_literal(&payment.owner) else {
+            return Ok(None);
+        };
+        if payment_owner != sender_addr {
+            return Ok(None);
+        }
+
+        let Some(gas_object) = state.get_object(&payment_ref.object_id)? else {
+            return Ok(None);
+        };
+        if gas_object.version != expected_version || gas_object.digest() != *expected_digest {
+            return Ok(None);
+        }
+        let Some(object_balance) = CoinModule::read_balance(&gas_object.data) else {
+            return Ok(None);
+        };
+        let Some(total_required) = native_amount.checked_add(gas_cost) else {
+            return Ok(None);
+        };
+        if object_balance < total_required.max(max_gas_cost) {
+            return Ok(None);
+        }
+
+        let mut changeset = ChangeSet::new();
+        changeset.set_transaction_context(tx.object_inputs(), tx.gas_payment());
+        let object_changes = Self::execute_backend_native_burn_with_object(
+            tx,
+            sender_addr,
+            native_amount,
+            gas_cost,
+            gas_coin,
+            &payment_ref.object_id,
+            &gas_object,
+            &mut changeset,
+        )?;
+        Self::apply_gas_and_sequence(
+            &mut changeset,
+            sender_addr,
+            gas_cost,
+            gas_used,
+            gas_coin,
+            tx,
+        )?;
+        changeset.set_explicit_object_changes(object_changes);
+        Ok(Some(changeset))
     }
 
     fn native_coin_data_with_balance(
@@ -735,7 +853,7 @@ impl BlockchainEngine {
         let mut seed = b"kanari:native_transfer_output:v2:".to_vec();
         seed.extend_from_slice(&tx.hash());
         seed.extend_from_slice(&output_index.to_le_bytes());
-        object_id_for_address(&AccountAddress::new(kanari_crypto::hash_data_blake3_array(&seed)))
+        object_id_for_address(&AccountAddress::new(kanari_types::hash::blake3(&seed)))
     }
 
     fn execute_backend_native_transfer(
@@ -975,24 +1093,18 @@ impl BlockchainEngine {
     }
 
     fn history_retention_checkpoints() -> Option<u64> {
-        std::env::var("KANARI_HISTORY_RETENTION_CHECKPOINTS")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0)
+        env_u64_positive_opt("KANARI_HISTORY_RETENTION_CHECKPOINTS")
     }
 
     /// Reads a boolean feature flag from the environment. Only the explicit
     /// truthy spellings count; anything else (including unset) is false.
     pub(crate) fn env_flag_enabled(var: &str) -> bool {
-        matches!(
-            std::env::var(var).as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        )
+        env_flag(var)
     }
 
     fn persist_transaction_hash_index_enabled(store: &PersistentStore) -> bool {
-        if let Ok(value) = std::env::var("KANARI_PERSIST_TX_HASH_INDEX") {
-            return matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES");
+        if std::env::var("KANARI_PERSIST_TX_HASH_INDEX").is_ok() {
+            return env_flag("KANARI_PERSIST_TX_HASH_INDEX");
         }
 
         // Retention/pruning deletes checkpoint transaction payloads, so keep the
@@ -1004,8 +1116,8 @@ impl BlockchainEngine {
     }
 
     fn persist_blockchain_json_snapshot_enabled(store: &PersistentStore) -> bool {
-        if let Ok(value) = std::env::var("KANARI_PERSIST_BLOCKCHAIN_JSON") {
-            return matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES");
+        if std::env::var("KANARI_PERSIST_BLOCKCHAIN_JSON").is_ok() {
+            return env_flag("KANARI_PERSIST_BLOCKCHAIN_JSON");
         }
 
         // RocksDB production already persists per-checkpoint metadata and tx
@@ -1104,12 +1216,13 @@ impl BlockchainEngine {
         //
         // Cap legacy huge watermarks at 0 when re-persisting so they don't
         // permanently lock senders out.
-        const MAX_WATERMARK: u64 = 1u64 << 53;
         use crate::engine::mempool::NormalizeAddr as _;
         let mut sender_watermark: std::collections::BTreeMap<String, u64> =
             Self::load_sender_nonce_watermark(store)?
                 .into_iter()
-                .map(|(k, v)| (k, if v >= MAX_WATERMARK { 0 } else { v }))
+                .map(|(k, v)| {
+                    (k, kanari_types::transaction::sanitize_nonce_watermark(v).unwrap_or(0))
+                })
                 .collect();
         for tx in checkpoint.transactions.iter() {
             let sender = Self::normalize_addr(tx.transaction.sender_address());
@@ -1743,29 +1856,14 @@ impl BlockchainEngine {
 
     /// Derives the congestion access key used to throttle transactions per hot object.
     pub(crate) fn congestion_access_key(tx: &Transaction) -> String {
-        if let Some(input) = tx.object_inputs().into_iter().find(|input| input.mutable) {
-            return format!("object:{}", input.object_ref.object_id);
-        }
-
-        if let Some(input) = tx.object_inputs().into_iter().next() {
-            return format!("object:{}", input.object_ref.object_id);
-        }
-
-        if let Some(payment) =
-            tx.gas_payment().and_then(|gas_payment| gas_payment.payment_objects.into_iter().next())
-        {
-            return format!("object:{}", payment.object_id);
-        }
-
-        format!("owner:{}", tx.sender())
+        tx.congestion_access_key()
     }
 
     fn dag_hot_object_tx_cap() -> usize {
-        std::env::var("KANARI_DAG_HOT_OBJECT_TX_CAP")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_MAX_DAG_VERTEX_TXS_PER_HOT_OBJECT)
+        env_usize_positive(
+            "KANARI_DAG_HOT_OBJECT_TX_CAP",
+            DEFAULT_MAX_DAG_VERTEX_TXS_PER_HOT_OBJECT,
+        )
     }
 
     fn pending_sort_key(tx: &SignedTransaction) -> (u8, String, String, u64, Vec<u8>) {
@@ -1779,25 +1877,19 @@ impl BlockchainEngine {
     }
 
     fn dag_lane_aware_selection_enabled() -> bool {
-        !matches!(
-            std::env::var("KANARI_DAG_LANE_AWARE").as_deref(),
-            Ok("0") | Ok("false") | Ok("FALSE") | Ok("no") | Ok("NO")
-        )
+        env_flag_default_true("KANARI_DAG_LANE_AWARE")
     }
 
     fn owned_fast_checkpoint_tx_cap() -> usize {
-        std::env::var("KANARI_OWNED_FAST_CHECKPOINT_MAX_TXS")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS)
+        env_usize_positive(
+            "KANARI_OWNED_FAST_CHECKPOINT_MAX_TXS",
+            DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS,
+        )
     }
 
     fn owned_fastpath_audit_interval() -> Option<u64> {
-        std::env::var("KANARI_OWNED_FASTPATH_AUDIT_INTERVAL")
-            .ok()
-            .and_then(|value| value.parse::<u64>().ok())
-            .filter(|value| *value > 0)
+        // Default periodic strict audit for owned-fastpath checkpoints.
+        env_u64_interval("KANARI_OWNED_FASTPATH_AUDIT_INTERVAL", 64)
     }
 
     fn owned_fastpath_smt_audit_enabled() -> bool {
@@ -1805,34 +1897,65 @@ impl BlockchainEngine {
     }
 
     fn is_owned_fast_path_eligible(tx: &SignedTransaction) -> bool {
-        tx.transaction
-            .object_inputs()
-            .iter()
-            .all(|input| !matches!(input.owner, Some(ObjectOwnerKind::Shared)))
+        !tx.transaction.has_shared_object_input()
     }
 
     /// Returns conflict-free owned-fast-path transactions suitable for single-authority checkpoints.
+    ///
+    /// Sorting and conflict keys were derived once when the transaction was
+    /// admitted, so selection only clones the transactions that are actually
+    /// selected instead of re-deriving metadata for every pending tx.
     pub fn pending_owned_fast_path_transactions_snapshot(&self) -> Vec<SignedTransaction> {
-        let mut transactions = self
-            .pending_signed_transactions()
-            .into_iter()
-            .filter(Self::is_owned_fast_path_eligible)
+        struct DecoratedPendingTx<'a> {
+            primary_access_key: &'a str,
+            sender_address: &'a str,
+            nonce: u64,
+            tx_hash: &'a [u8],
+            conflict_keys: &'a [String],
+            record_index: usize,
+        }
+
+        let mempool = self.mempool_read();
+        let mut decorated = mempool
+            .pending_txs
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| Self::is_owned_fast_path_eligible(&record.signed_tx))
+            .map(|(record_index, record)| DecoratedPendingTx {
+                primary_access_key: &record.primary_access_key,
+                sender_address: &record.sender_address,
+                nonce: record.nonce,
+                tx_hash: &record.tx_hash,
+                conflict_keys: &record.conflict_keys,
+                record_index,
+            })
             .collect::<Vec<_>>();
-        if transactions.is_empty() {
+        if decorated.is_empty() {
             return Vec::new();
         }
-        transactions.sort_by(|a, b| {
-            a.transaction
-                .primary_access_key()
-                .cmp(&b.transaction.primary_access_key())
-                .then_with(|| a.transaction.sender_address().cmp(b.transaction.sender_address()))
-                .then_with(|| a.transaction.nonce().cmp(&b.transaction.nonce()))
-                .then_with(|| a.transaction_hash().cmp(b.transaction_hash()))
+
+        decorated.sort_by(|a, b| {
+            a.primary_access_key
+                .cmp(b.primary_access_key)
+                .then_with(|| a.sender_address.cmp(b.sender_address))
+                .then_with(|| a.nonce.cmp(&b.nonce))
+                .then_with(|| a.tx_hash.cmp(b.tx_hash))
         });
-        Self::select_conflict_free_transactions(transactions)
-            .into_iter()
-            .take(Self::owned_fast_checkpoint_tx_cap())
-            .collect()
+
+        let cap = Self::owned_fast_checkpoint_tx_cap();
+        let mut reserved_keys: HashSet<&str> = HashSet::new();
+        let mut selected = Vec::with_capacity(decorated.len().min(cap));
+        for candidate in decorated {
+            if candidate.conflict_keys.iter().any(|key| reserved_keys.contains(key.as_str())) {
+                continue;
+            }
+            reserved_keys.extend(candidate.conflict_keys.iter().map(String::as_str));
+            selected.push(mempool.pending_txs[candidate.record_index].signed_tx.clone());
+            if selected.len() >= cap {
+                break;
+            }
+        }
+        selected
     }
 
     /// Returns conflict-free transactions with byte and hot-object caps for DAG production.
@@ -1893,6 +2016,50 @@ impl BlockchainEngine {
         self.mempool_read().pending_txs.len()
     }
 
+    /// Record the highest peer height observed by sync.
+    pub fn set_observed_network_height(&self, height: u64) {
+        let mut current = self.observed_network_height.load(Ordering::Relaxed);
+        while height > current {
+            match self.observed_network_height.compare_exchange_weak(
+                current,
+                height,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => current = next,
+            }
+        }
+    }
+
+    /// Highest peer height observed by sync.
+    pub fn observed_network_height(&self) -> u64 {
+        self.observed_network_height.load(Ordering::Relaxed)
+    }
+
+    fn sync_admission_lag_threshold() -> u64 {
+        env_u64_positive("KANARI_SYNC_ADMISSION_LAG", 2)
+    }
+
+    /// True when this node is far enough behind observed peers that accepting
+    /// new local txs would likely stall on missing DAG/quorum evidence.
+    /// This is an admission gate only; checkpoint/DAG sync paths are unaffected.
+    pub fn is_far_behind_observed_network(&self) -> bool {
+        let observed = self.observed_network_height();
+        if observed == 0 {
+            return false;
+        }
+        let local = match self.blockchain.read() {
+            Ok(chain) => chain.height(),
+            Err(poisoned) => {
+                log::error!("Blockchain lock poisoned in sync admission check, recovering...");
+                poisoned.into_inner().height()
+            }
+        };
+        let lag = Self::sync_admission_lag_threshold();
+        observed > local.saturating_add(lag)
+    }
+
     /// Computes the expected next nonce for a sender address.
     pub(crate) fn get_expected_nonce(&self, address_hex: &str) -> u64 {
         // Nonce is monotonic per sender: never below the highest committed nonce,
@@ -1900,7 +2067,6 @@ impl BlockchainEngine {
         //
         // Legacy watermarks may contain huge values from the old random-nonce
         // code; discard them so they don't overflow JSON safe integer range.
-        const MAX_WATERMARK: u64 = 1u64 << 53;
         let committed = self
             .persistent_store
             .as_ref()
@@ -1908,7 +2074,7 @@ impl BlockchainEngine {
             .and_then(|watermark| {
                 use crate::engine::mempool::NormalizeAddr as _;
                 let v = watermark.get(&Self::normalize_addr(address_hex)).copied().unwrap_or(0);
-                (v < MAX_WATERMARK).then_some(v)
+                kanari_types::transaction::sanitize_nonce_watermark(v)
             })
             .unwrap_or(0);
         self.pending_tx_count_for_sender(address_hex).saturating_add(committed).saturating_add(1)
@@ -1997,26 +2163,32 @@ impl BlockchainEngine {
     fn can_trust_owned_native_conflict_keys(
         transactions: &[SignedTransaction],
         changesets: &[ChangeSet],
+        selection_already_validated: bool,
     ) -> bool {
         if transactions.len() != changesets.len() {
             return false;
         }
 
-        let mut reserved_keys = HashSet::new();
-        for signed_tx in transactions {
-            if !Self::is_owned_fast_path_eligible(signed_tx) {
-                return false;
-            }
+        // Owned-fastpath snapshots are built from the mempool's precomputed
+        // conflict keys, so re-deriving them here would only repeat the same
+        // deterministic check. Other callers still get the full validation.
+        if !selection_already_validated {
+            let mut reserved_keys = HashSet::new();
+            for signed_tx in transactions {
+                if !Self::is_owned_fast_path_eligible(signed_tx) {
+                    return false;
+                }
 
-            let mut conflict_keys = signed_tx.transaction.get_conflict_keys();
-            conflict_keys.sort();
-            conflict_keys.dedup();
-            if conflict_keys.is_empty()
-                || conflict_keys
-                    .iter()
-                    .any(|conflict_key| !reserved_keys.insert(conflict_key.clone()))
-            {
-                return false;
+                let mut conflict_keys = signed_tx.transaction.get_conflict_keys();
+                conflict_keys.sort();
+                conflict_keys.dedup();
+                if conflict_keys.is_empty()
+                    || conflict_keys
+                        .iter()
+                        .any(|conflict_key| !reserved_keys.insert(conflict_key.clone()))
+                {
+                    return false;
+                }
             }
         }
 
@@ -2037,23 +2209,16 @@ impl BlockchainEngine {
     }
 
     fn dependency_apply_batch_cap() -> usize {
-        std::env::var("KANARI_DEPENDENCY_APPLY_BATCH_CAP")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .filter(|value| *value > 0)
-            // Keep the default above the current owned-fastpath checkpoint cap.
-            // Splitting a purely disjoint owned-object workload too eagerly can
-            // force repeated state-index and balance reconciliation passes. The
-            // scheduler still cuts a new batch on real dependencies, and ops can
-            // lower this cap explicitly for memory-bound workloads.
-            .unwrap_or(65_536)
+        // Keep the default above the current owned-fastpath checkpoint cap.
+        // Splitting a purely disjoint owned-object workload too eagerly can
+        // force repeated state-index and balance reconciliation passes. The
+        // scheduler still cuts a new batch on real dependencies, and ops can
+        // lower this cap explicitly for memory-bound workloads.
+        env_usize_positive("KANARI_DEPENDENCY_APPLY_BATCH_CAP", 100_000)
     }
 
     fn dependency_apply_scheduler_enabled() -> bool {
-        !matches!(
-            std::env::var("KANARI_DEPENDENCY_APPLY_SCHEDULER").as_deref(),
-            Ok("0") | Ok("false") | Ok("FALSE") | Ok("no") | Ok("NO")
-        )
+        env_flag_default_true("KANARI_DEPENDENCY_APPLY_SCHEDULER")
     }
 
     fn extend_access_set(target: &mut StateAccessSet, source: &StateAccessSet) {
@@ -2159,10 +2324,11 @@ impl BlockchainEngine {
     /// Executes conflict-free transactions in parallel with supply validation.
     pub(crate) fn execute_conflict_free_transactions_parallel_with_effects(
         &self,
-        transactions: Vec<SignedTransaction>,
+        transactions: &[SignedTransaction],
         state_arc: &Arc<RwLock<StateManager>>,
         timestamp: Option<u64>,
         persist_objects: bool,
+        selection_already_validated: bool,
     ) -> Result<(usize, usize, Vec<TransactionEffects>)> {
         let profile = Self::env_flag_enabled("KANARI_CONFLICT_FREE_EXECUTOR_PROFILE");
         let started_at = std::time::Instant::now();
@@ -2199,7 +2365,7 @@ impl BlockchainEngine {
 
         if results.iter().any(Result::is_err) {
             return self.execute_tx_waves_deterministic_parallel_with_effects(
-                transactions,
+                transactions.to_vec(),
                 state_arc,
                 timestamp,
                 persist_objects,
@@ -2210,8 +2376,11 @@ impl BlockchainEngine {
             .into_iter()
             .collect::<Result<Vec<_>>>()
             .context("Failed to collect conflict-free execution results")?;
-        let trusted_owned_native_conflict_keys =
-            Self::can_trust_owned_native_conflict_keys(&transactions, &changesets);
+        let trusted_owned_native_conflict_keys = Self::can_trust_owned_native_conflict_keys(
+            transactions,
+            &changesets,
+            selection_already_validated,
+        );
         if !trusted_owned_native_conflict_keys {
             let mut reserved_reads = BTreeSet::new();
             let mut reserved_writes = BTreeSet::new();
@@ -2224,7 +2393,7 @@ impl BlockchainEngine {
                     || access_set.reads.iter().any(|key| reserved_writes.contains(key));
                 if has_conflict {
                     return self.execute_tx_waves_deterministic_parallel_with_effects(
-                        transactions,
+                        transactions.to_vec(),
                         state_arc,
                         timestamp,
                         persist_objects,
@@ -2242,7 +2411,7 @@ impl BlockchainEngine {
         });
         if state_write.access_epoch() != access_epoch {
             return self.execute_tx_waves_deterministic_parallel_with_effects(
-                transactions,
+                transactions.to_vec(),
                 state_arc,
                 timestamp,
                 persist_objects,
@@ -2271,6 +2440,9 @@ impl BlockchainEngine {
         let merged_applied_at = std::time::Instant::now();
         let apply_batches = apply_result.as_ref().map(|(batches, _)| *batches).unwrap_or(0);
         let validate_result = if trusted_owned_native_conflict_keys {
+            // Owned-fastpath conflict-free batches are pre-validated and applied
+            // without supply validation; checkpoint finalize/audit provides strict
+            // canonical safety. Keep expensive per-batch scans opt-in for debug.
             let validate_owned_fastpath =
                 Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
             if validate_owned_fastpath {
@@ -2292,7 +2464,7 @@ impl BlockchainEngine {
         if validate_result.is_err() {
             drop(state_write);
             return self.execute_tx_waves_deterministic_parallel_with_effects(
-                transactions,
+                transactions.to_vec(),
                 state_arc,
                 timestamp,
                 persist_objects,
@@ -2302,17 +2474,27 @@ impl BlockchainEngine {
         drop(state_write);
         let applied_at = std::time::Instant::now();
 
+        let changeset_count = changesets.len();
+        // Effects are independent per transaction. Build them in parallel but
+        // collect by input index so checkpoint ordering stays deterministic.
+        let executed_and_effects = changesets
+            .into_par_iter()
+            .enumerate()
+            .map(|(index, changeset)| {
+                let signed_tx = &transactions[index];
+                let executed = changeset.success;
+                (executed, changeset.effects(signed_tx.transaction.gas_payment()))
+            })
+            .collect::<Vec<_>>();
         let mut executed = 0usize;
-        let mut failed = 0usize;
-        let mut effects = Vec::with_capacity(changesets.len());
-        for (signed_tx, changeset) in transactions.iter().zip(changesets) {
-            if changeset.success {
+        let mut effects = Vec::with_capacity(executed_and_effects.len());
+        for (success, effect) in executed_and_effects {
+            if success {
                 executed += 1;
-            } else {
-                failed += 1;
             }
-            effects.push(changeset.effects(signed_tx.transaction.gas_payment()));
+            effects.push(effect);
         }
+        let failed = changeset_count.saturating_sub(executed);
         let effects_at = std::time::Instant::now();
         if profile {
             eprintln!(
@@ -2868,10 +3050,7 @@ impl BlockchainEngine {
                 let mut seed = b"KANARI::DAO::GAS_FEE_COIN::".to_vec();
                 seed.extend_from_slice(tx.hash().as_slice());
                 seed.extend_from_slice(normalized_coin.as_bytes());
-                let hash = kanari_crypto::hash_data_blake3(&seed);
-                let mut coin_id_bytes = [0u8; AccountAddress::LENGTH];
-                coin_id_bytes.copy_from_slice(&hash);
-                let coin_id = AccountAddress::new(coin_id_bytes);
+                let coin_id = AccountAddress::new(kanari_types::hash::blake3(&seed));
                 let uid = kanari_types::object::UIDRecord::new(coin_id);
                 let mut data = coin_id.to_vec();
                 data.extend_from_slice(&gas_cost.to_le_bytes());
@@ -2923,8 +3102,16 @@ impl BlockchainEngine {
     /// Reject malformed payloads at admission so they cannot occupy a mempool
     /// lane or later become zero-gas failed checkpoint effects.
     pub(crate) fn validate_transaction_admission_shape(&self, tx: &Transaction) -> Result<()> {
+        self.validate_transaction_admission_shape_with_size(tx, bcs::serialized_size(tx)?)
+    }
+
+    pub(crate) fn validate_transaction_admission_shape_with_size(
+        &self,
+        tx: &Transaction,
+        serialized_tx_bytes: usize,
+    ) -> Result<()> {
         ensure!(
-            bcs::serialized_size(tx)? <= MAX_TRANSACTION_BYTES,
+            serialized_tx_bytes <= MAX_TRANSACTION_BYTES,
             "Transaction exceeds {} byte admission limit",
             MAX_TRANSACTION_BYTES
         );
@@ -2954,6 +3141,14 @@ impl BlockchainEngine {
                     "Gas payment object id {} is not a valid hex object address",
                     payment_object.object_id
                 );
+            }
+            // The executor settles against the protocol-fixed table, so a
+            // wallet-pinned price version newer or stale relative to it must
+            // never reach the mempool. `None` is treated as the current fixed
+            // version for legacy transactions.
+            let table = kanari_types::gas_market::GasPriceTable::protocol();
+            if let Err(error) = table.check_version(payment.price_version) {
+                anyhow::bail!("Invalid gas price version: {error}");
             }
         }
         ensure!(
@@ -3106,6 +3301,17 @@ impl BlockchainEngine {
                 poisoned.into_inner()
             }
         };
+        if let Some(fast_changeset) = Self::try_execute_native_burn_fast_path(
+            &state,
+            tx,
+            sender_addr,
+            base_gas_cost,
+            max_gas_cost,
+            gas_meter.gas_used,
+            &gas_coin,
+        )? {
+            return Ok(fast_changeset);
+        }
         Self::validate_transaction_object_access(&state, tx, sender_addr)?;
         if max_gas_cost > 0 {
             let balance = state.resolve_owner_token_balance(sender_addr, &gas_coin).unwrap_or(0);
@@ -3228,7 +3434,6 @@ impl BlockchainEngine {
                     amount,
                 }) = native_call.clone()
                 {
-                    let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
                     match Self::execute_backend_native_transfer(
                         &state,
                         tx,
@@ -3259,8 +3464,7 @@ impl BlockchainEngine {
                 if let Some(kanari_types::transaction::NativeCall::Burn { amount }) =
                     native_call.clone()
                 {
-                    let state = state_arc.read().unwrap_or_else(|e| e.into_inner());
-                    match Self::execute_backend_native_burn(
+                    let burn_succeeded = match Self::execute_backend_native_burn(
                         &state,
                         tx,
                         sender_addr,
@@ -3268,11 +3472,12 @@ impl BlockchainEngine {
                         base_gas_cost,
                         &mut changeset,
                     ) {
-                        Ok(()) => {}
+                        Ok(object_changes) => Some(object_changes),
                         Err(e) => {
                             changeset.mark_failed(format!("Execution failed: {}", e));
+                            None
                         }
-                    }
+                    };
                     Self::apply_gas_and_sequence(
                         &mut changeset,
                         sender_addr,
@@ -3281,7 +3486,13 @@ impl BlockchainEngine {
                         &gas_coin,
                         tx,
                     )?;
-                    Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+                    if let (true, Some(object_changes)) = (gas_coin == GAS_COIN, burn_succeeded) {
+                        // The native fast path already knows the previous and
+                        // next object refs; avoid another state lookup per tx.
+                        changeset.set_explicit_object_changes(object_changes);
+                    } else {
+                        Self::annotate_changeset_object_effects(&state, &mut changeset)?;
+                    }
                     return Ok(changeset);
                 }
 
@@ -3347,10 +3558,6 @@ impl BlockchainEngine {
             &gas_coin,
             tx,
         )?;
-        let state = state_arc.read().unwrap_or_else(|poisoned| {
-            error!("State lock poisoned while annotating tx effects; recovering...");
-            poisoned.into_inner()
-        });
         Self::annotate_changeset_object_effects(&state, &mut changeset)?;
         Ok(changeset)
     }
@@ -3491,15 +3698,13 @@ impl BlockchainEngine {
             if let Some(owner) = input.owner {
                 match owner {
                     ObjectOwnerKind::AddressOwner(expected_owner) => {
-                        let actual_owner = match &stored.owner_kind {
-                            ObjectOwnerKind::AddressOwner(address) => {
-                                KanariAddress::parse_to_account_address(address)?
-                            }
-                            _ => anyhow::bail!(
-                                "Object {} is not canonically address-owned",
-                                input.object_ref.object_id
-                            ),
-                        };
+                        let actual_owner =
+                            stored.owner_kind.address_account_parsed()?.ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Object {} is not canonically address-owned",
+                                    input.object_ref.object_id
+                                )
+                            })?;
                         // Address-owned mutable objects are sender-only. A
                         // protocol that needs cross-party mutation must use a
                         // shared object (or an explicit capability flow), as
@@ -3539,7 +3744,7 @@ impl BlockchainEngine {
         }
 
         if let Some(gas_payment) = tx.gas_payment() {
-            let expected_owner = KanariAddress::parse_to_account_address(&gas_payment.owner)?;
+            let expected_owner = gas_payment.owner_account_parsed()?;
             if expected_owner != sender_addr {
                 anyhow::bail!("Gas payment owner must match sender");
             }
@@ -3807,9 +4012,13 @@ impl BlockchainEngine {
                     .max(chain.height().saturating_add(1)),
             )
         };
+        // Start with an empty transaction list and hand the selected owned txs
+        // directly to prepare. This avoids cloning every SignedTransaction just
+        // to read them back out of the checkpoint after execution.
         let mut checkpoint =
-            Checkpoint::new(sequence, Vec::new(), transactions, Vec::new(), timestamp, prev_hash);
-        let prepared = self.prepare_conflict_free_checkpoint_state(&checkpoint)?;
+            Checkpoint::new(sequence, Vec::new(), Vec::new(), Vec::new(), timestamp, prev_hash);
+        let prepared = self
+            .prepare_conflict_free_checkpoint_state_with_transactions(&checkpoint, transactions)?;
         let prepared_at = std::time::Instant::now();
         checkpoint.state_root = prepared.state_root;
         checkpoint.transaction_effects = prepared.effects.into();
@@ -3817,7 +4026,9 @@ impl BlockchainEngine {
         // lookups in queries.rs always return the matching effect. Already-
         // committed transactions are skipped during execution and have no
         // effect entry, so keeping the full list would shift indices.
-        checkpoint.transactions = prepared.transactions.clone().into();
+        let requires_runtime_side_effect_persistence =
+            Self::requires_runtime_side_effect_persistence(&prepared.transactions);
+        checkpoint.transactions = prepared.transactions.into();
         let aggregated_at = std::time::Instant::now();
 
         let executed = checkpoint
@@ -3833,12 +4044,17 @@ impl BlockchainEngine {
             tx_count,
         };
 
+        // Owned-fastpath prepare already executed conflict-free txs with
+        // cached supply validation inside the executor. Skip the redundant full
+        // canonical supply scan at finalize by default; periodic strict audits
+        // still run via maybe_audit_owned_fastpath_checkpoint.
+        let strict_finalize = Self::env_flag_enabled("KANARI_OWNED_FASTPATH_STRICT_FINALIZE");
         self.apply_prepared_checkpoint(
             checkpoint,
             prepared.state,
             prepared.smt_changes,
-            prepared.transactions,
-            true,
+            requires_runtime_side_effect_persistence,
+            strict_finalize,
         )?;
         self.maybe_audit_owned_fastpath_checkpoint(checkpoint_info.sequence)?;
         let applied_at = std::time::Instant::now();
@@ -3876,8 +4092,8 @@ impl BlockchainEngine {
 
         let state = self.state_read();
         state
-            .validate_cached_supply_invariants()
-            .context("Owned-fastpath periodic cached supply audit failed")?;
+            .validate_no_lost_tokens()
+            .context("Owned-fastpath periodic strict supply audit failed")?;
         if Self::owned_fastpath_smt_audit_enabled() {
             state.validate_smt_consistency().context("Owned-fastpath periodic SMT audit failed")?;
         }
@@ -3937,6 +4153,7 @@ impl BlockchainEngine {
             authorities: self.authorities.clone(),
             consensus_signing_key: self.consensus_signing_key.clone(),
             consensus_public_keys: self.consensus_public_keys.clone(),
+            observed_network_height: self.observed_network_height.clone(),
         }
     }
 
@@ -3963,6 +4180,12 @@ impl BlockchainEngine {
     /// Returns the list of all authority IDs in the network.
     pub fn authorities(&self) -> &[String] {
         &self.authorities
+    }
+
+    /// Returns true when the given peer/authority ID is part of the known validator set.
+    pub fn is_validator_authority(&self, peer_id: &str) -> bool {
+        let normalized = normalize_consensus_authority_id(peer_id);
+        self.authorities.iter().any(|a| a == &normalized) || self.authority_id == normalized
     }
 
     /// Configures the consensus signing key and authority public keys.

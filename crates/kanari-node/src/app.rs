@@ -808,8 +808,9 @@ pub async fn run_node(
                         if last_dag_rebroadcast.elapsed() >= Duration::from_secs(1) {
                             last_dag_rebroadcast = Instant::now();
                             sync_manager
-                                .broadcast_latest_dag_vertices(4, "while waiting for quorum");
-                            sync_manager.request_dag_vertices_for_quorum();
+                                .broadcast_latest_dag_vertices(4, "while waiting for quorum")
+                                .await;
+                            sync_manager.request_dag_vertices_for_quorum().await;
                         }
                     } else if should_drop_invalid_pending_transaction(&error_text) {
                         let failed_hash = extract_failed_tx_hash(&error_text).or_else(|| {

@@ -1,14 +1,12 @@
 // Copyright (c) KanariNetwork, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use super::mempool_metadata::VerifiedMempoolTx;
 use super::*;
 use ahash::AHashSet;
 use kanari_crypto::keys::{CurveType, KeyPair};
 use kanari_crypto::signatures::zk_authenticator::record_zklogin_admission;
-
-type VerifiedMempoolTx =
-    (SignedTransaction, Vec<u8>, String, u64, String, String, Vec<String>, usize);
-type MempoolTxMetadata = (Vec<u8>, String, u64, String, String, Vec<String>);
+use kanari_types::env::env_flag;
 
 /// Trait for normalizing address strings used across the engine.
 pub(crate) trait NormalizeAddr {
@@ -17,10 +15,7 @@ pub(crate) trait NormalizeAddr {
 
 impl NormalizeAddr for BlockchainEngine {
     fn normalize_addr(addr: &str) -> String {
-        use std::str::FromStr;
-        KanariAddress::from_str(addr)
-            .map(|a| a.to_hex())
-            .unwrap_or_else(|_| addr.trim_start_matches("0x").to_lowercase())
+        kanari_types::address::normalize_address(addr)
     }
 }
 
@@ -38,15 +33,13 @@ impl BlockchainEngine {
         }
     }
 
-    /// Returns the estimated memory size of a pending transaction record.
-    pub(crate) fn pending_record_size(
-        signed_tx: &SignedTransaction,
+    fn pending_record_size_from_parts(
+        serialized_signed_tx_bytes: usize,
         metadata: &PendingTransactionMetadata,
     ) -> Result<usize> {
-        let transaction_bytes = bcs::serialized_size(signed_tx)?;
         let effects_bytes =
             metadata.preview_effects.as_ref().map(bcs::serialized_size).transpose()?.unwrap_or(0);
-        transaction_bytes
+        serialized_signed_tx_bytes
             .checked_add(effects_bytes)
             .and_then(|size| size.checked_add(128))
             .context("Pending transaction memory accounting overflow")
@@ -77,6 +70,18 @@ impl BlockchainEngine {
         if signed_txs.is_empty() {
             return Ok(Vec::new());
         }
+        let profile = env_flag("KANARI_MEMPOOL_ADMISSION_PROFILE");
+        let started_at = std::time::Instant::now();
+
+        if self.is_far_behind_observed_network() {
+            let local = self.get_stats().height;
+            let observed = self.observed_network_height();
+            anyhow::bail!(
+                "Node is catching up with network (local_height={}, observed_height={}); retry after sync",
+                local,
+                observed
+            );
+        }
 
         // Early size check to avoid unnecessary work
         let batch_size = signed_txs.len();
@@ -97,7 +102,16 @@ impl BlockchainEngine {
         let mut verified_txs: Vec<VerifiedMempoolTx> = signed_txs
             .into_par_iter()
             .map(|signed_tx| -> Result<VerifiedMempoolTx> {
-                let verified = signed_tx.into_verified()?;
+                // Serialize once and reuse the bytes for signature verification,
+                // shape validation, and memory accounting. All three previously
+                // re-encoded the same transaction independently.
+                let serialized_transaction = bcs::to_bytes(&signed_tx.transaction)?;
+                let serialized_signed_len = serialized_transaction
+                    .len()
+                    .checked_add(bcs::serialized_size(&signed_tx.signature)?)
+                    .context("Signed transaction size overflow")?;
+                let verified =
+                    signed_tx.into_verified_from_serialized_transaction(&serialized_transaction)?;
                 let tx_hash = verified.hash().to_vec();
                 let tx = verified.transaction();
                 // Shape-validate first so an invalid tx never lands in the
@@ -105,7 +119,10 @@ impl BlockchainEngine {
                 // to the acceptance loop below so a tx that passes shape
                 // validation but later fails lane/nonce checks is not locked
                 // out of resubmission.
-                self.validate_transaction_admission_shape(tx)?;
+                self.validate_transaction_admission_shape_with_size(
+                    tx,
+                    serialized_transaction.len(),
+                )?;
                 let sender = tx.sender_address();
                 let normalized_sender = sender_cache
                     .get(sender)
@@ -116,66 +133,69 @@ impl BlockchainEngine {
                         );
                         Self::normalize_addr(sender)
                     });
+                let sender_address = sender.to_string();
                 let nonce = tx.nonce();
                 let primary_access_key = tx.primary_access_key();
                 let congestion_access_key = Self::congestion_access_key(tx);
                 let access_keys = tx.object_access_keys();
+                let conflict_keys = tx.get_conflict_keys();
                 let signed_tx = verified.into_signed_transaction();
-                let size_bytes = Self::pending_record_size(&signed_tx, &metadata)?;
-                Ok((
+                let size_bytes = Self::pending_record_size_from_parts(
+                    serialized_signed_len,
+                    &metadata,
+                )?;
+                Ok(VerifiedMempoolTx {
                     signed_tx,
                     tx_hash,
                     normalized_sender,
+                    sender_address,
                     nonce,
                     primary_access_key,
                     congestion_access_key,
                     access_keys,
+                    conflict_keys,
                     size_bytes,
-                ))
+                })
             })
             .collect::<Result<Vec<_>>>()?;
+        let verified_at = std::time::Instant::now();
         let batch_bytes = verified_txs.iter().try_fold(0usize, |total, item| {
-            total.checked_add(item.7).context("Mempool batch byte size overflow")
+            total.checked_add(item.size_bytes).context("Mempool batch byte size overflow")
         })?;
 
         verified_txs.sort_by(|a, b| {
-            a.4.cmp(&b.4)
-                .then_with(|| a.2.cmp(&b.2))
-                .then_with(|| a.3.cmp(&b.3))
-                .then_with(|| a.1.cmp(&b.1))
+            a.primary_access_key
+                .cmp(&b.primary_access_key)
+                .then_with(|| a.normalized_sender.cmp(&b.normalized_sender))
+                .then_with(|| a.nonce.cmp(&b.nonce))
+                .then_with(|| a.tx_hash.cmp(&b.tx_hash))
         });
-
-        let batch_metadata: Vec<MempoolTxMetadata> = verified_txs
-            .iter()
-            .map(
-                |(_, hash, sender, sequence, primary_access, congestion_access, access_keys, _)| {
-                    (
-                        hash.clone(),
-                        sender.clone(),
-                        *sequence,
-                        primary_access.clone(),
-                        congestion_access.clone(),
-                        access_keys.clone(),
-                    )
-                },
-            )
-            .collect();
+        let sorted_at = std::time::Instant::now();
 
         // Check executed transactions in parallel. Persistent index corruption
         // must fail admission closed instead of making an old transaction look
-        // uncommitted.
-        let executed_hashes = {
+        // uncommitted. An empty replay index and no persistent store is a safe
+        // fast path: no hash can possibly be committed yet.
+        let skip_committed_check =
+            self.persistent_store.is_none() && !self.blockchain_read().has_executed_transactions();
+        let executed_hashes = if skip_committed_check {
+            AHashSet::new()
+        } else {
             use rayon::prelude::*;
-            batch_metadata
+            verified_txs
                 .par_iter()
-                .map(|(tx_hash, _, _, _, _, _)| -> Result<Option<Vec<u8>>> {
-                    Ok(self.try_is_transaction_committed(tx_hash)?.then(|| tx_hash.clone()))
+                .map(|item| -> Result<Option<Vec<u8>>> {
+                    Ok(self
+                        .try_is_transaction_committed(&item.tx_hash)?
+                        .then(|| item.tx_hash.clone()))
                 })
                 .collect::<Result<Vec<_>>>()?
                 .into_iter()
                 .flatten()
                 .collect::<AHashSet<_>>()
         };
+
+        let checked_at = std::time::Instant::now();
 
         // Account sequence is intentionally not a consensus admission rule. Object refs,
         // gas refs, and duplicate transaction hashes are the canonical replay/double-spend guards.
@@ -199,7 +219,6 @@ impl BlockchainEngine {
         //
         // Cap at JSON-safe range so legacy huge random nonces don't permanently
         // lock senders out.
-        const MAX_WATERMARK: u64 = 1u64 << 53;
         let sender_watermark = self
             .persistent_store
             .as_ref()
@@ -207,12 +226,16 @@ impl BlockchainEngine {
             .transpose()?
             .unwrap_or_default()
             .into_iter()
-            .map(|(k, v)| (k, if v >= MAX_WATERMARK { 0 } else { v }))
+            .map(|(k, v)| (k, kanari_types::transaction::sanitize_nonce_watermark(v).unwrap_or(0)))
             .collect::<std::collections::BTreeMap<_, _>>();
 
-        for (tx_hash, sender, nonce, primary_access, congestion_access, access_keys) in
-            &batch_metadata
-        {
+        for item in &verified_txs {
+            let tx_hash = &item.tx_hash;
+            let sender = &item.normalized_sender;
+            let nonce = item.nonce;
+            let primary_access = &item.primary_access_key;
+            let congestion_access = &item.congestion_access_key;
+
             if mempool.pending_tx_hashes.contains(tx_hash) || !batch_hashes.insert(tx_hash.clone())
             {
                 let tx_hash_hex = hex::encode(tx_hash);
@@ -223,7 +246,7 @@ impl BlockchainEngine {
                 anyhow::bail!("Transaction {} already executed", tx_hash_hex);
             }
             if let Some(max_committed) = sender_watermark.get(sender)
-                && *max_committed >= *nonce
+                && *max_committed >= nonce
             {
                 anyhow::bail!(
                     "Transaction nonce {} for sender {} is stale: max committed nonce for sender is {}",
@@ -300,35 +323,17 @@ impl BlockchainEngine {
             *accepted_counts_by_congestion_access.entry(congestion_access.clone()).or_insert(0) +=
                 1;
             *accepted_counts_by_access.entry(primary_access.clone()).or_insert(0) += 1;
-            for access_key in access_keys {
+            for access_key in &item.access_keys {
                 *accepted_counts_by_access.entry(access_key.clone()).or_insert(0) += 1;
             }
         }
 
+        let accepted_at = std::time::Instant::now();
+
         // Commit admission and all derived indexes under the same lock used for checks.
-        mempool.pending_txs.extend(verified_txs.into_iter().map(
-            |(
-                signed_tx,
-                tx_hash,
-                normalized_sender,
-                _,
-                primary_access_key,
-                congestion_access_key,
-                access_keys,
-                size_bytes,
-            )| {
-                PendingTransactionRecord {
-                    signed_tx,
-                    metadata: metadata.clone(),
-                    tx_hash,
-                    normalized_sender,
-                    primary_access_key,
-                    congestion_access_key,
-                    access_keys,
-                    size_bytes,
-                }
-            },
-        ));
+        mempool.pending_txs.extend(
+            verified_txs.into_iter().map(|item| item.into_pending_record(metadata.clone())),
+        );
         mempool.pending_tx_hashes.extend(accepted_hashes.iter().cloned());
         mempool.pending_bytes = mempool.pending_bytes.saturating_add(batch_bytes);
         for (sender, count) in &accepted_counts_by_sender {
@@ -346,6 +351,19 @@ impl BlockchainEngine {
         }
         for (access_key, count) in &accepted_counts_by_access {
             *mempool.pending_access_counts.entry(access_key.clone()).or_insert(0) += *count;
+        }
+        if profile {
+            let committed_at = std::time::Instant::now();
+            eprintln!(
+                "mempool admission profile: txs={} verify={:.6}s sort={:.6}s committed_check={:.6}s accept={:.6}s commit={:.6}s total={:.6}s",
+                batch_size,
+                verified_at.duration_since(started_at).as_secs_f64(),
+                sorted_at.duration_since(verified_at).as_secs_f64(),
+                checked_at.duration_since(sorted_at).as_secs_f64(),
+                accepted_at.duration_since(checked_at).as_secs_f64(),
+                committed_at.duration_since(accepted_at).as_secs_f64(),
+                committed_at.duration_since(started_at).as_secs_f64(),
+            );
         }
         Ok(accepted_hashes)
     }

@@ -247,6 +247,38 @@ impl CoinModule {
         Self::normalize_token_type(token_type) == crate::gas_coin::GAS_COIN
     }
 
+    /// Whether a struct tag is the canonical `0x2::coin::Coin<T>`.
+    #[must_use]
+    pub fn is_coin_struct_tag(struct_tag: &StructTag) -> bool {
+        struct_tag.module.as_str() == Self::COIN_MODULE
+            && struct_tag.name.as_str() == Self::COIN_STRUCT
+    }
+
+    /// Whether a struct tag is the canonical `0x2::coin::TreasuryCap<T>`.
+    #[must_use]
+    pub fn is_treasury_cap_struct_tag(struct_tag: &StructTag) -> bool {
+        struct_tag.module.as_str() == Self::COIN_MODULE
+            && struct_tag.name.as_str() == Self::TREASURY_CAP_STRUCT
+    }
+
+    /// Canonical token type from the first struct type parameter.
+    #[must_use]
+    pub fn token_type_from_struct_tag(struct_tag: &StructTag) -> Option<String> {
+        if let Some(TypeTag::Struct(inner)) = struct_tag.type_params.first() {
+            Some(format!("{inner}"))
+        } else {
+            None
+        }
+    }
+
+    /// Read the `u64` supply from a `TreasuryCap<T>` blob.
+    ///
+    /// Callers must verify the struct tag first; this only owns the offset.
+    #[must_use]
+    pub fn read_treasury_cap_supply(data: &[u8]) -> Option<u64> {
+        crate::layout::read_u64_at(data, crate::layout::MOVE_UID_BYTES)
+    }
+
     /// Protocol-constant decimals for whitelisted settlement coins.
     ///
     /// KANARI is 9 decimals and USD is 6 decimals. Any other token must use
@@ -264,25 +296,16 @@ impl CoinModule {
 
     /// Read the `u64` balance from the canonical `Coin<T>` BCS layout.
     pub fn read_balance(data: &[u8]) -> Option<u64> {
-        let amount = data.get(32..40)?;
-        Some(u64::from_le_bytes(amount.try_into().ok()?))
+        crate::layout::read_u64_at(data, crate::layout::MOVE_UID_BYTES)
     }
 
     /// Write the `u64` balance into the canonical `Coin<T>` BCS layout.
     /// Returns `false` if the data is too short or the struct tag is not `Coin<T>`.
     pub fn write_balance_to_object(data: &mut [u8], struct_tag: &StructTag, amount: u64) -> bool {
-        let module_name = struct_tag.module.as_str();
-        let struct_name = struct_tag.name.as_str();
-        let bytes = amount.to_le_bytes();
-
-        if module_name == Self::COIN_MODULE && struct_name == Self::COIN_STRUCT {
-            if data.len() < 32 + 8 {
-                return false;
-            }
-            data[32..40].copy_from_slice(&bytes);
-            return true;
+        if !Self::is_coin_struct_tag(struct_tag) {
+            return false;
         }
-        false
+        crate::layout::write_u64_at(data, crate::layout::MOVE_UID_BYTES, amount)
     }
 
     /// Extract the coin balance from an object, gated on the object actually

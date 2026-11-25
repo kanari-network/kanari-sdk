@@ -116,7 +116,7 @@ impl MoveRuntime {
         // The caller provides these context fields for API compatibility. The
         // bytecode publish path has no TxContext and must not fabricate them;
         // they are forwarded to a module `init` when one runs at publish.
-        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let publish_guard = kanari_types::sync::mutex_lock_or_recover(&self.module_publish_lock);
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
         self.verify_module_publish_safety(
@@ -228,7 +228,7 @@ impl MoveRuntime {
         intent: ModulePublishIntent,
     ) -> Result<ChangeSet> {
         // Package publishing shares the same context rule as single modules.
-        let publish_guard = self.module_publish_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let publish_guard = kanari_types::sync::mutex_lock_or_recover(&self.module_publish_lock);
 
         // Deserialize the whole package before verifying any of it: a module
         // may depend on a sibling that is published by this same transaction,
@@ -385,7 +385,7 @@ impl MoveRuntime {
         }
         input.extend_from_slice(module_id.address().as_ref());
         input.extend_from_slice(module_id.name().as_bytes());
-        hash_data_blake3(&input).to_vec()
+        blake3(&input).to_vec()
     }
 
     /// Execute a freshly published module's `init` inside an already-open

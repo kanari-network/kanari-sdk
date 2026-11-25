@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
-use kanari_crypto::hash_data_blake3;
 use kanari_types::address::Address as KanariAddress;
+use kanari_types::env::{env_exact, env_flag};
+use kanari_types::hash::blake3_hex;
 use log::warn;
 use move_binary_format::compatibility::Compatibility;
 use move_binary_format::file_format::CompiledModule;
@@ -33,7 +34,7 @@ pub(crate) fn compute_framework_manifest_and_hash(
         .iter()
         .map(|m| {
             let id = format!("{}::{}", m.module_id.address().to_hex_literal(), m.module_id.name());
-            let h = hex::encode(hash_data_blake3(&m.bytes));
+            let h = blake3_hex(&m.bytes);
             (id, h)
         })
         .collect();
@@ -46,7 +47,7 @@ pub(crate) fn compute_framework_manifest_and_hash(
         blob.extend_from_slice(h.as_bytes());
         blob.push(0);
     }
-    let root_hash = hex::encode(hash_data_blake3(&blob));
+    let root_hash = blake3_hex(&blob);
     (manifest, root_hash)
 }
 
@@ -118,8 +119,7 @@ pub(crate) fn save_framework_modules(
             let old_norm = normalized::Module::new(&old_compiled);
             let new_norm = normalized::Module::new(&m.compiled);
             if let Err(e) = Compatibility::full_check().check(&old_norm, &new_norm) {
-                if std::env::var("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE").ok().as_deref() != Some("1")
-                {
+                if !env_exact("KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE", "1") {
                     return Err(anyhow!(
                         "Incompatible {} upgrade for {} (set KANARI_FRAMEWORK_ALLOW_INCOMPATIBLE=1 to override): {:?}",
                         incompatible_error_prefix,
@@ -266,9 +266,7 @@ pub(crate) fn framework_specs() -> Vec<FrameworkSpec> {
 }
 
 pub(crate) fn verbose_startup_enabled() -> bool {
-    std::env::var("KANARI_VERBOSE_STARTUP")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false)
+    env_flag("KANARI_VERBOSE_STARTUP")
 }
 
 pub(crate) fn capitalize_first(s: &str) -> String {

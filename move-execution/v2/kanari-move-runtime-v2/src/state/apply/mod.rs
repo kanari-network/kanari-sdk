@@ -3,6 +3,7 @@
 use super::*;
 use kanari_types::coin::CoinModule;
 use kanari_types::collection::CollectionModule;
+use kanari_types::env::env_flag;
 use kanari_types::transaction::ObjectOwnerKind;
 
 mod apply_balances;
@@ -99,10 +100,7 @@ impl StateManager {
         changeset: &mut ChangeSet,
         validate_supply: bool,
     ) -> Result<()> {
-        let profile_apply = matches!(
-            std::env::var("KANARI_STATE_APPLY_PROFILE").as_deref(),
-            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes") | Ok("YES")
-        );
+        let profile_apply = env_flag("KANARI_STATE_APPLY_PROFILE");
         let apply_started_at = std::time::Instant::now();
         if validate_supply {
             // Validate on a cloned snapshot so rejected transactions cannot poison live state.
@@ -295,8 +293,11 @@ impl StateManager {
             self.save_internal(b"global_token_supplies", &supplies_clone)?;
         }
 
-        // --- Phase 15: validate no lost tokens ---
-        if let Err(error) = self.validate_no_lost_tokens() {
+        // --- Phase 15: optional post-apply supply audit (diagnostic) ---
+        // Checkpoint finalize already performs strict supply validation; keep
+        // this full scan opt-in to avoid hot-path overhead.
+        let post_apply_audit = env_flag("KANARI_POST_APPLY_SUPPLY_AUDIT");
+        if post_apply_audit && let Err(error) = self.validate_no_lost_tokens() {
             log::warn!("Post-apply supply audit: {}", error);
         }
 
@@ -856,112 +857,133 @@ impl StateManager {
             return Ok(true);
         }
 
+        struct OwnedBurnUpdate {
+            owner_deltas: Vec<(AccountAddress, i128, bool)>,
+            object_key: Vec<u8>,
+            object_bytes: Vec<u8>,
+        }
+
+        // Per-changeset validation and object rewriting are independent. Prepare
+        // them in parallel, then merge in original order so conflict/fallback
+        // decisions and state writes stay deterministic.
+        use rayon::prelude::*;
+        let prepared = changesets
+            .par_iter()
+            .map(|changeset| -> Result<Option<OwnedBurnUpdate>> {
+                if !changeset.success
+                    || !changeset.events.is_empty()
+                    || !changeset.treasuries.is_empty()
+                    || !changeset.nft_caps.is_empty()
+                    || !changeset.token_balance_sets.is_empty()
+                    || !changeset.shared_inputs.is_empty()
+                    || !changeset.immutable_inputs.is_empty()
+                    || changeset.gas_payment.is_none()
+                    || changeset.gas_object_refs.len() != 1
+                    || changeset.created_objects.len() != 1
+                    || !changeset.deleted_objects.is_empty()
+                    || !changeset.added_dynamic_fields.is_empty()
+                    || !changeset.removed_dynamic_fields.is_empty()
+                    || !changeset.move_writes.is_empty()
+                    || !changeset.resolver_reads.is_empty()
+                {
+                    return Ok(None);
+                }
+
+                let gas_ref = &changeset.gas_object_refs[0];
+                let (object_id, created) = &changeset.created_objects[0];
+                let canonical_object_id = Self::canonical_owned_object_id(object_id);
+                if Self::canonical_owned_object_id(&gas_ref.object_id) != canonical_object_id {
+                    return Ok(None);
+                }
+                let (token_type, object_balance) =
+                    Self::balance_token_amount(&created.type_, &created.data)
+                        .context("Native owned batch coin object has invalid balance bytes")?;
+                if CoinModule::normalize_token_type(&token_type) != GAS_COIN {
+                    return Ok(None);
+                }
+
+                let Some(payment) = &changeset.gas_payment else {
+                    return Ok(None);
+                };
+                let payment_owner = payment
+                    .owner_account_strict()
+                    .context("Native owned batch gas payment owner is invalid")?;
+                if payment_owner != created.owner {
+                    return Ok(None);
+                }
+
+                let sender_delta = changeset
+                    .owner_deltas
+                    .get(&created.owner)
+                    .map(|delta| delta.balance_delta)
+                    .unwrap_or(0);
+                if sender_delta >= 0 {
+                    return Ok(None);
+                }
+                let sender_debit = u64::try_from(sender_delta.unsigned_abs())
+                    .context("Native owned batch sender debit overflowed u64")?;
+                let gas_credit_total =
+                    changeset.native_gas_credits.values().try_fold(0u64, |acc, value| {
+                        acc.checked_add(*value).context("Native gas credit overflow in owned batch")
+                    })?;
+                if gas_credit_total > sender_debit || object_balance < sender_debit {
+                    return Ok(None);
+                }
+
+                let mut next_data = created.data.clone();
+                let struct_tag = StructTag::from_str(&created.type_)
+                    .context("Native owned batch coin object type is invalid")?;
+                if !Self::write_balance_to_object_bytes(
+                    &mut next_data,
+                    &struct_tag,
+                    object_balance - sender_debit,
+                ) {
+                    return Ok(None);
+                }
+
+                let owner_deltas = changeset
+                    .owner_deltas
+                    .iter()
+                    .map(|(owner, delta)| {
+                        (*owner, delta.balance_delta, !delta.modules_added.is_empty())
+                    })
+                    .collect();
+                let object_key = crate::common::keys::object_key(&canonical_object_id);
+                let object = StoredObject {
+                    id: canonical_object_id,
+                    owner: created.owner,
+                    owner_kind: created.owner_kind.clone(),
+                    type_name: created.type_.clone(),
+                    data: next_data,
+                    version: created.version.saturating_add(1),
+                };
+                let object_bytes = bcs::to_bytes(&object)
+                    .context("Native owned batch object serialization failed")?;
+                Ok(Some(OwnedBurnUpdate { owner_deltas, object_key, object_bytes }))
+            })
+            .collect::<Vec<_>>();
+
         let mut owner_deltas: BTreeMap<AccountAddress, i128> = BTreeMap::new();
-        let mut object_updates = Vec::with_capacity(changesets.len());
-        let mut access = StateAccessSet::default();
+        let mut object_writes = Vec::with_capacity(prepared.len());
+        let mut written_keys = Vec::with_capacity(prepared.len());
         let mut supply_delta = 0i128;
-
-        for changeset in changesets {
-            if !changeset.success
-                || !changeset.events.is_empty()
-                || !changeset.treasuries.is_empty()
-                || !changeset.nft_caps.is_empty()
-                || !changeset.token_balance_sets.is_empty()
-                || !changeset.shared_inputs.is_empty()
-                || !changeset.immutable_inputs.is_empty()
-                || changeset.gas_payment.is_none()
-                || changeset.gas_object_refs.len() != 1
-                || changeset.created_objects.len() != 1
-                || !changeset.deleted_objects.is_empty()
-                || !changeset.added_dynamic_fields.is_empty()
-                || !changeset.removed_dynamic_fields.is_empty()
-                || !changeset.move_writes.is_empty()
-                || !changeset.resolver_reads.is_empty()
-            {
-                return Ok(false);
-            }
-
-            let gas_ref = &changeset.gas_object_refs[0];
-            let (object_id, created) = &changeset.created_objects[0];
-            let canonical_object_id = Self::canonical_owned_object_id(object_id);
-            if Self::canonical_owned_object_id(&gas_ref.object_id) != canonical_object_id {
-                return Ok(false);
-            }
-            if !Self::balance_token_amount(&created.type_, &created.data).is_some_and(
-                |(token_type, _)| CoinModule::normalize_token_type(&token_type) == GAS_COIN,
-            ) {
-                return Ok(false);
-            }
-
-            let Some(payment) = &changeset.gas_payment else {
+        for prepared_update in prepared {
+            let Some(update) = prepared_update? else {
                 return Ok(false);
             };
-            let payment_owner = AccountAddress::from_hex_literal(&payment.owner)
-                .context("Native owned batch gas payment owner is invalid")?;
-            if payment_owner != created.owner {
-                return Ok(false);
-            }
-
-            let sender_delta = changeset
-                .owner_deltas
-                .get(&created.owner)
-                .map(|delta| delta.balance_delta)
-                .unwrap_or(0);
-            if sender_delta >= 0 {
-                return Ok(false);
-            }
-            let sender_debit = u64::try_from(sender_delta.unsigned_abs())
-                .context("Native owned batch sender debit overflowed u64")?;
-            let gas_credit_total =
-                changeset.native_gas_credits.values().try_fold(0u64, |acc, value| {
-                    acc.checked_add(*value).context("Native gas credit overflow in owned batch")
-                })?;
-            if gas_credit_total > sender_debit {
-                return Ok(false);
-            }
-
-            let (token_type, object_balance) =
-                Self::balance_token_amount(&created.type_, &created.data)
-                    .context("Native owned batch coin object has invalid balance bytes")?;
-            if CoinModule::normalize_token_type(&token_type) != GAS_COIN
-                || object_balance < sender_debit
-            {
-                return Ok(false);
-            }
-
-            let mut next_data = created.data.clone();
-            let struct_tag = StructTag::from_str(&created.type_)
-                .context("Native owned batch coin object type is invalid")?;
-            if !Self::write_balance_to_object_bytes(
-                &mut next_data,
-                &struct_tag,
-                object_balance - sender_debit,
-            ) {
-                return Ok(false);
-            }
-
-            for (owner, delta) in &changeset.owner_deltas {
-                if !delta.modules_added.is_empty() {
+            for (owner, delta, has_modules_added) in update.owner_deltas {
+                if has_modules_added {
                     return Ok(false);
                 }
-                let entry = owner_deltas.entry(*owner).or_insert(0);
-                *entry = entry
-                    .checked_add(delta.balance_delta)
-                    .context("Native owned batch owner delta overflow")?;
+                let entry = owner_deltas.entry(owner).or_insert(0);
+                *entry =
+                    entry.checked_add(delta).context("Native owned batch owner delta overflow")?;
                 supply_delta = supply_delta
-                    .checked_add(delta.balance_delta)
+                    .checked_add(delta)
                     .context("Native owned batch supply delta overflow")?;
             }
-
-            object_updates.push(StoredObject {
-                id: canonical_object_id.clone(),
-                owner: created.owner,
-                owner_kind: created.owner_kind.clone(),
-                type_name: created.type_.clone(),
-                data: next_data,
-                version: created.version.saturating_add(1),
-            });
-            access.writes.insert(crate::common::keys::object_key(&canonical_object_id));
+            object_writes.push((update.object_key.clone(), update.object_bytes));
+            written_keys.push(update.object_key);
         }
 
         if supply_delta > 0 {
@@ -1032,11 +1054,11 @@ impl StateManager {
             }
         }
 
-        for object in object_updates {
-            self.save_internal(&object_key(&object.id), &object)?;
+        for (key, bytes) in object_writes {
+            self.overlay.insert(key, Some(bytes));
         }
         self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)?;
-        self.advance_access_versions(&access)?;
+        self.advance_access_versions_for_keys(written_keys)?;
         Ok(true)
     }
 }

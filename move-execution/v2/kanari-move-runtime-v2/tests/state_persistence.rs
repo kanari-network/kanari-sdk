@@ -213,7 +213,7 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
         "0xaaa1".to_string(),
         CreatedObject {
             owner: alice,
-            owner_kind: ObjectOwnerKind::AddressOwner(alice.to_hex_literal()),
+            owner_kind: ObjectOwnerKind::address_owner(&alice),
             uid: None,
             id: None,
             type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),
@@ -225,7 +225,7 @@ fn restart_rebuilds_derived_indexes_from_canonical_records() -> Result<()> {
         "0xbbb2".to_string(),
         CreatedObject {
             owner: bob,
-            owner_kind: ObjectOwnerKind::AddressOwner(bob.to_hex_literal()),
+            owner_kind: ObjectOwnerKind::address_owner(&bob),
             uid: None,
             id: None,
             type_: "0x2::coin::Coin<0x2::kanari::KANARI>".to_string(),

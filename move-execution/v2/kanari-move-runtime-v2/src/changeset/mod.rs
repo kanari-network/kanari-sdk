@@ -3,9 +3,8 @@
 
 //! Transaction changeset types for tracking object mutations and gas accounting.
 
-use hex;
-use kanari_crypto::hash_data_blake3;
 use kanari_types::coin::TreasuryCap;
+use kanari_types::hash::blake3_hex_0x;
 use kanari_types::object::IDRecord;
 use kanari_types::object::UIDRecord;
 use kanari_types::transaction::{
@@ -46,7 +45,7 @@ impl CreatedObject {
 
     /// Returns the hex-encoded Blake3 digest of the object data.
     pub fn digest(&self) -> String {
-        format!("0x{}", hex::encode(hash_data_blake3(&self.data)))
+        blake3_hex_0x(&self.data)
     }
 
     /// Constructs an ObjectRef for this object with the given id, version, and digest.

@@ -341,6 +341,7 @@ impl BlockchainEngine {
             authorities,
             consensus_signing_key: None,
             consensus_public_keys: BTreeMap::new(),
+            observed_network_height: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         };
 
         let stats = engine.get_stats();

@@ -4,6 +4,7 @@
 //! Object reads: balance codecs, id lookup, and object queries.
 
 use super::*;
+use rayon::prelude::*;
 
 impl StateManager {
     pub(crate) fn write_balance_to_object_bytes(
@@ -11,44 +12,23 @@ impl StateManager {
         struct_tag: &StructTag,
         amount: u64,
     ) -> bool {
-        let module_name = struct_tag.module.as_str();
-        let struct_name = struct_tag.name.as_str();
-        let bytes = amount.to_le_bytes();
-
-        if module_name == CoinModule::COIN_MODULE && struct_name == CoinModule::COIN_STRUCT {
-            if data.len() < UID_SIZE + U64_SIZE {
-                return false;
-            }
-            data[UID_SIZE..(UID_SIZE + U64_SIZE)].copy_from_slice(&bytes);
-            return true;
+        if CoinModule::is_coin_struct_tag(struct_tag) {
+            return CoinModule::write_balance_to_object(data, struct_tag, amount);
         }
-
-        if module_name == BalanceModule::BALANCE_MODULE
-            && struct_name == BalanceModule::BALANCE_STRUCT
-        {
-            if data.len() < U64_SIZE {
-                return false;
-            }
-            let start = data.len() - U64_SIZE;
-            data[start..].copy_from_slice(&bytes);
-            return true;
+        if BalanceModule::is_balance_struct_tag(struct_tag) {
+            return BalanceModule::write_balance(data, amount);
         }
-
         false
     }
+
     pub(crate) fn treasury_cap_token_supply(type_name: &str, data: &[u8]) -> Option<(String, u64)> {
         let struct_tag = StructTag::from_str(type_name).ok()?;
-        if struct_tag.module.as_str() != CoinModule::COIN_MODULE
-            || struct_tag.name.as_str() != CoinModule::TREASURY_CAP_STRUCT
-        {
+        if !CoinModule::is_treasury_cap_struct_tag(&struct_tag) {
             return None;
         }
         let token_type = token_type_from_struct_tag(&struct_tag)?;
-        if data.len() < UID_SIZE + U64_SIZE {
-            return None;
-        }
-        let supply_bytes: [u8; U64_SIZE] = data[UID_SIZE..(UID_SIZE + U64_SIZE)].try_into().ok()?;
-        Some((CoinModule::normalize_token_type(&token_type), u64::from_le_bytes(supply_bytes)))
+        let supply = CoinModule::read_treasury_cap_supply(data)?;
+        Some((CoinModule::normalize_token_type(&token_type), supply))
     }
 
     // Helper to construct DB key for object
@@ -84,8 +64,9 @@ impl StateManager {
     pub(crate) fn retain_canonical_state_root_entries(
         entries: &mut BTreeMap<Vec<u8>, Vec<u8>>,
     ) -> Result<()> {
-        let mut canonical_object_keys = BTreeSet::new();
-        let mut canonical_module_keys = BTreeSet::new();
+        let mut canonical_object_keys = ahash::AHashSet::new();
+        let mut canonical_module_keys = ahash::AHashSet::new();
+        let mut canonical_object_refs: Vec<(String, Vec<u8>)> = Vec::new();
 
         for (key, value) in entries.iter() {
             if key == b"module_index" {
@@ -101,28 +82,31 @@ impl StateManager {
                 let object_ids = bcs::from_bytes::<Vec<String>>(value).with_context(|| {
                     format!("Malformed owned-object index {:?}", String::from_utf8_lossy(key))
                 })?;
-                canonical_object_keys.extend(
-                    object_ids
-                        .into_iter()
-                        .map(|id| {
-                            canonical_object_id(&id).ok_or_else(|| {
-                                anyhow::anyhow!("Invalid object id in owned-object index: {id}")
-                            })
-                        })
-                        .collect::<Result<Vec<_>>>()?
-                        .into_iter()
-                        .map(|id| {
-                            let object_key = object_key(&id);
-                            let bytes = entries.get(&object_key).ok_or_else(|| {
-                                anyhow::anyhow!("Owned-object index references missing object {id}")
-                            })?;
-                            bcs::from_bytes::<StoredObject>(bytes)
-                                .with_context(|| format!("Malformed object record {id}"))?;
-                            Ok(object_key)
-                        })
-                        .collect::<Result<Vec<_>>>()?,
-                );
+                for id in object_ids {
+                    let id = canonical_object_id(&id).ok_or_else(|| {
+                        anyhow::anyhow!("Invalid object id in owned-object index: {id}")
+                    })?;
+                    canonical_object_refs.push((id.clone(), object_key(&id)));
+                }
             }
+        }
+
+        // Every referenced object must still be present and well-formed. The
+        // records are independent, so decode them in parallel while collecting
+        // by original index order to keep the first reported error deterministic.
+        let validated_object_keys = canonical_object_refs
+            .into_par_iter()
+            .map(|(id, object_key)| -> Result<Vec<u8>> {
+                let bytes = entries.get(&object_key).ok_or_else(|| {
+                    anyhow::anyhow!("Owned-object index references missing object {id}")
+                })?;
+                bcs::from_bytes::<StoredObject>(bytes)
+                    .with_context(|| format!("Malformed object record {id}"))?;
+                Ok(object_key)
+            })
+            .collect::<Vec<_>>();
+        for key in validated_object_keys {
+            canonical_object_keys.insert(key?);
         }
 
         entries.retain(|key, _| {

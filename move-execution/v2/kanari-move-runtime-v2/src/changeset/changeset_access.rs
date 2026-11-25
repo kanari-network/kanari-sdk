@@ -104,7 +104,7 @@ impl ChangeSet {
         if payment.payment_objects.is_empty() {
             return false;
         }
-        let Ok(payment_owner) = AccountAddress::from_hex_literal(&payment.owner) else {
+        let Some(payment_owner) = payment.owner_account_strict() else {
             return false;
         };
         payment_owner == *owner

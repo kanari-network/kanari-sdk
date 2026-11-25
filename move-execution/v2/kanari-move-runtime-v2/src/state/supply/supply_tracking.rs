@@ -4,6 +4,7 @@
 //! Supply cache tracking: invariant flags, normalization, and global deltas.
 
 use super::*;
+use kanari_types::env::env_flag_default_true;
 
 impl StateManager {
     /// Check whether supply invariant violations should fail fast.
@@ -13,11 +14,7 @@ impl StateManager {
     /// `KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH=0/false/no/off` (for emergency
     /// recovery of a legacy-corrupt DB, then re-enable).
     pub fn supply_invariant_fail_fast_enabled() -> bool {
-        std::env::var("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
-            .map(|value| {
-                !matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no" | "off")
-            })
-            .unwrap_or(true)
+        env_flag_default_true("KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH")
     }
 
     /// Log and optionally bail on a supply invariant violation.

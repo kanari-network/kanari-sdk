@@ -83,7 +83,7 @@ fn transferred_object_version_uses_speculative_overlay_and_transfer_updates_owne
 
     let (_, created) = changeset.created_objects.first().invariant("created object");
     assert_eq!(created.version, 10);
-    assert_eq!(created.owner_kind, ObjectOwnerKind::AddressOwner(new_owner.to_hex_literal()));
+    assert_eq!(created.owner_kind, ObjectOwnerKind::address_owner(&new_owner));
     assert_eq!(created.owner, new_owner);
 }
 

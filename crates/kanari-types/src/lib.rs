@@ -8,13 +8,17 @@ pub mod clock;
 pub mod coin;
 pub mod collection;
 pub mod deny_list;
+pub mod encoding;
+pub mod env;
 pub mod error;
 pub mod event;
 pub mod gas_coin;
 pub mod gas_market;
 pub mod governance;
+pub mod hash;
 pub mod krc_1155;
 pub mod krc_721;
+pub mod layout;
 pub mod multisig;
 pub mod object;
 pub mod pay;
@@ -36,4 +40,5 @@ pub use gas::{
 // Re-export Move stdlib bindings at crate root for easier access and to align
 // Rust API names with Move module names.
 pub mod stdlib;
+pub mod sync;
 pub use stdlib::*;

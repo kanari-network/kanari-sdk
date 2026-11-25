@@ -5,11 +5,11 @@ use super::*;
 
 impl MoveRuntime {
     pub(super) fn read_vm(&self) -> RwLockReadGuard<'_, MoveVM> {
-        self.vm.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::rw_read_or_recover(&self.vm)
     }
 
     pub(super) fn write_vm(&self) -> RwLockWriteGuard<'_, MoveVM> {
-        self.vm.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+        kanari_types::sync::rw_write_or_recover(&self.vm)
     }
 
     /// Create a new runtime with custom native functions and default storage.
@@ -180,7 +180,7 @@ impl MoveRuntime {
             KanariMoveResolver::without_trace(self.state.clone(), object_storage.clone());
 
         let published_modules =
-            self.published_modules.read().unwrap_or_else(|p| p.into_inner()).clone();
+            kanari_types::sync::rw_read_or_recover(&self.published_modules).clone();
 
         let runtime = MoveRuntime {
             vm: Arc::new(RwLock::new(vm)),
@@ -215,7 +215,7 @@ impl MoveRuntime {
     /// Refresh module identity and VM caches after canonical state has committed.
     pub fn refresh_committed_modules(&self) -> Result<()> {
         let module_ids = self.state.get_all_module_ids()?;
-        *self.published_modules.write().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+        *kanari_types::sync::rw_write_or_recover(&self.published_modules) =
             module_ids.into_iter().collect();
         self.reload_vm_cache()
     }
@@ -231,13 +231,11 @@ impl MoveRuntime {
         let session = self.create_session_with_storage_ext(&vm_guard);
 
         // Read the published module set from the runtime index.
-        let module_ids: Vec<ModuleId> = self
-            .published_modules
-            .read()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .cloned()
-            .collect();
+        let module_ids: Vec<ModuleId> =
+            kanari_types::sync::rw_read_or_recover(&self.published_modules)
+                .iter()
+                .cloned()
+                .collect();
 
         // Deserialize published modules so the fresh VM repopulates its caches.
         for module_id in module_ids {
@@ -325,7 +323,7 @@ impl MoveRuntime {
         ));
         store.apply_raw_changes(&updates, &deletes)?;
 
-        let mut modules = self.published_modules.write().unwrap_or_else(|p| p.into_inner());
+        let mut modules = kanari_types::sync::rw_write_or_recover(&self.published_modules);
         modules.extend(published_module_updates);
         for module_id in published_module_deletes {
             modules.remove(&module_id);

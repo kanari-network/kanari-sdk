@@ -115,14 +115,14 @@ impl MoveRuntime {
             if raw_tx_hash.len() == 32 {
                 raw_tx_hash.to_vec()
             } else {
-                hash_data_blake3(raw_tx_hash).to_vec()
+                blake3(raw_tx_hash).to_vec()
             }
         } else {
             let mut input = Vec::new();
             input.extend_from_slice(b"kanari-txctx-v1");
             input.extend_from_slice(sender_addr.as_ref());
             input.extend_from_slice(&epoch_timestamp_ms.to_le_bytes());
-            hash_data_blake3(&input).to_vec()
+            blake3(&input).to_vec()
         };
         let move_value = MoveValue::Struct(MoveStruct(vec![
             MoveValue::Address(sender_addr),

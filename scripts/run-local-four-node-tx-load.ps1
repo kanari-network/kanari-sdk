@@ -70,7 +70,10 @@ function Invoke-KanariRpc {
 
 $keysDir = Join-Path $runRoot 'consensus-keys'
 $genesis = Join-Path $runRoot 'devnet-genesis.json'
-$sourceData = Join-Path $runRoot 'node1-db'
+# Genesis export opens (and initializes) a persistent store, so it must not
+# reuse node1's data dir: node1 would start from a half-initialized store with
+# state but no blockchain metadata.
+$sourceData = Join-Path $runRoot 'genesis-db'
 New-Item -ItemType Directory -Force -Path $sourceData | Out-Null
 
 Write-Host "Preparing temporary four-node transaction devnet under $runRoot"
@@ -190,7 +193,7 @@ try {
         'client', 'stress-test',
         '--from', $From,
         '--to', $To,
-        '--amount', $Amount,
+        '--amount', $Amount.ToString('0.############################', [System.Globalization.CultureInfo]::InvariantCulture),
         '--count', $Count,
         '--password', $Password,
         '--rpc', $urls[0]

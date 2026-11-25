@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
+use kanari_types::env::env_flag;
 
 /// Whether a host-built changeset's treasury/supply invariants are checked
 /// before it is applied to state.
@@ -155,9 +156,7 @@ impl MoveRuntime {
         }
         Ok((
             AccountAddress::ZERO,
-            kanari_types::transaction::ObjectOwnerKind::AddressOwner(
-                AccountAddress::ZERO.to_hex_literal(),
-            ),
+            kanari_types::transaction::ObjectOwnerKind::address_owner(&AccountAddress::ZERO),
             1,
         ))
     }
@@ -280,7 +279,7 @@ impl MoveRuntime {
     /// collide and the ids stay reproducible on every node.
     fn derive_genesis_object_id(domain_seed: &[u8]) -> Result<AccountAddress> {
         let mut hasher = Sha3_256::new();
-        hasher.update(hash_data_blake3(domain_seed));
+        hasher.update(blake3(domain_seed));
         hasher.update(0u64.to_le_bytes());
         let digest = hasher.finalize();
         AccountAddress::from_bytes(&digest[..AccountAddress::LENGTH])
@@ -293,10 +292,7 @@ impl MoveRuntime {
             return Ok(id);
         }
 
-        if !std::env::var("KANARI_CLOCK_CREATE_VM")
-            .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-            .unwrap_or(false)
-        {
+        if !env_flag("KANARI_CLOCK_CREATE_VM") {
             return self.ensure_system_clock_native(state);
         }
 
@@ -304,7 +300,7 @@ impl MoveRuntime {
         let func_name = ClockModule::function_names().create;
 
         let system_sender = AccountAddress::ZERO;
-        let genesis_tx_hash = hash_data_blake3(b"KANARI::GENESIS::CLOCK").to_vec();
+        let genesis_tx_hash = blake3(b"KANARI::GENESIS::CLOCK").to_vec();
 
         let cs = self.execute_system_function_with_tx_hash_and_persistence(
             &module_id,

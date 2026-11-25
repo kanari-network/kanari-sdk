@@ -3,10 +3,13 @@
 
 use anyhow::{Context, Result};
 use kanari_core::{BlockchainEngine, CheckpointProductionInfo};
+use kanari_types::env::{env_flag, env_usize_positive};
 use kanari_types::transaction::SignedTransaction;
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 
-const DEFAULT_PRODUCTION_CHUNK_SIZE: usize = 50_000;
+const DEFAULT_PRODUCTION_CHUNK_SIZE: usize = 100_000;
 
 pub fn execute_admission_path(
     engine: &BlockchainEngine,
@@ -36,72 +39,146 @@ pub fn execute_production_path(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
 ) -> Result<(CheckpointProductionInfo, f64, f64)> {
-    let chunk_size = production_chunk_size(signed_txs.len());
-    let mut chunks = signed_txs.chunks(chunk_size);
-    let first_chunk = chunks.next().context("No transactions supplied to production benchmark")?;
-    let mut submit_secs = submit_chunk(engine, first_chunk)?;
-    let mut produce_secs = 0.0;
-    let mut aggregate: Option<CheckpointProductionInfo> = None;
-
-    loop {
-        while engine.pending_transaction_len() > 0 {
-            let produce_start = Instant::now();
-            let block_info = engine.produce_checkpoint()?;
-            produce_secs += produce_start.elapsed().as_secs_f64();
-            merge_checkpoint_info(&mut aggregate, block_info);
-        }
-
-        let Some(next_chunk) = chunks.next() else {
-            break;
-        };
-        let chunk_submit_secs = submit_chunk(engine, next_chunk)?;
-        submit_secs += chunk_submit_secs;
-        if chunk_profile_enabled() {
-            eprintln!(
-                "benchmark chunk submitted: txs={} submit={:.6}s",
-                next_chunk.len(),
-                chunk_submit_secs
-            );
-        }
-    }
-    let block_info = aggregate.context("No checkpoint was produced for submitted transactions")?;
-
-    Ok((block_info, submit_secs, produce_secs))
+    execute_production_pipeline(engine, signed_txs, false)
 }
 
 pub fn execute_owned_fast_path(
     engine: &BlockchainEngine,
     signed_txs: Vec<SignedTransaction>,
 ) -> Result<(CheckpointProductionInfo, f64, f64)> {
+    execute_production_pipeline(engine, signed_txs, true)
+}
+
+fn execute_production_pipeline(
+    engine: &BlockchainEngine,
+    signed_txs: Vec<SignedTransaction>,
+    owned_fast: bool,
+) -> Result<(CheckpointProductionInfo, f64, f64)> {
+    if !pipeline_enabled() {
+        return execute_production_sequential(engine, signed_txs, owned_fast);
+    }
+
     let chunk_size = production_chunk_size(signed_txs.len());
-    let mut chunks = signed_txs.chunks(chunk_size);
-    let first_chunk =
-        chunks.next().context("No transactions supplied to owned-fastpath benchmark")?;
-    let mut submit_secs = submit_chunk(engine, first_chunk)?;
+    let mut remaining = signed_txs;
+
+    thread::scope(|scope| -> Result<(CheckpointProductionInfo, f64, f64)> {
+        let (submit_tx, submit_rx) = mpsc::channel::<(usize, f64)>();
+
+        // A single submitter and a single producer. The engine APIs are &self
+        // with internal locks, and finalization drains only committed hashes,
+        // so transactions submitted while a checkpoint is being produced stay
+        // pending for the next checkpoint instead of being silently committed.
+        let submitter = scope.spawn(move || -> Result<()> {
+            loop {
+                let chunk = take_next_chunk(&mut remaining, chunk_size);
+                if chunk.is_empty() {
+                    break;
+                }
+                let chunk_len = chunk.len();
+                let chunk_submit_secs = submit_chunk(engine, chunk)?;
+                if chunk_profile_enabled() {
+                    eprintln!(
+                        "benchmark chunk submitted: txs={} submit={:.6}s",
+                        chunk_len, chunk_submit_secs
+                    );
+                }
+                submit_tx
+                    .send((chunk_len, chunk_submit_secs))
+                    .context("Checkpoint producer stopped before all chunks were submitted")?;
+            }
+            Ok(())
+        });
+
+        let producer = scope.spawn(|| -> Result<(CheckpointProductionInfo, f64, f64)> {
+            let mut submit_secs = 0.0;
+            let mut produce_secs = 0.0;
+            let mut aggregate: Option<CheckpointProductionInfo> = None;
+
+            for (_chunk_len, chunk_submit_secs) in submit_rx {
+                submit_secs += chunk_submit_secs;
+
+                // Wait for the submit signal before producing so an empty
+                // mempool never turns into a spurious DAG/checkpoint round.
+                while engine.pending_transaction_len() > 0 {
+                    let produce_start = Instant::now();
+                    let block_info = if owned_fast {
+                        engine.produce_owned_fast_checkpoint()?
+                    } else {
+                        engine.produce_checkpoint()?
+                    };
+                    produce_secs += produce_start.elapsed().as_secs_f64();
+                    if block_info.tx_count == 0 {
+                        anyhow::bail!(
+                            "checkpoint production made no progress with {} pending transactions",
+                            engine.pending_transaction_len()
+                        );
+                    }
+                    merge_checkpoint_info(&mut aggregate, block_info);
+                }
+            }
+
+            let block_info =
+                aggregate.context("No checkpoint was produced for submitted transactions")?;
+            Ok((block_info, submit_secs, produce_secs))
+        });
+
+        let submit_result =
+            submitter.join().map_err(|_| anyhow::anyhow!("Benchmark submitter thread panicked"))?;
+        let produce_result =
+            producer.join().map_err(|_| anyhow::anyhow!("Benchmark producer thread panicked"))?;
+        submit_result?;
+        produce_result
+    })
+}
+
+fn execute_production_sequential(
+    engine: &BlockchainEngine,
+    signed_txs: Vec<SignedTransaction>,
+    owned_fast: bool,
+) -> Result<(CheckpointProductionInfo, f64, f64)> {
+    let chunk_size = production_chunk_size(signed_txs.len());
+    let mut remaining = signed_txs;
+    let mut submit_secs = 0.0;
     let mut produce_secs = 0.0;
     let mut aggregate: Option<CheckpointProductionInfo> = None;
 
     loop {
+        let chunk = take_next_chunk(&mut remaining, chunk_size);
+        if chunk.is_empty() {
+            break;
+        }
+        let chunk_len = chunk.len();
+        let chunk_submit_secs = submit_chunk(engine, chunk)?;
+        submit_secs += chunk_submit_secs;
+        if chunk_profile_enabled() {
+            eprintln!(
+                "benchmark chunk submitted: txs={} submit={:.6}s",
+                chunk_len, chunk_submit_secs
+            );
+        }
+
         while engine.pending_transaction_len() > 0 {
             let produce_start = Instant::now();
-            let block_info = engine.produce_owned_fast_checkpoint()?;
+            let block_info = if owned_fast {
+                engine.produce_owned_fast_checkpoint()?
+            } else {
+                engine.produce_checkpoint()?
+            };
             produce_secs += produce_start.elapsed().as_secs_f64();
             if block_info.tx_count == 0 {
                 anyhow::bail!(
-                    "owned-fastpath made no progress with {} pending transactions",
+                    "checkpoint production made no progress with {} pending transactions",
                     engine.pending_transaction_len()
                 );
             }
             merge_checkpoint_info(&mut aggregate, block_info);
         }
 
-        let Some(next_chunk) = chunks.next() else {
+        if remaining.is_empty() {
             break;
-        };
-        submit_secs += submit_chunk(engine, next_chunk)?;
+        }
     }
-    let block_info = aggregate
-        .context("No owned-fastpath checkpoint was produced for submitted transactions")?;
+    let block_info = aggregate.context("No checkpoint was produced for submitted transactions")?;
 
     Ok((block_info, submit_secs, produce_secs))
 }
@@ -162,23 +239,37 @@ fn mode_info(vertex_id: &str, executed: usize, failed: usize) -> CheckpointProdu
 }
 
 fn production_chunk_size(tx_count: usize) -> usize {
-    std::env::var("KANARI_BENCH_CHUNK_SIZE")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_PRODUCTION_CHUNK_SIZE)
+    env_usize_positive("KANARI_BENCH_CHUNK_SIZE", DEFAULT_PRODUCTION_CHUNK_SIZE)
         .min(tx_count.max(1))
 }
 
 fn chunk_profile_enabled() -> bool {
-    std::env::var("KANARI_BENCH_CHUNK_PROFILE")
-        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
-        .unwrap_or(false)
+    env_flag("KANARI_BENCH_CHUNK_PROFILE")
 }
 
-fn submit_chunk(engine: &BlockchainEngine, chunk: &[SignedTransaction]) -> Result<f64> {
+fn pipeline_enabled() -> bool {
+    // Measured slower here: every extra checkpoint repeats the in-memory full
+    // state-root fallback, so overlapping submission does not cover the extra
+    // roots. Keep this as an opt-in experiment for faster state-root backends.
+    env_flag("KANARI_BENCH_PIPELINE")
+}
+
+fn take_next_chunk(
+    remaining: &mut Vec<SignedTransaction>,
+    chunk_size: usize,
+) -> Vec<SignedTransaction> {
+    if remaining.len() <= chunk_size {
+        return std::mem::take(remaining);
+    }
+    let tail = remaining.split_off(chunk_size);
+    let chunk = std::mem::take(remaining);
+    *remaining = tail;
+    chunk
+}
+
+fn submit_chunk(engine: &BlockchainEngine, chunk: Vec<SignedTransaction>) -> Result<f64> {
     let submit_start = Instant::now();
-    engine.submit_transactions_batch(chunk.to_vec())?;
+    engine.submit_transactions_batch(chunk)?;
     Ok(submit_start.elapsed().as_secs_f64())
 }
 

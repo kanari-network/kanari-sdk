@@ -38,9 +38,7 @@ impl StateManager {
             let Ok(stored) = bcs::from_bytes::<StoredObject>(&value) else {
                 continue;
             };
-            if let ObjectOwnerKind::AddressOwner(owner_hex) = &stored.owner_kind
-                && let Ok(owner) = AccountAddress::from_hex_literal(owner_hex)
-            {
+            if let Some(owner) = stored.owner_kind.address_account_strict() {
                 // `owner_kind` is the current ownership authority. Older
                 // transfers can leave `StoredObject.owner` pointing at the
                 // previous wallet, so rebuilding from that field perpetuates

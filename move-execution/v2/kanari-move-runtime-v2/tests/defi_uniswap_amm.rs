@@ -415,7 +415,7 @@ fn object_arg(object_id: &str) -> Result<Vec<u8>> {
 fn owned_input(id: &str, owner: AccountAddress, mutable: bool) -> ObjectInput {
     ObjectInput {
         object_ref: ObjectRef::new(id.to_string(), None, None),
-        owner: Some(ObjectOwnerKind::AddressOwner(owner.to_hex_literal())),
+        owner: Some(ObjectOwnerKind::address_owner(&owner)),
         mutable,
     }
 }

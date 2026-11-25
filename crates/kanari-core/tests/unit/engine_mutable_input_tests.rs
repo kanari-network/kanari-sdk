@@ -76,7 +76,7 @@ fn fund_app_object(
         object_id.to_string(),
         CreatedObject {
             owner,
-            owner_kind: ObjectOwnerKind::AddressOwner(owner.to_hex_literal()),
+            owner_kind: ObjectOwnerKind::address_owner(&owner),
             uid: None,
             id: None,
             type_: type_name.to_string(),

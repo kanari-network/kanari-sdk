@@ -10,7 +10,7 @@ pub fn hash_data_blake3(data: &[u8]) -> Vec<u8> {
 /// Cryptographic hash using Blake3 and returning a fixed 32-byte array.
 #[must_use]
 pub fn hash_data_blake3_array(data: &[u8]) -> [u8; 32] {
-    hash_data_blake3_chunks_array(&[data])
+    hash_small(data)
 }
 
 /// Cryptographic hash using Blake3 over multiple input chunks.
@@ -25,10 +25,33 @@ pub fn hash_data_blake3_chunks(chunks: &[&[u8]]) -> Vec<u8> {
 /// Cryptographic hash using Blake3 over multiple input chunks, returning a fixed 32-byte array.
 #[must_use]
 pub fn hash_data_blake3_chunks_array(chunks: &[&[u8]]) -> [u8; 32] {
+    // SMT leaf/node hashing is dominated by a handful of tiny, fixed chunks.
+    // Concatenating them into a stack buffer lets BLAKE3 process one contiguous
+    // input instead of performing several incremental updates. This is exactly
+    // the same byte stream as the generic path, just cheaper per call.
+    const SMALL_BUFFER_LEN: usize = 256;
+    let total_len = chunks.iter().fold(0usize, |total, chunk| total + chunk.len());
+    if total_len <= SMALL_BUFFER_LEN {
+        let mut buffer = [0u8; SMALL_BUFFER_LEN];
+        let mut offset = 0usize;
+        for chunk in chunks {
+            buffer[offset..offset + chunk.len()].copy_from_slice(chunk);
+            offset += chunk.len();
+        }
+        return hash_small(&buffer[..offset]);
+    }
+
     let mut hasher = blake3::Hasher::new();
     for chunk in chunks {
         hasher.update(chunk);
     }
+    *hasher.finalize().as_bytes()
+}
+
+#[inline]
+fn hash_small(data: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(data);
     *hasher.finalize().as_bytes()
 }
 

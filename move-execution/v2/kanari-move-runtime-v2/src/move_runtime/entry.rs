@@ -27,7 +27,7 @@ impl MoveRuntime {
         }
         input.extend_from_slice(&timestamp.unwrap_or(0).to_le_bytes());
         input.extend_from_slice(&counter.to_le_bytes());
-        let tx_hash = Some(hash_data_blake3(&input).to_vec());
+        let tx_hash = Some(blake3(&input).to_vec());
         self.execute_entry_function_internal(
             module_id,
             function_name,
