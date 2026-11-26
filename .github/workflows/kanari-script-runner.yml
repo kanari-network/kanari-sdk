@@ -1,0 +1,219 @@
+name: Kanari Script Runner
+
+# Central entry point for repository automation scripts. Callers pass the
+# script path and a JSON array of arguments; this workflow owns checkout,
+# toolchain setup, optional release builds, execution, and artifact upload.
+on:
+  workflow_call:
+    inputs:
+      script:
+        description: Repository-relative PowerShell script path; leave empty to run workspace tests only
+        required: false
+        default: ''
+        type: string
+      args_json:
+        description: JSON array of arguments passed to the script
+        required: false
+        default: '[]'
+        type: string
+      build_packages_json:
+        description: JSON array of Cargo packages to build in release mode before running
+        required: false
+        default: '[]'
+        type: string
+      env_json:
+        description: JSON object of extra environment variables for all steps
+        required: false
+        default: '{}'
+        type: string
+      install_cargo_audit:
+        description: Install cargo-audit before running the script
+        required: false
+        default: false
+        type: boolean
+      run_workspace_tests:
+        description: Run cargo test --workspace before the script
+        required: false
+        default: false
+        type: boolean
+      workspace_test_args_json:
+        description: JSON array of extra arguments for cargo test --workspace
+        required: false
+        default: '[]'
+        type: string
+      cache_prefix:
+        description: Cargo cache key prefix
+        required: false
+        default: kanari-script
+        type: string
+      runs_on:
+        description: GitHub Actions runner label
+        required: false
+        default: ubuntu-latest
+        type: string
+      timeout_minutes:
+        description: Job timeout in minutes
+        required: false
+        default: 360
+        type: number
+      artifact_name:
+        description: Optional artifact name for files produced by the script
+        required: false
+        default: ''
+        type: string
+      artifact_path:
+        description: Optional artifact path, relative to the workspace
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run-script:
+    name: "Automation: ${{ inputs.script || 'workspace tests' }}"
+    runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        if: ${{ inputs.install_cargo_audit }}
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/advisory-db
+            target
+          key: ${{ inputs.cache_prefix }}-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ inputs.cache_prefix }}-${{ runner.os }}-cargo-
+
+      - name: Apply extra environment
+        shell: pwsh
+        env:
+          KANARI_SCRIPT_ENV_JSON: ${{ inputs.env_json }}
+        run: |
+          $json = $env:KANARI_SCRIPT_ENV_JSON
+          if ([string]::IsNullOrWhiteSpace($json)) {
+            return
+          }
+          try {
+            $extra = $json | ConvertFrom-Json
+          }
+          catch {
+            throw "Invalid env_json: $($_.Exception.Message)"
+          }
+          foreach ($property in $extra.PSObject.Properties) {
+            $value = [string]$property.Value
+            Add-Content -LiteralPath $env:GITHUB_ENV -Value "$($property.Name)=$value"
+          }
+
+      - name: Resolve script path
+        if: ${{ inputs.script != '' }}
+        shell: pwsh
+        env:
+          KANARI_SCRIPT_PATH: ${{ inputs.script }}
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE $env:KANARI_SCRIPT_PATH
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Missing automation script: $path"
+          }
+          $resolved = (Resolve-Path -LiteralPath $path).Path
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "KANARI_SCRIPT_RESOLVED=$resolved"
+
+      - name: Build release packages
+        shell: pwsh
+        env:
+          KANARI_BUILD_PACKAGES_JSON: ${{ inputs.build_packages_json }}
+        run: |
+          $json = $env:KANARI_BUILD_PACKAGES_JSON
+          if ([string]::IsNullOrWhiteSpace($json)) {
+            return
+          }
+          try {
+            $packages = @($json | ConvertFrom-Json)
+          }
+          catch {
+            throw "Invalid build_packages_json: $($_.Exception.Message)"
+          }
+          foreach ($package in $packages) {
+            if ([string]::IsNullOrWhiteSpace([string]$package)) {
+              continue
+            }
+            Write-Host "Building release package: $package"
+            & cargo build -p $package --release
+            if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+            }
+          }
+
+      - name: Run workspace tests
+        if: ${{ inputs.run_workspace_tests }}
+        shell: pwsh
+        env:
+          KANARI_WORKSPACE_TEST_ARGS_JSON: ${{ inputs.workspace_test_args_json }}
+        run: |
+          $json = $env:KANARI_WORKSPACE_TEST_ARGS_JSON
+          $testArgs = @()
+          if (-not [string]::IsNullOrWhiteSpace($json)) {
+            try {
+              $parsed = $json | ConvertFrom-Json
+            }
+            catch {
+              throw "Invalid workspace_test_args_json: $($_.Exception.Message)"
+            }
+            if ($null -ne $parsed) {
+              $testArgs = @($parsed)
+            }
+          }
+          Write-Host "Running cargo test --workspace"
+          & cargo test --workspace @testArgs
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Run automation script
+        if: ${{ inputs.script != '' }}
+        shell: pwsh
+        env:
+          KANARI_SCRIPT_ARGS_JSON: ${{ inputs.args_json }}
+        run: |
+          $json = $env:KANARI_SCRIPT_ARGS_JSON
+          $scriptArgs = @()
+          if (-not [string]::IsNullOrWhiteSpace($json)) {
+            try {
+              $parsed = $json | ConvertFrom-Json
+            }
+            catch {
+              throw "Invalid args_json: $($_.Exception.Message)"
+            }
+            if ($null -ne $parsed) {
+              $scriptArgs = @($parsed)
+            }
+          }
+          Write-Host "Running $env:KANARI_SCRIPT_RESOLVED"
+          & $env:KANARI_SCRIPT_RESOLVED @scriptArgs
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload script artifacts
+        if: ${{ always() && inputs.artifact_name != '' && inputs.artifact_path != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ inputs.artifact_path }}
+          if-no-files-found: ignore

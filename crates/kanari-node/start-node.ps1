@@ -15,7 +15,9 @@ param(
     [string]$GenesisPath = "",
     [string]$ConsensusPrivateKeyFile = "",
     [string]$ConsensusPublicKeys = "",
-    [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys"
+    [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys",
+    [string]$PeerAuthority = "",
+    [string]$PeerAuthorityFile = ""
 )
 
 . (Join-Path $PSScriptRoot 'node-script-common.ps1')
@@ -98,6 +100,27 @@ if (-not (Test-Path $genesisPath)) {
     exit 1
 }
 
+$peerAuthorityFileArg = ""
+if (-not [string]::IsNullOrWhiteSpace($PeerAuthorityFile)) {
+    if (-not (Test-Path $PeerAuthorityFile)) {
+        Write-Host "Error: peer authority file not found: $PeerAuthorityFile" -ForegroundColor Red
+        exit 1
+    }
+    $peerAuthorityFileArg = (Resolve-Path $PeerAuthorityFile).Path
+}
+
+if ([string]::IsNullOrWhiteSpace($PeerAuthority) -and $peerAuthorityFileArg -eq "") {
+    Write-Host "Error: -PeerAuthority or -PeerAuthorityFile is required; the catch-up admission gate cannot be disabled." -ForegroundColor Red
+    exit 1
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PeerAuthority)) {
+    Write-Host "Peer-authority mapping: $PeerAuthority" -ForegroundColor Yellow
+}
+if ($peerAuthorityFileArg -ne "") {
+    Write-Host "Peer-authority file: $peerAuthorityFileArg" -ForegroundColor Yellow
+}
+
 $nodeArgs = @(
     "start",
     "--network", $Network,
@@ -114,6 +137,12 @@ $nodeArgs = @(
 
 if ($Bootstrap -ne "") {
     $nodeArgs += @("--bootstrap", $Bootstrap)
+}
+if (-not [string]::IsNullOrWhiteSpace($PeerAuthority)) {
+    $nodeArgs += @("--peer-authority", $PeerAuthority)
+}
+if ($peerAuthorityFileArg -ne "") {
+    $nodeArgs += @("--peer-authority-file", $peerAuthorityFileArg)
 }
 
 & $exePath @nodeArgs

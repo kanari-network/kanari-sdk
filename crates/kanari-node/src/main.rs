@@ -4,11 +4,13 @@
 use std::collections::BTreeMap;
 
 // Main entry point for Kanari blockchain node
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use kanari_core::{decode_hex_exact, write_file_atomically, write_json_pretty_atomically};
 use kanari_crypto::keys::{CurveType, KANARI_KEY_PREFIX, generate_keypair};
+use kanari_types::encoding::normalize_0x_prefixed_id;
 use kanari_types::error::{KanariError, KanariUnwrapExt};
+use libp2p_core::PeerId;
 use tracing::info;
 use zeroize::Zeroizing;
 
@@ -111,12 +113,25 @@ enum Commands {
         /// JSON file mapping authority IDs to Ed25519 consensus public keys as hex
         #[arg(long)]
         consensus_public_keys: std::path::PathBuf,
+        /// Trusted libp2p peer ID to validator authority ID mapping (PEER_ID=AUTHORITY_ID)
+        #[arg(long, value_name = "PEER_ID=AUTHORITY_ID", value_delimiter = ',')]
+        peer_authority: Option<Vec<String>>,
+        /// JSON file mapping libp2p peer IDs to validator authority IDs
+        #[arg(long, value_name = "PATH")]
+        peer_authority_file: Option<std::path::PathBuf>,
         /// Bootstrap peer multiaddr to connect to (can be specified multiple times)
         #[arg(long, value_name = "MULTIADDR")]
         bootstrap: Option<Vec<String>>,
         /// Genesis manifest shared by the network; validated before startup
         #[arg(long)]
         genesis: Option<std::path::PathBuf>,
+    },
+    /// Print the libp2p peer ID for a node data directory (used to build peer-authority maps)
+    P2pPeerId {
+        #[arg(long, value_enum, default_value = "testnet")]
+        network: NetworkMode,
+        #[arg(long)]
+        data_dir: Option<std::path::PathBuf>,
     },
     /// Export the deterministic genesis identity for other nodes
     GenesisExport {
@@ -224,6 +239,87 @@ fn validate_start_authority_config(
             "kanari-node start requires both --authority-id and --authorities together"
         ),
     }
+}
+
+fn insert_peer_authority(
+    map: &mut BTreeMap<String, String>,
+    peer_id: &str,
+    authority: &str,
+    authorities: &[String],
+) -> Result<()> {
+    let peer_id = peer_id.trim();
+    let canonical_peer_id = peer_id
+        .parse::<PeerId>()
+        .map_err(|error| anyhow::anyhow!("Invalid libp2p peer ID {peer_id:?}: {error}"))?
+        .to_string();
+    let authority = normalize_0x_prefixed_id(authority.trim());
+    if !authorities.iter().any(|known| known == &authority) {
+        anyhow::bail!("Peer authority {authority} is not in the configured --authorities list");
+    }
+    if map.contains_key(&canonical_peer_id) {
+        anyhow::bail!("Duplicate peer authority mapping for {canonical_peer_id}");
+    }
+    if map.values().any(|known| known == &authority) {
+        anyhow::bail!("Authority {authority} is mapped from more than one peer ID");
+    }
+    map.insert(canonical_peer_id, authority);
+    Ok(())
+}
+
+fn load_peer_authority_map(
+    entries: Option<&Vec<String>>,
+    file: Option<&std::path::Path>,
+    authorities: &[String],
+) -> Result<BTreeMap<String, String>> {
+    let mut map = BTreeMap::new();
+
+    if let Some(path) = file {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read peer authority file {}", path.display()))?;
+        let file_map: BTreeMap<String, String> = serde_json::from_str(&text)
+            .with_context(|| format!("Invalid peer authority JSON in {}", path.display()))?;
+        for (peer_id, authority) in file_map {
+            insert_peer_authority(&mut map, &peer_id, &authority, authorities)
+                .with_context(|| format!("Invalid peer authority entry in {}", path.display()))?;
+        }
+    }
+
+    if let Some(entries) = entries {
+        for entry in entries {
+            let (peer_id, authority) = entry.split_once('=').ok_or_else(|| {
+                anyhow::anyhow!("Invalid --peer-authority {entry:?}; expected PEER_ID=AUTHORITY_ID")
+            })?;
+            insert_peer_authority(&mut map, peer_id, authority, authorities)
+                .with_context(|| format!("Invalid --peer-authority entry {entry:?}"))?;
+        }
+    }
+
+    if !map.is_empty() {
+        info!(
+            mappings = map.len(),
+            "Trusted peer-to-authority mappings loaded for admission gating"
+        );
+    }
+    Ok(map)
+}
+
+fn require_peer_authority_map(map: &BTreeMap<String, String>) -> Result<()> {
+    if map.is_empty() {
+        anyhow::bail!(
+            "--peer-authority or --peer-authority-file is required for validator start; \
+             the catch-up admission gate cannot be disabled"
+        );
+    }
+    Ok(())
+}
+
+fn p2p_peer_id_for_data_dir(
+    data_dir: &Option<std::path::PathBuf>,
+    network: &NetworkMode,
+) -> Result<String> {
+    let path = data_dir.clone().unwrap_or_else(default_data_dir);
+    let keypair = load_or_create_p2p_identity(&path, network.as_str())?;
+    Ok(keypair.public().to_peer_id().to_string())
 }
 
 fn write_consensus_key_files(
@@ -342,6 +438,8 @@ fn main() -> Result<()> {
             authorities,
             consensus_private_key_file,
             consensus_public_keys,
+            peer_authority,
+            peer_authority_file,
             bootstrap,
             genesis,
         } => {
@@ -357,6 +455,12 @@ fn main() -> Result<()> {
 
             let id = authority_id.invariant("validated authority_id must exist");
             let auths = authorities.invariant("validated authorities must exist");
+            let peer_authorities = load_peer_authority_map(
+                peer_authority.as_ref(),
+                peer_authority_file.as_deref(),
+                &auths,
+            )?;
+            require_peer_authority_map(&peer_authorities)?;
             tracing::info!("Configuring Authority ID: {} with {} authorities", id, auths.len());
             engine.set_authorities(id, auths);
             configure_consensus_signing_key(
@@ -375,7 +479,12 @@ fn main() -> Result<()> {
                 data_dir_path,
                 relay_server,
                 bootstrap,
+                peer_authorities,
             ))
+        }
+        Commands::P2pPeerId { network, data_dir } => {
+            let peer_id = p2p_peer_id_for_data_dir(&data_dir, &network)?;
+            write_cli_line(format_args!("{peer_id}"))
         }
         Commands::GenesisExport { network, data_dir, output } => {
             let engine = create_engine(&data_dir, &network)?;
@@ -508,6 +617,7 @@ fn main() -> Result<()> {
                 data_dir_path,
                 false,
                 None,
+                BTreeMap::new(),
             ))
         }
     }

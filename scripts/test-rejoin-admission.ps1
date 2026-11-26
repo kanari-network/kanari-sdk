@@ -1,3 +1,4 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
     [string]$From = "0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146",
 
@@ -39,18 +40,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Scenario-only environment. The CLI loads the keystore/password from these,
-# and every spawned node inherits KANARI_SYNC_ADMISSION_LAG from this shell.
-$env:KANARI_KEYSTORE_PATH = $KeystorePath
-$env:KANARI_LOAD_PASSWORD = $Password
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
+
+# Scenario-only environment. The CLI loads the keystore/password from the
+# shared helper, and every spawned node inherits the admission lag from here.
+$envConfig = Set-KanariFourNodeEnv -KeystorePath $KeystorePath -Password $Password
+$KeystorePath = $envConfig.KeystorePath
+$Password = $envConfig.Password
 $env:KANARI_SYNC_ADMISSION_LAG = "$SyncAdmissionLag"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$nodeExe = Join-Path $repoRoot 'target\release\kanari-node.exe'
-$kanariExe = Join-Path $repoRoot 'target\release\kanari.exe'
-$runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".kanari-runlogs\rejoin-admission-$runId"
-New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+$repoRoot = Resolve-KanariFourNodeRoot -ScriptDirectory $PSScriptRoot
+$exePaths = Get-KanariFourNodeExePaths -RepoRoot $repoRoot
+$nodeExe = $exePaths.NodeExe
+$kanariExe = $exePaths.KanariExe
+$runRoot = (New-KanariFourNodeRunRoot -RepoRoot $repoRoot -Prefix 'rejoin-admission').RunRoot
 $scenarioLog = Join-Path $runRoot 'scenario.log'
 $summaryPath = Join-Path $runRoot 'scenario-result.txt'
 
@@ -61,165 +64,20 @@ function Write-Log {
     Add-Content -LiteralPath $scenarioLog -Value $line
 }
 
-function Invoke-KanariRpc {
-    param(
-        [string]$Url,
-        [string]$Method,
-        [object]$Params = @{},
-        [int]$Id = 1,
-        [int]$TimeoutSec = 3
-    )
-
-    $body = @{
-        jsonrpc = '2.0'
-        id = $Id
-        method = $Method
-        params = $Params
-    } | ConvertTo-Json -Depth 32 -Compress
-
-    return Invoke-RestMethod -Uri $Url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec $TimeoutSec
-}
-
-function Wait-RpcReady {
-    param(
-        [string]$Url,
-        [int]$TimeoutSec = 60,
-        [string]$Label = 'node'
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        try {
-            $health = Invoke-KanariRpc -Url $Url -Method 'kanari_health' -Id 1 -TimeoutSec ([Math]::Min(2, $RpcTimeoutSec))
-            if ($health.result) {
-                Write-Log "READY $Label $Url"
-                return
-            }
-        } catch {
-        }
-        Start-Sleep -Milliseconds 500
-    }
-    throw "$Label RPC did not become ready within ${TimeoutSec}s: $Url"
-}
-
-function Wait-Converged {
-    param(
-        [string[]]$Urls,
-        [int64]$MinHeight = 0,
-        [hashtable]$MinTxByUrl = @{},
-        [int]$TimeoutSec = 60,
-        [string]$Label = 'convergence'
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        $statsByUrl = @{}
-        $roots = New-Object System.Collections.Generic.HashSet[string]
-        $heights = New-Object System.Collections.Generic.HashSet[string]
-        $txs = New-Object System.Collections.Generic.HashSet[string]
-
-        foreach ($url in $Urls) {
-            $stats = (Invoke-KanariRpc -Url $url -Method 'kanari_getStats' -Id 2 -TimeoutSec $RpcTimeoutSec).result
-            $statsByUrl[$url] = $stats
-            [void]$roots.Add([string]$stats.state_root)
-            [void]$heights.Add([string]$stats.height)
-            [void]$txs.Add([string]$stats.total_transactions)
-        }
-
-        $txFloorMet = $true
-        foreach ($url in $Urls) {
-            $floor = 0
-            if ($MinTxByUrl.ContainsKey($url)) {
-                $floor = [int64]$MinTxByUrl[$url]
-            }
-            if ([int64]($statsByUrl[$url].total_transactions) -lt $floor) {
-                $txFloorMet = $false
-            }
-        }
-
-        if ($roots.Count -eq 1 -and $heights.Count -eq 1 -and $txs.Count -eq 1 -and
-            $txFloorMet -and [int64]($statsByUrl[$Urls[0]].height) -ge $MinHeight) {
-            return $statsByUrl
-        }
-        Start-Sleep -Seconds 1
-    }
-
-    $details = @()
-    foreach ($url in $Urls) {
-        try {
-            $s = (Invoke-KanariRpc -Url $url -Method 'kanari_getStats' -Id 3 -TimeoutSec $RpcTimeoutSec).result
-            $details += ("{0} height={1} txs={2} root={3}" -f $url, $s.height, $s.total_transactions, $s.state_root)
-        } catch {
-            $details += "$url stats unavailable: $_"
-        }
-    }
-    throw "$Label timed out after ${TimeoutSec}s; $($details -join ' | ')"
-}
-
-function Format-Stats {
-    param([hashtable]$StatsByUrl)
-    return @(
-        foreach ($url in $StatsByUrl.Keys | Sort-Object) {
-            $s = $StatsByUrl[$url]
-            "{0} height={1} txs={2} root={3}" -f $url, $s.height, $s.total_transactions, $s.state_root
-        }
-    )
-}
-
-function Quote-ProcessArgument {
-    param([string]$Value)
-    if ($Value -match '[\s"]') {
-        return '"' + ($Value -replace '"', '\"') + '"'
-    }
-    return $Value
-}
-
-function Invoke-KanariCliBounded {
+function Invoke-ScenarioCli {
     param(
         [string[]]$CliArgs,
         [string]$LogPrefix,
-        [int]$TimeoutSec = 60
+        [int]$TimeoutSec
     )
 
-    $out = "$LogPrefix.out.log"
-    $err = "$LogPrefix.err.log"
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $kanariExe
-    $psi.Arguments = (($CliArgs | ForEach-Object { Quote-ProcessArgument $_ }) -join ' ')
-    $psi.WorkingDirectory = $repoRoot
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.CreateNoWindow = $true
-
-    $proc = New-Object System.Diagnostics.Process
-    $proc.StartInfo = $psi
-    [void]$proc.Start()
-    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-    $stderrTask = $proc.StandardError.ReadToEndAsync()
-
-    if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
-        try { $proc.Kill() } catch { }
-        try { [void]$proc.WaitForExit(5000) } catch { }
-        $stdout = $stdoutTask.GetAwaiter().GetResult()
-        $stderr = $stderrTask.GetAwaiter().GetResult()
-        [System.IO.File]::WriteAllText($out, $stdout)
-        [System.IO.File]::WriteAllText($err, $stderr)
-        throw "CLI did not exit within ${TimeoutSec}s (possible hang). Logs: $out / $err`n$stdout`n$stderr"
-    }
-
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
-    $exitCode = $proc.ExitCode
-    [System.IO.File]::WriteAllText($out, $stdout)
-    [System.IO.File]::WriteAllText($err, $stderr)
-    $text = "$stdout`n$stderr"
-    return [pscustomobject]@{
-        ExitCode = $exitCode
-        Text     = $text
-        Out      = $out
-        Err      = $err
-    }
+    return Invoke-KanariCliBounded -Launch @{
+        FilePath         = $kanariExe
+        ArgumentList     = $CliArgs
+        WorkingDirectory = $repoRoot
+        OutLog           = "$LogPrefix.out.log"
+        ErrLog           = "$LogPrefix.err.log"
+    } -TimeoutSec $TimeoutSec
 }
 
 function Submit-OneTx {
@@ -229,8 +87,8 @@ function Submit-OneTx {
         [int]$TimeoutSec
     )
 
-    $amountText = $Amount.ToString('0.############################', [System.Globalization.CultureInfo]::InvariantCulture)
-    $args = @(
+    $amountText = Format-KanariAmount -Amount $Amount
+    $cliArgs = @(
         'client', 'stress-test',
         '--from', $From,
         '--to', $To,
@@ -240,7 +98,7 @@ function Submit-OneTx {
         '--rpc', $Url,
         '--commit-timeout-sec', '15'
     )
-    return Invoke-KanariCliBounded -CliArgs $args -LogPrefix $LogPrefix -TimeoutSec $TimeoutSec
+    return Invoke-ScenarioCli -CliArgs $cliArgs -LogPrefix $LogPrefix -TimeoutSec $TimeoutSec
 }
 
 function Start-SubmitCaptureProxy {
@@ -272,12 +130,12 @@ function Start-SubmitCaptureProxy {
                             # but never let the healthy peers execute it.
                             $reply = [pscustomobject]@{
                                 jsonrpc = '2.0'
-                                id = $parsed.id
-                                result = [pscustomobject]@{
-                                    hash = [string]$parsed.params.transaction_hash
-                                    status = 'pending'
-                                    action = 'submit'
-                                    success = $true
+                                id      = $parsed.id
+                                result  = [pscustomobject]@{
+                                    hash      = [string]$parsed.params.transaction_hash
+                                    status    = 'pending'
+                                    action    = 'submit'
+                                    success   = $true
                                     previewed = $false
                                     submitted = $true
                                     committed = $false
@@ -289,12 +147,13 @@ function Start-SubmitCaptureProxy {
                         $upstream = Invoke-RestMethod -Uri $ForwardUrl -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 10
                         $reply = $upstream | ConvertTo-Json -Depth 64 -Compress
                     }
-                } catch {
+                }
+                catch {
                     $reply = [pscustomobject]@{
                         jsonrpc = '2.0'
-                        id = 1
-                        result = $null
-                        error = [pscustomobject]@{ code = -32603; message = "capture proxy: $_" }
+                        id      = 1
+                        result  = $null
+                        error   = [pscustomobject]@{ code = -32603; message = "capture proxy: $_" }
                     } | ConvertTo-Json -Depth 8 -Compress
                 }
                 $bytes = [System.Text.Encoding]::UTF8.GetBytes($reply)
@@ -304,7 +163,8 @@ function Start-SubmitCaptureProxy {
                 $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
                 $context.Response.Close()
             }
-        } finally {
+        }
+        finally {
             $listener.Stop()
             $listener.Close()
         }
@@ -323,7 +183,8 @@ function Read-SharedText {
     $reader = New-Object System.IO.StreamReader($stream)
     try {
         return $reader.ReadToEnd()
-    } finally {
+    }
+    finally {
         $reader.Dispose()
     }
 }
@@ -342,7 +203,8 @@ function Invoke-RawSubmit {
             Code       = if ($response.error) { $response.error.code } else { 0 }
             Message    = if ($response.error) { $response.error.message } else { ($response | ConvertTo-Json -Depth 12 -Compress) }
         }
-    } catch {
+    }
+    catch {
         $details = if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
         $code = '(http error)'
         $message = $details
@@ -352,7 +214,8 @@ function Invoke-RawSubmit {
                 $code = $parsed.error.code
                 $message = $parsed.error.message
             }
-        } catch {
+        }
+        catch {
         }
         return [pscustomobject]@{
             HttpStatus = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { -1 }
@@ -390,113 +253,53 @@ Write-Log "env KANARI_LOAD_PASSWORD=<set>"
 Write-Log "env KANARI_SYNC_ADMISSION_LAG=$env:KANARI_SYNC_ADMISSION_LAG"
 
 try {
-    $keysDir = Join-Path $runRoot 'consensus-keys'
-    $genesis = Join-Path $runRoot 'devnet-genesis.json'
-    # Genesis export initializes a persistent store; never reuse node1's dir.
-    $sourceData = Join-Path $runRoot 'genesis-db'
-    New-Item -ItemType Directory -Force -Path $sourceData | Out-Null
+    $devnet = New-KanariFourNodeGenesis `
+        -NodeExe $nodeExe `
+        -RepoRoot $repoRoot `
+        -RunRoot $runRoot `
+        -PrepareLog (Join-Path $runRoot 'prepare.out.log') `
+        -PrepareErrLog (Join-Path $runRoot 'prepare.err.log')
+    $keysDir = $devnet.KeysDir
+    $genesis = $devnet.Genesis
 
-    $prepareLog = Join-Path $runRoot 'prepare.out.log'
-    $oldEap = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    try {
-        & $nodeExe consensus-keygen --node-count 4 --output-dir $keysDir --force *> $prepareLog
-        $exitCode = $LASTEXITCODE
-        if ($exitCode -eq 0) {
-            & $nodeExe genesis-export --network devnet --data-dir $sourceData --output $genesis *>> $prepareLog
-            $exitCode = $LASTEXITCODE
-        }
-    } finally {
-        $ErrorActionPreference = $oldEap
-    }
-    if ($exitCode -ne 0) {
-        Get-Content -LiteralPath $prepareLog -Tail 60
-        throw "devnet preparation failed with exit code $exitCode; log: $prepareLog"
-    }
+    # Validators require an explicit peer-to-authority map. The shared helper
+    # generates all four identities; node 4 rejoins fresh, so only 1-3 stay
+    # trusted as height sources after the gap is created.
+    $peerAuthorityArg = New-KanariPeerAuthorityMap -NodeExe $nodeExe -RunRoot $runRoot
+    $peerAuthorityActiveArg = (($peerAuthorityArg -split ',') | Where-Object { $_ -notmatch '=0x4$' }) -join ','
+    Write-Log "Active peer-authority mappings for nodes 1-3: $peerAuthorityActiveArg"
 
-    $authorities = '0x1,0x2,0x3,0x4'
+    Stop-KanariStaleFourNodeProcesses -BaseP2pPort $BaseP2pPort -BaseRpcPort $BaseRpcPort
+
     for ($i = 1; $i -le 4; $i++) {
-        $offset = ($i - 1) * 10
-        $p2pPort = $BaseP2pPort + $offset
-        $rpcPort = $BaseRpcPort + $offset
-        $dataDir = Join-Path $runRoot "node$i-db"
-        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-
-        $nodeArgs = @(
-            'start',
-            '--network', 'devnet',
-            '--p2p-port', $p2pPort,
-            '--rpc-port', $rpcPort,
-            '--rpc-host', '127.0.0.1',
-            '--data-dir', $dataDir,
-            '--authority-id', "0x$i",
-            '--authorities', $authorities,
-            '--genesis', $genesis,
-            '--consensus-private-key-file', (Join-Path $keysDir "node$i-consensus-private-key.key"),
-            '--consensus-public-keys', (Join-Path $keysDir 'consensus-public-keys.json')
-        )
-        if ($i -ne 1) {
-            $nodeArgs += @('--bootstrap', "/ip4/127.0.0.1/tcp/$BaseP2pPort")
-        }
-
-        $out = Join-Path $runRoot "node$i.out.log"
-        $err = Join-Path $runRoot "node$i.err.log"
-        $proc = Start-Process `
-            -FilePath $nodeExe `
-            -ArgumentList $nodeArgs `
-            -WorkingDirectory $repoRoot `
-            -RedirectStandardOutput $out `
-            -RedirectStandardError $err `
-            -WindowStyle Hidden `
-            -PassThru
-
-        $nodes += [pscustomobject]@{
-            Name        = "node$i"
-            Process     = $proc
-            Url         = "http://127.0.0.1:$rpcPort"
-            DataDir     = $dataDir
-            Args        = $nodeArgs
-            BootstrapOut = $out
-        }
+        $rpcPort = $BaseRpcPort + (($i - 1) * 10)
+        $nodes += Start-KanariValidator `
+            -NodeExe $nodeExe `
+            -RepoRoot $repoRoot `
+            -RunRoot $runRoot `
+            -Index $i `
+            -BaseP2pPort $BaseP2pPort `
+            -RpcPort $rpcPort `
+            -Genesis $genesis `
+            -KeysDir $keysDir `
+            -PeerAuthorityArg $peerAuthorityArg `
+            -PassThruDetails
         Start-Sleep -Milliseconds 900
     }
 
-    foreach ($node in $nodes) {
-        Wait-RpcReady -Url $node.Url -Label $node.Name -TimeoutSec 90
-    }
+    Wait-KanariRpcReady -Urls @($nodes | ForEach-Object { $_.Url }) -Processes @($nodes | ForEach-Object { $_.Process }) -Attempts 90 -RunRoot $runRoot
 
     # Capture baseline, then take node 4 down before generating the height gap.
-    foreach ($node in $nodes) {
-        $statsBeforeStop[$node.Url] = (Invoke-KanariRpc -Url $node.Url -Method 'kanari_getStats' -Id 4 -TimeoutSec $RpcTimeoutSec).result
-    }
-    Write-Log "Before stopping node4: $((Format-Stats -StatsByUrl $statsBeforeStop) -join ' | ')"
+    $statsBeforeStop = Get-KanariStatsByUrl -Urls @($nodes | ForEach-Object { $_.Url }) -Id 4 -TimeoutSec $RpcTimeoutSec
+    Write-Log "Before stopping node4: $((Format-KanariStats -StatsByUrl $statsBeforeStop) -join ' | ')"
 
     $node4 = $nodes | Where-Object { $_.Name -eq 'node4' }
 
-    # The admission gate only trusts peer heights from IDs in --authorities.
-    # Libp2p peer IDs are not validator authority IDs by default, so register
-    # the active nodes' peer IDs on the rejoining node only (healthy nodes keep
-    # the original validator set). Public-key entries are required for every
-    # configured authority; the rejoining node never signs as these extra IDs.
-    $peerIds = @()
-    foreach ($node in @($nodes | Where-Object { $_.Name -ne 'node4' })) {
-        $logText = Read-SharedText -Path $node.BootstrapOut
-        $match = [regex]::Match($logText, 'Local peer id: (?<peer>12D3Koo[A-Za-z0-9]+)')
-        if (-not $match.Success) {
-            throw "could not read libp2p peer ID for $($node.Name) from $($node.BootstrapOut)"
-        }
-        $peerIds += $match.Groups['peer'].Value
-    }
-    Write-Log "Active peer IDs: $($peerIds -join ',')"
-
-    $rejoinAuthorities = "0x1,0x2,0x3,0x4,$($peerIds -join ',')"
-    $publicKeysPath = Join-Path $keysDir 'consensus-public-keys.json'
-    $publicKeys = [System.IO.File]::ReadAllText($publicKeysPath) | ConvertFrom-Json
-    foreach ($peerId in $peerIds) {
-        $publicKeys | Add-Member -NotePropertyName "0x$peerId" -NotePropertyValue $publicKeys.'0x4' -Force
-    }
-    $rejoinPublicKeys = Join-Path $runRoot 'consensus-public-keys-rejoin.json'
-    Set-Content -LiteralPath $rejoinPublicKeys -Value ($publicKeys | ConvertTo-Json -Depth 8)
+    # The admission gate only trusts heights from libp2p peers explicitly
+    # mapped to validator authorities. Keep the consensus committee untouched:
+    # this mapping is injected into SyncManager only and never changes quorum.
+    # Node 4 rejoins with a fresh identity, so only nodes 1-3 are trusted sources.
+    Write-Log "Active peer-authority mappings: $peerAuthorityActiveArg"
 
     Stop-Process -Id $node4.Process.Id -Force
     [void]$node4.Process.WaitForExit(10000)
@@ -509,7 +312,7 @@ try {
         $baselineTx[$url] = [int64]$statsBeforeStop[$url].total_transactions
     }
 
-    $amountText = $Amount.ToString('0.############################', [System.Globalization.CultureInfo]::InvariantCulture)
+    $amountText = Format-KanariAmount -Amount $Amount
     $submitArgs = @(
         'client', 'stress-test',
         '--from', $From,
@@ -520,7 +323,7 @@ try {
         '--rpc', $activeUrls[0]
     )
     Write-Log "Submitting $Count initial tx(s) via $($activeUrls[0])"
-    $initial = Invoke-KanariCliBounded -CliArgs $submitArgs -LogPrefix (Join-Path $runRoot 'initial-tx') -TimeoutSec 180
+    $initial = Invoke-ScenarioCli -CliArgs $submitArgs -LogPrefix (Join-Path $runRoot 'initial-tx') -TimeoutSec 180
     if ($initial.ExitCode -ne 0) {
         Write-Host $initial.Text
         throw "initial transaction load via node1 failed with exit code $($initial.ExitCode)"
@@ -530,11 +333,11 @@ try {
     $initialMinTx = @{
         $firstActiveUrl = [int64]$baselineTx[$firstActiveUrl] + $Count
     }
-    $statsBeforeRejoin = Wait-Converged -Urls $activeUrls -MinHeight ([int64]$statsBeforeStop[$firstActiveUrl].height + 1) -MinTxByUrl $initialMinTx -TimeoutSec $SyncTimeoutSec -Label 'nodes 1-3 convergence before rejoin'
+    $statsBeforeRejoin = Wait-KanariStatsConverged -Urls $activeUrls -MinHeight ([int64]$statsBeforeStop[$firstActiveUrl].height + 1) -MinTxByUrl $initialMinTx -TimeoutSec $SyncTimeoutSec -PassThru -Label 'nodes 1-3 convergence before rejoin'
 
     # A fresh node starts at height 0. Keep the gap well above the lag so the
-    # gate stays armed for several checkpoints instead of only the first one.
-    $targetGapHeight = [int64]$SyncAdmissionLag + 6
+    # gate stays armed while many checkpoints are replayed.
+    $targetGapHeight = [int64]$SyncAdmissionLag + 30
     $extraRound = 0
     while ([int64]($statsBeforeRejoin[$activeUrls[0]].height) -lt $targetGapHeight -and $extraRound -lt 3) {
         $extraCount = [int]($targetGapHeight - [int64]($statsBeforeRejoin[$activeUrls[0]].height))
@@ -551,7 +354,7 @@ try {
             '--rpc', $activeUrls[0]
         )
         Write-Log "Increasing observed height gap by $extraCount tx(s) via $($activeUrls[0])"
-        $extra = Invoke-KanariCliBounded -CliArgs $extraArgs -LogPrefix (Join-Path $runRoot "gap-tx-$extraRound") -TimeoutSec 180
+        $extra = Invoke-ScenarioCli -CliArgs $extraArgs -LogPrefix (Join-Path $runRoot "gap-tx-$extraRound") -TimeoutSec 180
         if ($extra.ExitCode -ne 0) {
             Write-Host $extra.Text
             throw "gap transaction batch failed with exit code $($extra.ExitCode)"
@@ -560,13 +363,13 @@ try {
         foreach ($url in $activeUrls) {
             $gapMinTx[$url] = [int64]($baselineTx[$url] + $extraCount)
         }
-        $statsBeforeRejoin = Wait-Converged -Urls $activeUrls -MinHeight ([int64]($statsBeforeRejoin[$activeUrls[0]].height) + 1) -MinTxByUrl $gapMinTx -TimeoutSec $SyncTimeoutSec -Label 'nodes 1-3 convergence after gap batch'
+        $statsBeforeRejoin = Wait-KanariStatsConverged -Urls $activeUrls -MinHeight ([int64]($statsBeforeRejoin[$activeUrls[0]].height) + 1) -MinTxByUrl $gapMinTx -TimeoutSec $SyncTimeoutSec -PassThru -Label 'nodes 1-3 convergence after gap batch'
         $extraRound++
     }
     if ([int64]($statsBeforeRejoin[$activeUrls[0]].height) -le [int64]$SyncAdmissionLag) {
         throw "could not build a height gap above KANARI_SYNC_ADMISSION_LAG=$SyncAdmissionLag"
     }
-    Write-Log "Before rejoin: $((Format-Stats -StatsByUrl $statsBeforeRejoin) -join ' | ')"
+    Write-Log "Before rejoin: $((Format-KanariStats -StatsByUrl $statsBeforeRejoin) -join ' | ')"
 
     # Capture a fully signed but NOT executed submit payload through a local
     # proxy: the proxy acknowledges the submit itself, so the payload is fresh
@@ -587,7 +390,7 @@ try {
         '--rpc', "http://127.0.0.1:$CaptureProxyPort",
         '--commit-timeout-sec', '5'
     )
-    $captured = Invoke-KanariCliBounded -CliArgs $captureArgs -LogPrefix (Join-Path $runRoot 'capture-tx') -TimeoutSec 60
+    $captured = Invoke-ScenarioCli -CliArgs $captureArgs -LogPrefix (Join-Path $runRoot 'capture-tx') -TimeoutSec 60
     if (-not (Test-Path -LiteralPath $captureFile)) {
         Write-Host $captured.Text
         throw "capture proxy did not record a kanari_submitObjectTransfer payload; CLI exit=$($captured.ExitCode)"
@@ -604,64 +407,67 @@ try {
         Remove-Item -LiteralPath $node4.DataDir -Recurse -Force
     }
     New-Item -ItemType Directory -Force -Path $node4.DataDir | Out-Null
-    $rejoinArgs = @($node4.Args)
-    for ($argIndex = 0; $argIndex -lt $rejoinArgs.Count - 1; $argIndex++) {
-        if ($rejoinArgs[$argIndex] -eq '--authorities') {
-            $rejoinArgs[$argIndex + 1] = $rejoinAuthorities
-        }
-        if ($rejoinArgs[$argIndex] -eq '--consensus-public-keys') {
-            $rejoinArgs[$argIndex + 1] = $rejoinPublicKeys
-        }
-    }
-    $rejoinOut = Join-Path $runRoot 'node4-rejoin.out.log'
-    $rejoinErr = Join-Path $runRoot 'node4-rejoin.err.log'
-    $node4.Process = Start-Process `
-        -FilePath $nodeExe `
-        -ArgumentList $rejoinArgs `
-        -WorkingDirectory $repoRoot `
-        -RedirectStandardOutput $rejoinOut `
-        -RedirectStandardError $rejoinErr `
-        -WindowStyle Hidden `
-        -PassThru
+    $rejoinOut = Join-Path $runRoot 'node4.rejoin.out.log'
+    $rejoinErr = Join-Path $runRoot 'node4.rejoin.err.log'
+    # One sync message at a time plus a short publish delay keeps the catch-up
+    # gate observable. This only changes scenario timing, never consensus or the
+    # trusted peer map. The helper restores both variables after process spawn.
+    $node4.Process = (Start-KanariValidator `
+            -NodeExe $nodeExe `
+            -RepoRoot $repoRoot `
+            -RunRoot $runRoot `
+            -Index 4 `
+            -BaseP2pPort $BaseP2pPort `
+            -RpcPort ($BaseRpcPort + 30) `
+            -Genesis $genesis `
+            -KeysDir $keysDir `
+            -PeerAuthorityArg $peerAuthorityActiveArg `
+            -LogSuffix 'rejoin' `
+            -Environment @{
+            KANARI_MAX_CONCURRENT_SYNC_MESSAGES = '1'
+            KANARI_CHAOS_P2P_PUBLISH_DELAY_MS   = '100'
+        } `
+            -PassThruDetails).Process
     Write-Log "Rejoined node4 with empty data dir (pid $($node4.Process.Id)); lag=$SyncAdmissionLag; peer-authorities registered"
 
-    # Poll fast: the gate is observable only between the first peer-height
-    # advertisement and local checkpoint catch-up (a few hundred milliseconds).
-    $ready = $false
-    $readyDeadline = (Get-Date).AddSeconds(60)
-    while ((Get-Date) -lt $readyDeadline) {
-        try {
-            $health = Invoke-KanariRpc -Url $node4.Url -Method 'kanari_health' -Id 1 -TimeoutSec 1
-            if ($health.result) {
-                $ready = $true
+    # The sync loop logs the trusted peer height before applying buffered
+    # checkpoints. Probe as soon as that line appears so the gate is still armed.
+    Wait-KanariRpcReady -Urls @($node4.Url) -Processes @($node4.Process) -Attempts 60 -RunRoot $runRoot
+    Write-Log "READY node4 rejoin $($node4.Url)"
+    $gateArmed = $false
+    $syncDeadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $syncDeadline) {
+        if (Test-Path -LiteralPath $rejoinOut) {
+            $seen = Select-String -LiteralPath $rejoinOut -Pattern 'Applied all buffered checkpoints but still behind network \(current: \d+, max seen: (\d+)\)' | Select-Object -Last 1
+            if ($seen -and [int64]$seen.Matches[0].Groups[1].Value -gt [int64]$SyncAdmissionLag) {
+                $gateArmed = $true
                 break
             }
-        } catch {
         }
-        Start-Sleep -Milliseconds 25
+        Start-Sleep -Milliseconds 5
     }
-    if (-not $ready) {
-        throw "rejoined node4 RPC did not become ready within 60s; log: $rejoinOut"
+    if (-not $gateArmed) {
+        throw "node4 did not observe a trusted peer height gap within 20s; logs: $rejoinOut / $rejoinErr"
     }
-    Write-Log "READY node4 rejoin $($node4.Url)"
-
-    # Raw replay of the signed payload with a short HTTP timeout: no CLI start
-    # delay and no possibility of an unbounded wait. The observed peer height is
-    # armed by the sync loop a few hundred ms after RPC readiness, so poll the
-    # same payload quickly until the gate responds instead of racing one probe.
-    $statsAtReject[$node4.Url] = (Invoke-KanariRpc -Url $node4.Url -Method 'kanari_getStats' -Id 5 -TimeoutSec $RawRpcTimeoutSec).result
-    Write-Log "node4 at first submit: height=$($statsAtReject[$node4.Url].height) root=$($statsAtReject[$node4.Url].state_root)"
-
+    # That log line comes from the checkpoint handler; the periodic sync loop
+    # publishes the observed height on its own 500ms tick.
+    Start-Sleep -Milliseconds 700
     $raw = $null
     $probes = 0
-    $probeDeadline = (Get-Date).AddSeconds(10)
+    $probeDeadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $probeDeadline) {
         $probes++
         $raw = Invoke-RawSubmit -Url $node4.Url -Payload $capturedPayload -TimeoutSec $RawRpcTimeoutSec
         if ($raw.Message -match 'catching up with network' -and $raw.Message -match 'retry after sync') {
             break
         }
-        Start-Sleep -Milliseconds 25
+        if ($raw.Code -eq 0 -or $raw.Message -match 'already executed') {
+            break
+        }
+        Start-Sleep -Milliseconds 5
+    }
+    if ($null -eq $raw) {
+        throw "rejoined node4 RPC did not accept admission probes within 20s; logs: $rejoinOut / $rejoinErr"
     }
     $rejectExitCode = "http=$($raw.HttpStatus) rpc_code=$($raw.Code) probes=$probes"
     $rejectError = [string]$raw.Message
@@ -673,28 +479,8 @@ try {
     }
     $statsAtReject[$node4.Url] = (Invoke-KanariRpc -Url $node4.Url -Method 'kanari_getStats' -Id 7 -TimeoutSec $RawRpcTimeoutSec).result
 
-    # Peer IDs had to be registered as authorities to arm the gate, but those
-    # extra validators change the Mysticeti threshold and block checkpoint
-    # sync. Restart once more from an empty dir with the original validator set
-    # so node 4 can reach the same height/root before the acceptance check.
-    Stop-Process -Id $node4.Process.Id -Force
-    [void]$node4.Process.WaitForExit(10000)
-    if (Test-Path -LiteralPath $node4.DataDir) {
-        Remove-Item -LiteralPath $node4.DataDir -Recurse -Force
-    }
-    New-Item -ItemType Directory -Force -Path $node4.DataDir | Out-Null
-    $syncOut = Join-Path $runRoot 'node4-sync.out.log'
-    $syncErr = Join-Path $runRoot 'node4-sync.err.log'
-    $node4.Process = Start-Process `
-        -FilePath $nodeExe `
-        -ArgumentList $node4.Args `
-        -WorkingDirectory $repoRoot `
-        -RedirectStandardOutput $syncOut `
-        -RedirectStandardError $syncErr `
-        -WindowStyle Hidden `
-        -PassThru
-    Wait-RpcReady -Url $node4.Url -Label 'node4 sync restart' -TimeoutSec 90
-    Write-Log "Restarted node4 for catch-up with the original validator set (pid $($node4.Process.Id))"
+    # The peer-authority mapping is policy only, so checkpoint/DAG sync keeps
+    # using the original validator committee in this same process.
 
     $catchupHeight = [int64]($statsBeforeRejoin[$activeUrls[0]].height)
     $allUrls = @($nodes | ForEach-Object { $_.Url })
@@ -702,8 +488,8 @@ try {
     foreach ($url in $allUrls) {
         $minTxAfterReject[$url] = [int64]($statsBeforeRejoin[$url].total_transactions)
     }
-    $statsSynced = Wait-Converged -Urls $allUrls -MinHeight $catchupHeight -MinTxByUrl $minTxAfterReject -TimeoutSec $SyncTimeoutSec -Label 'node4 catch-up convergence'
-    Write-Log "After node4 catch-up: $((Format-Stats -StatsByUrl $statsSynced) -join ' | ')"
+    $statsSynced = Wait-KanariStatsConverged -Urls $allUrls -MinHeight $catchupHeight -MinTxByUrl $minTxAfterReject -TimeoutSec $SyncTimeoutSec -PassThru -Label 'node4 catch-up convergence'
+    Write-Log "After node4 catch-up: $((Format-KanariStats -StatsByUrl $statsSynced) -join ' | ')"
 
     $syncedTx = @{}
     foreach ($url in $allUrls) {
@@ -719,38 +505,33 @@ try {
     foreach ($url in $allUrls) {
         $finalMinTx[$url] = [int64]($syncedTx[$url] + 1)
     }
-    $statsFinal = Wait-Converged -Urls $allUrls -MinHeight ($catchupHeight + 1) -MinTxByUrl $finalMinTx -TimeoutSec $SyncTimeoutSec -Label 'four-node convergence after accepted tx'
-    Write-Log "Final: $((Format-Stats -StatsByUrl $statsFinal) -join ' | ')"
+    $statsFinal = Wait-KanariStatsConverged -Urls $allUrls -MinHeight ($catchupHeight + 1) -MinTxByUrl $finalMinTx -TimeoutSec $SyncTimeoutSec -PassThru -Label 'four-node convergence after accepted tx'
+    Write-Log "Final: $((Format-KanariStats -StatsByUrl $statsFinal) -join ' | ')"
 
     $resultState = 'PASS'
     Write-Log 'SCENARIO PASS: rejoin admission gate rejected the early tx and accepted it after sync'
-} catch {
+}
+catch {
     $failureDetail = $_ | Out-String
     Write-Log "SCENARIO FAIL: $($_.Exception.Message)"
-} finally {
+}
+finally {
     if ($proxyJob) {
         try { Stop-Job -Job $proxyJob -ErrorAction SilentlyContinue } catch { }
         try { Remove-Job -Job $proxyJob -Force -ErrorAction SilentlyContinue } catch { }
     }
-    foreach ($node in $nodes) {
-        try {
-            if ($node.Process -and -not $node.Process.HasExited) {
-                Stop-Process -Id $node.Process.Id -Force
-            }
-        } catch {
-        }
-    }
+    Stop-KanariProcesses -Processes @($nodes | ForEach-Object { $_.Process })
 
     $summary = @(
         "RESULT: $resultState",
         "runlog: $runRoot",
         "env KANARI_SYNC_ADMISSION_LAG=$SyncAdmissionLag",
-        "before stop: $((Format-Stats -StatsByUrl $statsBeforeStop) -join ' | ')",
-        "before rejoin: $((Format-Stats -StatsByUrl $statsBeforeRejoin) -join ' | ')",
-        "node4 at reject: $((Format-Stats -StatsByUrl $statsAtReject) -join ' | ')",
+        "before stop: $((Format-KanariStats -StatsByUrl $statsBeforeStop) -join ' | ')",
+        "before rejoin: $((Format-KanariStats -StatsByUrl $statsBeforeRejoin) -join ' | ')",
+        "node4 at reject: $((Format-KanariStats -StatsByUrl $statsAtReject) -join ' | ')",
         "reject exit code: $rejectExitCode",
         "reject error: $rejectError",
-        "final: $((Format-Stats -StatsByUrl $statsFinal) -join ' | ')",
+        "final: $((Format-KanariStats -StatsByUrl $statsFinal) -join ' | ')",
         "scenario log: $scenarioLog"
     )
     if ($failureDetail) {

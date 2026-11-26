@@ -1,3 +1,4 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
     [ValidateRange(1, 168)]
     [int]$Hours = 4,
@@ -121,7 +122,8 @@ $ErrorActionPreference = 'Stop'
 $minimumFaucetCoinsPerSender = (2 * $CountPerSender) + $CoinReserveBuffer
 if ($FaucetCoinsPerSender -eq 0) {
     $FaucetCoinsPerSender = $minimumFaucetCoinsPerSender
-} elseif ($FaucetCoinsPerSender -lt $minimumFaucetCoinsPerSender) {
+}
+elseif ($FaucetCoinsPerSender -lt $minimumFaucetCoinsPerSender) {
     throw "FaucetCoinsPerSender=$FaucetCoinsPerSender is too low for CountPerSender=$CountPerSender and CoinReserveBuffer=$CoinReserveBuffer. Use $minimumFaucetCoinsPerSender or omit it to select the safe minimum."
 }
 
@@ -133,7 +135,8 @@ if (-not (Test-Path -LiteralPath $chaosScript)) {
 
 $duration = if ($Minutes -gt 0) {
     [TimeSpan]::FromMinutes($Minutes)
-} else {
+}
+else {
     [TimeSpan]::FromHours($Hours)
 }
 $deadline = (Get-Date).Add($duration)
@@ -173,12 +176,13 @@ function Get-ExcludedTcpPortRanges {
             if ($line -match '^\s*(\d+)\s+(\d+)\s+(?:\*)?\s*$') {
                 $ranges += [pscustomobject]@{
                     Start = [int]$matches[1]
-                    End = [int]$matches[2]
+                    End   = [int]$matches[2]
                 }
             }
         }
         return $ranges
-    } catch {
+    }
+    catch {
         Write-Warning "Unable to read Windows excluded TCP port ranges: $($_.Exception.Message)"
         return @()
     }
@@ -193,7 +197,7 @@ function Test-CampaignPortSetAvailable {
     )
 
     $ports = @(0, 10, 20, 30 | ForEach-Object { $P2pBasePort + $_ }) +
-        @(0, 10, 20, 30 | ForEach-Object { $RpcBasePort + $_ })
+    @(0, 10, 20, 30 | ForEach-Object { $RpcBasePort + $_ })
     if (($ports | Select-Object -Unique).Count -ne $ports.Count) { return $false }
 
     $getNetTcpConnection = Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue
@@ -244,14 +248,14 @@ function Write-CampaignStatus {
     param([Parameter(Mandatory = $true)][string]$Phase)
 
     $status = [ordered]@{
-        version = 1
-        pid = $PID
-        state = $campaignState
-        phase = $Phase
-        started_at = $campaignStartedAt.ToString('o')
-        deadline = $deadline.ToString('o')
-        heartbeat_at = (Get-Date).ToString('o')
-        iteration = $iteration
+        version        = 1
+        pid            = $PID
+        state          = $campaignState
+        phase          = $Phase
+        started_at     = $campaignStartedAt.ToString('o')
+        deadline       = $deadline.ToString('o')
+        heartbeat_at   = (Get-Date).ToString('o')
+        iteration      = $iteration
         last_exit_code = $lastExitCode
         terminal_error = $terminalError
     }
@@ -351,7 +355,8 @@ try {
     $campaignState = 'completed'
     Write-CampaignStatus -Phase 'campaign-complete'
     Write-Host "Kanari network chaos campaign completed: $iteration iteration(s) without failure."
-} catch {
+}
+catch {
     $campaignState = 'failed'
     $terminalError = $_.Exception.Message
     Write-CampaignStatus -Phase 'campaign-failed'

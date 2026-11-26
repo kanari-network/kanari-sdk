@@ -44,6 +44,9 @@ pub struct SyncManager {
     engine: Arc<BlockchainEngine>,
     network_tx: mpsc::Sender<QueuedP2PMessage>,
     local_peer_id: String,
+    /// libp2p PeerId -> consensus authority ID, used only for admission gating.
+    /// This map must never be applied to the consensus committee.
+    peer_authorities: BTreeMap<String, String>,
     /// Optional indexer for blockchain data indexing
     indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
     /// Buffer for checkpoints that arrived out of order (sequence -> candidate checkpoints)
@@ -140,11 +143,13 @@ impl SyncManager {
         network_tx: mpsc::Sender<QueuedP2PMessage>,
         local_peer_id: String,
         indexer: Option<Arc<Mutex<kanari_indexer::Indexer>>>,
+        peer_authorities: BTreeMap<String, String>,
     ) -> Self {
         Self {
             engine,
             network_tx,
             local_peer_id,
+            peer_authorities,
             indexer,
             checkpoint_buffer: Mutex::new(BTreeMap::new()),
             peer_heights: Mutex::new(BTreeMap::new()),
@@ -156,6 +161,14 @@ impl SyncManager {
             max_buffer_size: 1000, // Limit buffer to 1000 checkpoints for 200-node networks
             max_dag_vertex_buffer_size: 2048,
         }
+    }
+
+    /// A peer height may arm transaction admission only when the authenticated
+    /// libp2p peer ID is explicitly mapped to a known validator authority.
+    fn is_trusted_height_source(&self, peer_id: &str) -> bool {
+        self.peer_authorities
+            .get(peer_id)
+            .is_some_and(|authority| self.engine.is_validator_authority(authority))
     }
 
     /// Start periodic sync tasks
@@ -1358,13 +1371,7 @@ impl SyncManager {
             stats.total_transactions
         );
 
-        let peer_is_validator = self
-            .run_engine_blocking({
-                let peer_id = peer_info.peer_id.clone();
-                move |engine| Ok(engine.is_validator_authority(&peer_id))
-            })
-            .await
-            .unwrap_or(false);
+        let peer_is_validator = self.is_trusted_height_source(&peer_info.peer_id);
 
         if peer_info.peer_id != self.local_peer_id {
             self.clear_peer_divergence_if_recovered(
@@ -1417,12 +1424,13 @@ impl SyncManager {
             return;
         }
 
-        // Keep observed-network admission signal grounded in known validators.
-        // Non-validator peers can still be used for transport, but their height
-        // cannot gate local tx admission.
+        // Keep the observed-network admission signal grounded in explicitly
+        // mapped validator peers. Unmapped peers can still be used for
+        // checkpoint/DAG transport, but their height cannot gate local tx
+        // admission.
         if !peer_is_validator {
             debug!(
-                "[SYNC] Ignoring non-validator peer {} height {} for admission gating",
+                "[SYNC] Ignoring peer {} height {} without a trusted validator mapping for admission gating",
                 peer_info.peer_id, peer_info.height
             );
         }

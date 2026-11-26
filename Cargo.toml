@@ -127,7 +127,7 @@ bincode = { version = "2.0.1", features = ["serde", "alloc"] }
 # Cryptography - Classical (ECC, Signatures, Hashing)
 # ============================================================================
 ## Hash Functions
-sha2 = "0.11.1"
+sha2 = "0.11.2"
 sha3 = "0.12.0"
 shake = "0.1.0"
 blake2 = "0.11.0"
@@ -167,7 +167,7 @@ aws-lc-rs = { version = "1.19.0", features = ["prebuilt-nasm"] }
 # ============================================================================
 # Memory Security & Timing Attack Prevention
 # ============================================================================
-zeroize = { version = "1.9.1", features = ["derive"] }                              # Secure memory zeroing
+zeroize = { version = "1.9.2", features = ["derive"] }                              # Secure memory zeroing
 subtle = "2.6.1"                                                                    # Constant-time operations
 rpassword = "7.5.5"                                                                 # Secure password input
 fs2 = "0.4.3"                                                                       # File locking for key files
@@ -208,7 +208,7 @@ tree-sitter = "0.27.2"                                                          
 pretty = "0.12.5"                                                                   # Wadler-style pretty printing (Move formatter)
 num_cpus = "1.17.0"                                                                 # CPU core detection
 regex = "1.13.1"                                                                    # Regular expressions for validation
-smallvec = "1.16.5"                                                                 # Stack-allocated vectors
+smallvec = "1.16.6"                                                                 # Stack-allocated vectors
 lazy_static = { version = "1.5.1", default-features = true }
 once_cell = "1.21.4"
 
@@ -284,7 +284,7 @@ syn = { version = "3.0.10", features = ["full"] }
 # ============================================================================
 # Miscellaneous Utilities
 # ============================================================================
-uniffi = { version = "0.32.2" }
+uniffi = { version = "0.33.0" }
 
 # ============================================================================
 # Move LSP (kanari-move-analyzer)

@@ -4182,9 +4182,9 @@ impl BlockchainEngine {
         &self.authorities
     }
 
-    /// Returns true when the given peer/authority ID is part of the known validator set.
-    pub fn is_validator_authority(&self, peer_id: &str) -> bool {
-        let normalized = normalize_consensus_authority_id(peer_id);
+    /// Returns true when the given consensus authority ID is part of the known validator set.
+    pub fn is_validator_authority(&self, authority_id: &str) -> bool {
+        let normalized = normalize_consensus_authority_id(authority_id);
         self.authorities.iter().any(|a| a == &normalized) || self.authority_id == normalized
     }
 

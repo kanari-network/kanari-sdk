@@ -34,7 +34,7 @@ jobs:
   analyzer:
     name: Analyzer fmt/clippy/tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 120
+    timeout-minutes: 160
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +74,7 @@ jobs:
   extension:
     name: Extension vsix (package + validate + LSP smoke)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 160
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

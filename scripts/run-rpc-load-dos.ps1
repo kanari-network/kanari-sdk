@@ -12,20 +12,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-function New-JsonRpcBody {
-    param(
-        [string]$Method,
-        [object]$Params = @{},
-        [int]$Id = 1
-    )
-
-    return @{
-        jsonrpc = "2.0"
-        method = $Method
-        params = $Params
-        id = $Id
-    } | ConvertTo-Json -Depth 16 -Compress
-}
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
 
 function Invoke-OneRpcRequest {
     param(
@@ -46,12 +33,13 @@ function Invoke-OneRpcRequest {
 
         $started.Stop()
         return [pscustomobject]@{
-            Ok = $true
+            Ok         = $true
             StatusCode = [int]$response.StatusCode
-            Ms = [int]$started.ElapsedMilliseconds
-            Error = $null
+            Ms         = [int]$started.ElapsedMilliseconds
+            Error      = $null
         }
-    } catch {
+    }
+    catch {
         $started.Stop()
         $status = 0
         if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
@@ -59,10 +47,10 @@ function Invoke-OneRpcRequest {
         }
 
         return [pscustomobject]@{
-            Ok = $false
+            Ok         = $false
             StatusCode = $status
-            Ms = [int]$started.ElapsedMilliseconds
-            Error = $_.Exception.Message
+            Ms         = [int]$started.ElapsedMilliseconds
+            Error      = $_.Exception.Message
         }
     }
 }
@@ -72,7 +60,7 @@ Write-Host "  url=$RpcUrl"
 Write-Host "  requests=$Requests concurrency=$Concurrency timeout=${TimeoutSec}s"
 Write-Host "  malformed=$IncludeMalformed oversized=$IncludeOversized"
 
-$probeBody = New-JsonRpcBody -Method "kanari_health" -Id 0
+$probeBody = New-KanariJsonRpcBody -Method "kanari_health" -Id 0
 $probe = Invoke-OneRpcRequest -RpcUrl $RpcUrl -Body $probeBody -TimeoutSec $TimeoutSec
 if (-not $probe.Ok) {
     Write-Host "RPC endpoint is not reachable: $($probe.Error)" -ForegroundColor Red
@@ -83,13 +71,16 @@ $bodies = New-Object System.Collections.Generic.List[string]
 for ($i = 0; $i -lt $Requests; $i++) {
     if ($IncludeMalformed -and ($i % 17 -eq 0)) {
         $bodies.Add("{""jsonrpc"":""2.0"",""method"":""kanari_getStats"",""params"":")
-    } elseif ($IncludeOversized -and ($i % 23 -eq 0)) {
+    }
+    elseif ($IncludeOversized -and ($i % 23 -eq 0)) {
         $oversized = "x" * 1048576
-        $bodies.Add((New-JsonRpcBody -Method "kanari_getStats" -Params @{ blob = $oversized } -Id $i))
-    } elseif ($i % 2 -eq 0) {
-        $bodies.Add((New-JsonRpcBody -Method "kanari_health" -Id $i))
-    } else {
-        $bodies.Add((New-JsonRpcBody -Method "kanari_getStats" -Id $i))
+        $bodies.Add((New-KanariJsonRpcBody -Method "kanari_getStats" -Params @{ blob = $oversized } -Id $i))
+    }
+    elseif ($i % 2 -eq 0) {
+        $bodies.Add((New-KanariJsonRpcBody -Method "kanari_health" -Id $i))
+    }
+    else {
+        $bodies.Add((New-KanariJsonRpcBody -Method "kanari_getStats" -Id $i))
     }
 }
 
@@ -142,13 +133,14 @@ while ($queue.Count -gt 0 -or $jobs.Count -gt 0) {
         $output = Receive-Job $job
         if ($output) {
             $results.Add($output)
-        } else {
+        }
+        else {
             $results.Add([pscustomobject]@{
-                Ok = $false
-                StatusCode = 0
-                Ms = 0
-                Error = "job produced no result; state=$($job.State)"
-            })
+                    Ok         = $false
+                    StatusCode = 0
+                    Ms         = 0
+                    Error      = "job produced no result; state=$($job.State)"
+                })
         }
         Remove-Job $job -Force
     }
@@ -168,22 +160,13 @@ $clientRejected = @($results | Where-Object { $_.StatusCode -ge 400 -and $_.Stat
 $networkErrors = @($results | Where-Object { $_.StatusCode -eq 0 }).Count
 $latencies = @($results | ForEach-Object { [int]$_.Ms } | Sort-Object)
 
-function Percentile {
-    param([int[]]$Values, [double]$P)
-    if ($Values.Count -eq 0) { return 0 }
-    $index = [int][Math]::Ceiling(($P / 100.0) * $Values.Count) - 1
-    if ($index -lt 0) { $index = 0 }
-    if ($index -ge $Values.Count) { $index = $Values.Count - 1 }
-    return $Values[$index]
-}
-
 $durationSec = [Math]::Max($sw.Elapsed.TotalSeconds, 0.001)
 $rps = [Math]::Round($results.Count / $durationSec, 2)
 
 Write-Host "RPC load/DoS probe complete"
 Write-Host "  completed=$($results.Count)/$Requests duration=$([Math]::Round($durationSec, 2))s rps=$rps"
 Write-Host "  success=$success rate_limited=$rateLimited client_rejected=$clientRejected server_errors=$serverErrors network_errors=$networkErrors"
-Write-Host "  latency_ms p50=$(Percentile $latencies 50) p95=$(Percentile $latencies 95) p99=$(Percentile $latencies 99)"
+Write-Host "  latency_ms p50=$(Get-KanariNearestRankPercentile -Values $latencies -Percentile 50) p95=$(Get-KanariNearestRankPercentile -Values $latencies -Percentile 95) p99=$(Get-KanariNearestRankPercentile -Values $latencies -Percentile 99)"
 
 if ($serverErrors -gt 0 -or $networkErrors -gt 0) {
     Write-Host "RPC load/DoS probe found unstable responses." -ForegroundColor Red

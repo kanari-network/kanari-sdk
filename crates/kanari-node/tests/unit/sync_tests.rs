@@ -7,9 +7,22 @@ use libp2p_identity::Keypair;
 use tokio::sync::mpsc;
 
 fn new_sync_manager() -> SyncManager {
-    let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
+    new_sync_manager_with_peer_authorities(&[("peer-1", "0x1"), ("peer-2", "0x2")])
+}
+
+fn new_sync_manager_with_peer_authorities(peers: &[(&str, &str)]) -> SyncManager {
+    let mut engine = BlockchainEngine::new_in_memory().unwrap();
+    engine.set_authorities(
+        "0x1".to_string(),
+        vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()],
+    );
+    let engine = Arc::new(engine);
+    let peer_authorities = peers
+        .iter()
+        .map(|(peer, authority)| ((*peer).to_string(), (*authority).to_string()))
+        .collect();
     let (network_tx, _network_rx) = mpsc::channel(128);
-    SyncManager::new(engine, network_tx, "local-peer".to_string(), None)
+    SyncManager::new(engine, network_tx, "local-peer".to_string(), None, peer_authorities)
 }
 
 fn peer_info(height: u64, checkpoint: &str, state_root: &str) -> PeerInfoMsg {
@@ -42,6 +55,38 @@ async fn authenticated_source_rejects_spoofed_peer_info_identity() {
     assert!(sync.peer_heights_guard().is_empty());
     assert!(sync.divergent_peers_guard().is_empty());
     assert!(sync.pending_checkpoint_requests_guard().is_empty());
+}
+
+#[tokio::test]
+async fn authority_looking_peer_id_is_not_trusted_without_mapping() {
+    let sync = new_sync_manager_with_peer_authorities(&[]);
+    let stats = sync.engine.get_stats();
+    let mut info = peer_info(stats.height + 10, "peer-checkpoint", "peer-root");
+    info.peer_id = "0x1".to_string();
+
+    sync.handle_peer_info(info).await;
+
+    assert!(sync.peer_heights_guard().is_empty());
+    assert_eq!(sync.max_eligible_peer_height(), 0);
+}
+
+#[tokio::test]
+async fn mapped_validator_height_arms_admission_signal() {
+    let sync = new_sync_manager();
+    let stats = sync.engine.get_stats();
+
+    sync.handle_peer_info(peer_info(stats.height + 5, "peer-checkpoint", "peer-root")).await;
+
+    assert_eq!(sync.max_eligible_peer_height(), stats.height + 5);
+}
+
+#[test]
+fn peer_mapping_never_changes_consensus_committee() {
+    let sync = new_sync_manager();
+    assert_eq!(
+        sync.engine.authorities().to_vec(),
+        vec!["0x1".to_string(), "0x2".to_string(), "0x3".to_string()]
+    );
 }
 
 fn test_dag_vertex(round: u64, author: &str) -> DagVertex {
@@ -275,7 +320,13 @@ fn test_buffered_empty_checkpoint_is_not_applied_when_gap_is_filled() {
 
     let engine = Arc::new(BlockchainEngine::new_in_memory().unwrap());
     let (network_tx, _network_rx) = mpsc::channel(128);
-    let sync = SyncManager::new(engine.clone(), network_tx, "local-peer".to_string(), None);
+    let sync = SyncManager::new(
+        engine.clone(),
+        network_tx,
+        "local-peer".to_string(),
+        None,
+        BTreeMap::from([("peer-2".to_string(), "0x2".to_string())]),
+    );
 
     assert!(sync.buffer_checkpoint(checkpoint_two, Some("peer-2"), "test").is_some());
     assert_eq!(engine.get_stats().height, 0);

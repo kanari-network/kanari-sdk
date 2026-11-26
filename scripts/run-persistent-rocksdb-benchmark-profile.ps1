@@ -18,7 +18,8 @@ if (-not $SkipBuild) {
     Push-Location $repoRoot
     try {
         cargo build --release -p kanari-benchmarks
-    } finally {
+    }
+    finally {
         Pop-Location
     }
 }
@@ -45,10 +46,12 @@ try {
             --senders $Senders `
             --runs $Runs `
             --json
-    } finally {
+    }
+    finally {
         Pop-Location
     }
-} finally {
+}
+finally {
     if ($null -eq $previousBackend) { Remove-Item Env:\KANARI_BENCH_STATE_BACKEND -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_STATE_BACKEND = $previousBackend }
     if ($null -eq $previousProfile) { Remove-Item Env:\KANARI_BENCH_ROCKSDB_PROFILE -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_ROCKSDB_PROFILE = $previousProfile }
     if ($null -eq $previousFlush) { Remove-Item Env:\KANARI_BENCH_ROCKSDB_FLUSH_PROFILE -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_ROCKSDB_FLUSH_PROFILE = $previousFlush }

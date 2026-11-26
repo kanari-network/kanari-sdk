@@ -1,3 +1,4 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
     [int[]]$TxTargets = @(1000, 10000),
 
@@ -84,7 +85,7 @@ if ($Wallets -lt $BaseSenders.Count) {
 $summaryPath = Join-Path $repoRoot ".kanari-runlogs\full-tx-benchmark-profile-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $summaryPath) | Out-Null
 'timestamp,target_txs,wallets,count_per_sender,requested_txs,base_p2p_port,base_rpc_port,status' |
-    Set-Content -LiteralPath $summaryPath
+Set-Content -LiteralPath $summaryPath
 
 Write-Host "Kanari full tx benchmark profile"
 Write-Host "  targets=$($TxTargets -join ', ') wallets=$Wallets"
@@ -136,10 +137,11 @@ foreach ($target in $TxTargets) {
             -BuildProfile $BuildProfile `
             -SkipBuild:($SkipBuild -or $iteration -gt 1)
         "$(Get-Date -Format o),$target,$Wallets,$countPerSender,$requestedTxs,$baseP2pPort,$baseRpcPort,ok" |
-            Add-Content -LiteralPath $summaryPath
-    } catch {
+        Add-Content -LiteralPath $summaryPath
+    }
+    catch {
         "$(Get-Date -Format o),$target,$Wallets,$countPerSender,$requestedTxs,$baseP2pPort,$baseRpcPort,failed" |
-            Add-Content -LiteralPath $summaryPath
+        Add-Content -LiteralPath $summaryPath
         throw
     }
 }

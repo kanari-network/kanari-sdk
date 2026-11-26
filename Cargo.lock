@@ -129,9 +129,9 @@ dependencies = [
 
 [[package]]
 name = "allocator-api2"
-version = "0.2.21"
+version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+checksum = "57b212daf2e827b1ccdd778b7eb48ba433e58cb0e4f27b43cd6b7a608425a014"
 
 [[package]]
 name = "android_log-sys"
@@ -569,6 +569,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
+]
+
+[[package]]
 name = "asynchronous-codec"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -843,7 +854,7 @@ dependencies = [
  "k256",
  "ripemd",
  "secp256k1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "subtle",
  "zeroize",
 ]
@@ -1063,7 +1074,7 @@ dependencies = [
  "curve25519-dalek 5.0.0",
  "ed25519-dalek",
  "ripemd",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.12.0",
 ]
 
@@ -2077,7 +2088,7 @@ dependencies = [
  "keccak 0.2.2",
  "rand_core 0.10.1",
  "serde",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "signature",
  "strobe-rs",
  "subtle",
@@ -3453,7 +3464,7 @@ dependencies = [
  "rsa",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "signature",
  "zeroize",
 ]
@@ -3468,7 +3479,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "signature",
  "wnaf",
 ]
@@ -3510,7 +3521,7 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tempfile",
  "tokio",
 ]
@@ -3533,7 +3544,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tempfile",
  "thiserror 2.0.21",
  "uuid",
@@ -3596,7 +3607,7 @@ dependencies = [
  "rsa",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "smt",
  "tempfile",
  "tokio",
@@ -3646,7 +3657,7 @@ dependencies = [
  "secp256k1",
  "serde",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.12.0",
  "shake",
  "slh-dsa",
@@ -4037,7 +4048,7 @@ dependencies = [
  "rsa",
  "secp256k1",
  "serde_json",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.12.0",
  "smallvec",
 ]
@@ -4200,7 +4211,7 @@ dependencies = [
  "prost-codec",
  "rand 0.10.4",
  "regex",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tracing",
  "web-time",
 ]
@@ -4238,7 +4249,7 @@ dependencies = [
  "multihash",
  "prost",
  "rand 0.10.4",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "thiserror 2.0.21",
  "tracing",
  "zeroize",
@@ -4263,7 +4274,7 @@ dependencies = [
  "prost",
  "prost-codec",
  "rand 0.10.4",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "smallvec",
  "thiserror 2.0.21",
  "tracing",
@@ -4807,7 +4818,7 @@ dependencies = [
  "num-bigint 0.5.1",
  "once_cell",
  "serde",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "vfs",
  "walkdir",
 ]
@@ -5016,7 +5027,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_yaml",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "tempfile",
  "toml",
  "toml_edit",
@@ -5121,7 +5132,7 @@ dependencies = [
  "move-stdlib-natives",
  "move-vm-runtime",
  "move-vm-types",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.12.0",
  "smallvec",
  "walkdir",
@@ -5139,7 +5150,7 @@ dependencies = [
  "move-vm-runtime",
  "move-vm-types",
  "ripemd",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.12.0",
  "smallvec",
 ]
@@ -5635,7 +5646,7 @@ dependencies = [
  "elliptic-curve",
  "primefield",
  "primeorder",
- "sha2 0.11.1",
+ "sha2 0.11.2",
 ]
 
 [[package]]
@@ -5649,7 +5660,7 @@ dependencies = [
  "fiat-crypto 0.3.0",
  "primefield",
  "primeorder",
- "sha2 0.11.1",
+ "sha2 0.11.2",
 ]
 
 [[package]]
@@ -6593,7 +6604,7 @@ dependencies = [
  "pkcs1",
  "pkcs8",
  "rand_core 0.10.1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "signature",
  "spki",
  "zeroize",
@@ -7179,9 +7190,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
+checksum = "5b0e5c7d67bc53f435386b2130fdc900488c5703770f6d8a4633060e34288a27"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
@@ -7359,7 +7370,7 @@ dependencies = [
  "hybrid-array",
  "pkcs8",
  "rand_core 0.10.1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "sha3 0.11.0",
  "signature",
  "typenum",
@@ -7614,6 +7625,12 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "target-lexicon"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c447be3a2abfa84b2d91680c56600bd6b2873866de27b36ec911be705e291da"
 
 [[package]]
 name = "tempfile"
@@ -7898,7 +7915,7 @@ dependencies = [
  "rand 0.10.4",
  "serde",
  "sha1",
- "sha2 0.11.1",
+ "sha2 0.11.2",
  "url",
  "zeroize",
 ]
@@ -8160,9 +8177,9 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "uniffi"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76407f5f396a2c949a069eff4a9fca9ce462410eb872bffef4c2b7b89804a77a"
+checksum = "555ca4a960ec148b0448352af0e06b41c11c553c544cf729d6309ce5fc31841b"
 dependencies = [
  "anyhow",
  "camino",
@@ -8177,9 +8194,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_bindgen"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3df3ced8f0eda3de99f6d50820e8628f443da8e4f447f477d1403ceba29dacbd"
+checksum = "ce7d75a679688cd81f926e032fd5240319157193bbae971376cb3136e2a799f7"
 dependencies = [
  "anyhow",
  "askama",
@@ -8197,15 +8214,16 @@ dependencies = [
  "toml",
  "uniffi_internal_macros",
  "uniffi_meta",
+ "uniffi_parse_rs",
  "uniffi_pipeline",
  "uniffi_udl",
 ]
 
 [[package]]
 name = "uniffi_build"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "925be5c36297fff0d416fa2f03585ace718b6e6c635466754128d00f0862d5f1"
+checksum = "dd81808faf97310d368d4f665eacf6e162d58909681b63f3c565cbf1668fd528"
 dependencies = [
  "anyhow",
  "camino",
@@ -8214,11 +8232,12 @@ dependencies = [
 
 [[package]]
 name = "uniffi_core"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7530ae8efeaaa488622865966763fe0294832779fff80508c36d69c6a874a6a"
+checksum = "dcc9bbafb4b538edcfd917ad8d3cc3ad2475fe05d6da7992df17558421d9a9a3"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bytes",
  "once_cell",
  "static_assertions",
@@ -8226,9 +8245,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_internal_macros"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f4bad017164375d99450d70495014810d15a84ba9da6ed14b9628b1424223ba"
+checksum = "7a13da6d52fb64a98183c1b6ce8b37ad01acda03c352236ee57955f2284009bc"
 dependencies = [
  "anyhow",
  "indexmap 2.14.2",
@@ -8239,9 +8258,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_macros"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b855a58da153739ce6e863f6e296edc3716a093768c4d3d957f17f5e4317c60"
+checksum = "892e82e7b88e0867998216064a004a1588b5faa93423f3bbfcaf51a32762614e"
 dependencies = [
  "camino",
  "fs-err",
@@ -8256,9 +8275,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_meta"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af0c88664a9cb9559856f5a250283c9708923b303170e2e5c7db8f4ad65e9459"
+checksum = "2e8f2f688292e9fe840229d24141e0413df248a86dd6866063c8216721b37d86"
 dependencies = [
  "anyhow",
  "siphasher",
@@ -8267,10 +8286,29 @@ dependencies = [
 ]
 
 [[package]]
-name = "uniffi_pipeline"
-version = "0.32.2"
+name = "uniffi_parse_rs"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d00f5c044b4a3dca0b1226c92ddaeea626f337470e22180dd182160c87a06b0b"
+checksum = "5ac58f04ed5f6bbdc54fa6ad8e6baf6efb0fbfdd6b247536c8d2f5eab3007dc9"
+dependencies = [
+ "anyhow",
+ "camino",
+ "codespan-reporting",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 2.0.119",
+ "target-lexicon",
+ "thiserror 2.0.21",
+ "toml",
+ "uniffi_meta",
+]
+
+[[package]]
+name = "uniffi_pipeline"
+version = "0.33.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368c2ee526938c4bf06dedd486713506c5453ef9fde3b66c56d9426faa6e6886"
 dependencies = [
  "anyhow",
  "heck 0.5.0",
@@ -8281,9 +8319,9 @@ dependencies = [
 
 [[package]]
 name = "uniffi_udl"
-version = "0.32.2"
+version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55dfd9c778d6b39cb5acd541d9ff63431974035d2bad83c897b766a6ee3152ac"
+checksum = "4c5e85827544ffa991a8c39a6d1a5d4b915cd04b3fc550ad977ddd80e44768f7"
 dependencies = [
  "anyhow",
  "textwrap",
@@ -9036,18 +9074,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.65"
+version = "0.8.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32bc8a75f879cd6fe53a6bedf3c28f0e1b914c77424fc2be9e2ec85d7d25aff5"
+checksum = "cba8a86aee14fc8cc6c208af60854b3d4ab7185a9a369a12c648faa2716ff42a"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.65"
+version = "0.8.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8bfd2644ea1681f60cf95029ff18aa8ad1cc3f7b8fe37286f8e473bb29f816b"
+checksum = "f89bca3b96ceb3cfcb4572790402f977442270d252b9a8504ebc258760c55f94"
 dependencies = [
  "proc-macro2",
  "quote",

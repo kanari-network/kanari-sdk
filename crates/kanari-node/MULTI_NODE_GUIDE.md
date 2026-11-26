@@ -72,6 +72,16 @@ Start nodes in separate terminals:
 .\start-node.ps1 -NodeId 4 -Network devnet -Authorities "0x1,0x2,0x3,0x4" -Bootstrap "/ip4/127.0.0.1/tcp/19000"
 ```
 
+`setup-multi-node.ps1` builds the required peer-authority map automatically from each node's `p2p-identity.key` and passes it to `start-node.ps1`. Use `-PeerAuthority "12D3Koo…=0x1,..."` or `-PeerAuthorityFile .\peer-authorities.json` to override it. `start-node.ps1` accepts the same two parameters and forwards `--peer-authority` / `--peer-authority-file` to `kanari-node`. A validator start without a mapping is rejected; the catch-up admission gate cannot be silently disabled.
+
+To inspect a node's peer ID without starting it:
+
+```powershell
+cargo run --bin kanari-node -- p2p-peer-id --network devnet --data-dir "$env:USERPROFILE\.kanari\node-db\node1"
+```
+
+`p2p-peer-id` loads or creates the same `p2p-identity.key` the node uses, so the printed value is the identity the validator will actually present on libp2p. Mainnet requires the identity password env var before this command can create a new encrypted identity.
+
 `start-node.ps1` passes the matching `node<N>-consensus-private-key.key` file path and the shared `consensus-public-keys.json`; private key contents never appear in process arguments. Set `KANARI_CONSENSUS_KEY_PASSWORD` before key generation/start to encrypt these files. RPC binds to `0.0.0.0` by default, so use firewall rules or a narrower `-RpcHost` outside a trusted dev network.
 
 ## Manual Start
@@ -204,6 +214,8 @@ state root before writing. It refuses to overwrite a non-empty data directory.
 - `--authorities <IDS>`: comma-separated committee, for example `0x1,0x2,0x3,0x4`
 - `--consensus-private-key-file <PATH>`: encrypted consensus key file (plaintext is rejected on mainnet)
 - `--consensus-public-keys <PATH>`: JSON map of authority ID to public key hex
+- `--peer-authority <PEER_ID=AUTHORITY_ID>`: trusted libp2p peer mapped to a validator for admission gating; repeatable/comma-separated and never changes the committee
+- `--peer-authority-file <PATH>`: JSON map with the same `{"12D3Koo…":"0x1"}` shape
 - `--p2p-port <PORT>`: P2P networking port
 - `--rpc-port <PORT>`: RPC server port
 - `--rpc-host <HOST>`: RPC bind address

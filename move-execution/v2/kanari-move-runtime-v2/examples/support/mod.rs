@@ -102,7 +102,7 @@ pub fn runtime() -> Result<MoveRuntime> {
     }
     let store = PersistentStore::open_with_path(Some(db_dir))
         .context("failed to open the example's scratch store")?;
-    MoveRuntime::new_with_kanari_natives_and_store(Arc::new(store))
+    MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(Arc::new(store))
         .context("failed to init MoveRuntime")
 }
 

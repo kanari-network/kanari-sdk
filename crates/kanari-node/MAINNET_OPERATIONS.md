@@ -27,14 +27,16 @@ Before any mainnet rollout:
 4. Confirm each validator has its own dedicated `data_dir`.
 5. Confirm each validator has a unique consensus private key.
 6. Confirm every validator uses the same reviewed `consensus-public-keys.json` map.
-7. Confirm private consensus key files are not committed, shared in chat, or copied between validators.
-8. Confirm `KANARI_NETWORK=mainnet` is being used through `--network mainnet`.
-9. Confirm `kanari_health` reports:
-   - `status = ok`
-   - `supply_invariants_ok = true`
-   - `strict_persistence_required = true`
-   - `strict_checkpoint_roots = true`
-   - `persistent_storage_available = true`
+7. Confirm each validator supplies `--peer-authority` (or `--peer-authority-file`) mapping authenticated libp2p peer IDs to the reviewed authority IDs. A start without this map is rejected; do not add peer IDs to `--authorities` or the consensus committee.
+8. Confirm private consensus key files are not committed, shared in chat, or copied between validators.
+9. Derive each validator's authenticated libp2p identity from its own data directory with `kanari-node p2p-peer-id --network mainnet --data-dir <path>` (requires the identity password env var), then review the peer-to-authority map before deploying.
+10. Confirm `KANARI_NETWORK=mainnet` is being used through `--network mainnet`.
+11. Confirm `kanari_health` reports:
+    - `status = ok`
+    - `supply_invariants_ok = true`
+    - `strict_persistence_required = true`
+    - `strict_checkpoint_roots = true`
+    - `persistent_storage_available = true`
 
 ## Rollout Plan
 
@@ -98,7 +100,8 @@ kanari-node start `
   --p2p-port 19000 `
   --rpc-port 19001 `
   --consensus-private-key-file C:\kanari\mainnet\consensus-keys\node1-consensus-private-key.key `
-  --consensus-public-keys C:\kanari\mainnet\consensus-keys\consensus-public-keys.json
+  --consensus-public-keys C:\kanari\mainnet\consensus-keys\consensus-public-keys.json `
+  --peer-authority 12D3Koo…=0x1,12D3Koo…=0x2,12D3Koo…=0x3,12D3Koo…=0x4
 ```
 
 The node should fail fast if the private key is missing or does not match the public key assigned to its `authority_id`.

@@ -18,7 +18,8 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $rpcProbeScript = Join-Path $repoRoot 'scripts\run-rpc-load-dos.ps1'
 $duration = if ($Minutes -gt 0) {
     [TimeSpan]::FromMinutes($Minutes)
-} else {
+}
+else {
     [TimeSpan]::FromHours($Hours)
 }
 $deadline = (Get-Date).Add($duration)

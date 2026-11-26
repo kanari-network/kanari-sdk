@@ -72,7 +72,8 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
@@ -145,7 +146,8 @@ fn deny_policy_reads_stay_within_the_fixed_budget_at_scale() -> Result<()> {
     // --- fresh runtime: enforcement must work against the populated list ----
     // `gas_info` is deliberately starved: the inner policy read runs on its
     // own fixed budget, not on the transaction's allowance.
-    let rt_enforced = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_enforced =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let starved_gas = Some((10_000u64, 1_000));
 
     // Denied recipient: the full-list scan must still complete and answer.

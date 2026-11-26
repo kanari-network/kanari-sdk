@@ -77,7 +77,8 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .with_context(|| format!("publish {} module", scenario.module_name))?;
@@ -119,7 +120,8 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     state.apply_changeset(&add_changes)?;
     state.commit()?;
 
-    let second_runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let second_runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let read_before_update = read_field(&second_runtime, scenario, &module_id, &host_id)
         .context("read persisted field value")?;
     assert_eq!(read_before_update, JsonValue::from(scenario.initial_value));
@@ -162,7 +164,8 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     state.apply_changeset(&update_changes)?;
     state.commit()?;
 
-    let third_runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let third_runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let read_after_update = read_field(&third_runtime, scenario, &module_id, &host_id)
         .context("read updated field value")?;
     assert_eq!(read_after_update, JsonValue::from(scenario.updated_value));
@@ -188,7 +191,8 @@ pub fn run(scenario: &DynamicFieldScenario) -> Result<()> {
     state.apply_changeset(&remove_changes)?;
     state.commit()?;
 
-    let fourth_runtime = MoveRuntime::new_with_kanari_natives_and_store(store)?;
+    let fourth_runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store)?;
     let exists_after_remove =
         view(&fourth_runtime, scenario, &module_id, &host_id, scenario.has_fn)
             .context("check field absence after remove")?;

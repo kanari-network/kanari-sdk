@@ -62,7 +62,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     // Genesis must have shared the GovernanceState singleton and transferred
     // the admin GovernanceCap to the init sender.
@@ -114,7 +115,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.commit()?;
 
     // VOTER_A creates the proposal with the minted deposit coin.
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let changes = call_entry(
         &runtime,
         &module_id,
@@ -168,7 +170,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     )?;
 
     // Tallies must read back through a fresh runtime boot.
-    let rt_read = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_read =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_view(&rt_read, "yes_votes", &proposal_1, JsonValue::from(600u64), "yes tally")?;
     assert_view(&rt_read, "no_votes", &proposal_1, JsonValue::from(300u64), "no tally")?;
     assert_view(&rt_read, "total_staked", &proposal_1, JsonValue::from(900u64), "stake sum")?;
@@ -201,7 +204,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let rt_done = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_done =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_view(&rt_done, "is_executed", &proposal_1, JsonValue::from(1u64), "executed")?;
     assert_view(
         &rt_done,
@@ -225,7 +229,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let rt_withdrawn_a = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_withdrawn_a =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let changes = call_entry(
         &rt_withdrawn_a,
         &module_id,
@@ -239,7 +244,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let rt_withdrawn = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_withdrawn =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_view(
         &rt_withdrawn,
         "total_staked",
@@ -281,7 +287,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let rt_supply = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_supply =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_state_view(
         &rt_supply,
         "state_total_supply",
@@ -310,7 +317,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let changes = call_entry(
         &runtime,
         &module_id,
@@ -348,7 +356,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
         true,
     )?;
 
-    let rt_final = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_final =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_state_view(
         &rt_final,
         "state_total_supply",
@@ -370,7 +379,8 @@ fn governance_staked_vote_flow_end_to_end() -> Result<()> {
     state.apply_changeset(&changes)?;
     state.commit()?;
 
-    let rt_check = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_check =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_view(&rt_check, "is_executed", &proposal_2, JsonValue::from(1u64), "executed")?;
     assert_view(
         &rt_check,
@@ -398,7 +408,8 @@ fn vote_with_coin(
     support: bool,
 ) -> Result<()> {
     // Mint and transfer the stake coin to the voter.
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let changes = call_entry(
         &runtime,
         module_id,
@@ -419,7 +430,8 @@ fn vote_with_coin(
     state.commit()?;
 
     // The voter stakes the coin on the proposal.
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let changes = call_entry(
         &runtime,
         module_id,

@@ -1,3 +1,4 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
     [ValidateRange(1, 10080)]
     [int]$Minutes = 30,
@@ -82,7 +83,8 @@ New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
 $requiredCoinFanout = (2 * $CountPerSender) + 2
 if ($FaucetCoinsPerSender -le 0) {
     $FaucetCoinsPerSender = $requiredCoinFanout
-} elseif ($FaucetCoinsPerSender -lt $requiredCoinFanout) {
+}
+elseif ($FaucetCoinsPerSender -lt $requiredCoinFanout) {
     throw "FaucetCoinsPerSender=$FaucetCoinsPerSender is too low for CountPerSender=$CountPerSender. Use at least $requiredCoinFanout."
 }
 

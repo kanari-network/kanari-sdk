@@ -19,8 +19,6 @@ jobs:
     timeout-minutes: 180
     env:
       RUST_BACKTRACE: "1"
-      CAMPAIGN_HOURS: ${{ github.event.inputs.campaign_hours || '1' }}
-      KANARI_SMT_PROPTEST_CASES: "256"
 
     steps:
       - name: Checkout
@@ -39,10 +37,6 @@ jobs:
           key: kanari-hardening-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             kanari-hardening-${{ runner.os }}-
-
-      - name: Run repeated BCS/RPC/object/consensus/SMT campaign
-        shell: pwsh
-        run: ./scripts/run-fuzz-campaign.ps1 -Hours ([int]$env:CAMPAIGN_HOURS) -Workers 2 -IncludeIgnoredLongRuns -SkipClippy
 
       - name: Persistent SMT and storage tests
         run: |
@@ -72,3 +66,17 @@ jobs:
             .codex-runlogs
             target/**/build
             rustsec-audit.json
+
+  fuzz-campaign:
+    name: BCS/RPC/object/consensus/SMT campaign
+    uses: ./.github/workflows/kanari-script-runner.yml
+    with:
+      script: scripts/run-fuzz-campaign.ps1
+      args_json: >-
+        ["-Hours","${{ github.event.inputs.campaign_hours || '1' }}","-Workers","2","-IncludeIgnoredLongRuns","-SkipClippy"]
+      env_json: >-
+        {"RUST_BACKTRACE":"1","KANARI_SMT_PROPTEST_CASES":"256"}
+      cache_prefix: kanari-hardening
+      timeout_minutes: 180
+      artifact_name: kanari-nightly-hardening-campaign-logs
+      artifact_path: .kanari-runlogs

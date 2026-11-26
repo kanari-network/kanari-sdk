@@ -1,3 +1,4 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
     [ValidateRange(1, 10000000)]
     [int]$Requests = 100000,
@@ -28,152 +29,75 @@ param(
     [ValidateRange(0, 100)]
     [double]$MaxEndpointImbalancePercent = 0,
 
+    [string]$KeystorePath = 'C:\Users\TaroPukpui\.kanari\kanari_config\kanari.keystore',
+
+    [string]$Password = '@Password12345678',
+
     [switch]$SkipBuild
 )
 
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
-$nodeExe = Join-Path $repoRoot 'target\release\kanari-node.exe'
-$loadScript = Join-Path $repoRoot 'scripts\run-production-rpc-load.ps1'
-$runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-$runRoot = Join-Path $repoRoot ".kanari-runlogs\four-node-rpc-load-$runId"
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
 
-New-Item -ItemType Directory -Force -Path $runRoot | Out-Null
+$envConfig = Set-KanariFourNodeEnv -KeystorePath $KeystorePath -Password $Password
+$KeystorePath = $envConfig.KeystorePath
+$Password = $envConfig.Password
+
+$repoRoot = Resolve-KanariFourNodeRoot -ScriptDirectory $PSScriptRoot
+$exePaths = Get-KanariFourNodeExePaths -RepoRoot $repoRoot
+$nodeExe = $exePaths.NodeExe
+$loadScript = Join-Path $repoRoot 'scripts\run-production-rpc-load.ps1'
+$run = New-KanariFourNodeRunRoot -RepoRoot $repoRoot -Prefix 'four-node-rpc-load'
+$runRoot = $run.RunRoot
 
 if (-not $SkipBuild) {
-    Push-Location $repoRoot
-    try {
-        cargo build -p kanari-node --release
-        cargo build -p kanari-rpc-loadgen --release
-    } finally {
-        Pop-Location
-    }
+    Invoke-KanariFourNodeBuild -RepoRoot $repoRoot -Packages @('kanari-node', 'kanari-rpc-loadgen') -LogDirectory $runRoot
 }
 
 if (-not (Test-Path $nodeExe)) {
     throw "Release kanari-node not found at $nodeExe"
 }
 
-$keysDir = Join-Path $runRoot 'consensus-keys'
-$genesis = Join-Path $runRoot 'devnet-genesis.json'
-$sourceData = Join-Path $runRoot 'node1-db'
-New-Item -ItemType Directory -Force -Path $sourceData | Out-Null
-
 Write-Host "Preparing temporary four-node devnet under $runRoot"
-$prepareLog = Join-Path $runRoot 'prepare.out.log'
-$previousErrorActionPreference = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-try {
-    & $nodeExe consensus-keygen --node-count 4 --output-dir $keysDir --force *> $prepareLog
-    $exitCode = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-}
-if ($exitCode -ne 0) {
-    Get-Content $prepareLog -Tail 80
-    throw "consensus-keygen failed with exit code $exitCode; log: $prepareLog"
-}
+$devnet = New-KanariFourNodeGenesis `
+    -NodeExe $nodeExe `
+    -RepoRoot $repoRoot `
+    -RunRoot $runRoot `
+    -PrepareLog (Join-Path $runRoot 'prepare.out.log')
+$keysDir = $devnet.KeysDir
+$genesis = $devnet.Genesis
 
-$previousErrorActionPreference = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-try {
-    & $nodeExe genesis-export --network devnet --data-dir $sourceData --output $genesis *>> $prepareLog
-    $exitCode = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-}
-if ($exitCode -ne 0) {
-    Get-Content $prepareLog -Tail 80
-    throw "genesis-export failed with exit code $exitCode; log: $prepareLog"
-}
+$peerAuthorityArg = New-KanariPeerAuthorityMap -NodeExe $nodeExe -RunRoot $runRoot
+Stop-KanariStaleFourNodeProcesses -BaseP2pPort $BaseP2pPort -BaseRpcPort $BaseRpcPort
 
-$authorities = '0x1,0x2,0x3,0x4'
 $processes = @()
-$urls = @()
+$urls = Get-KanariFourNodeUrls -BaseRpcPort $BaseRpcPort
 
 try {
     for ($i = 1; $i -le 4; $i++) {
-        $offset = ($i - 1) * 10
-        $p2pPort = $BaseP2pPort + $offset
-        $rpcPort = $BaseRpcPort + $offset
-        $dataDir = Join-Path $runRoot "node$i-db"
-        New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-
-        $nodeArgs = @(
-            'start',
-            '--network', 'devnet',
-            '--p2p-port', $p2pPort,
-            '--rpc-port', $rpcPort,
-            '--rpc-host', '127.0.0.1',
-            '--data-dir', $dataDir,
-            '--authority-id', "0x$i",
-            '--authorities', $authorities,
-            '--genesis', $genesis,
-            '--consensus-private-key-file', (Join-Path $keysDir "node$i-consensus-private-key.key"),
-            '--consensus-public-keys', (Join-Path $keysDir 'consensus-public-keys.json')
-        )
-
-        if ($i -ne 1) {
-            $nodeArgs += @('--bootstrap', "/ip4/127.0.0.1/tcp/$BaseP2pPort")
-        }
-
-        $out = Join-Path $runRoot "node$i.out.log"
-        $err = Join-Path $runRoot "node$i.err.log"
-        $processes += Start-Process `
-            -FilePath $nodeExe `
-            -ArgumentList $nodeArgs `
-            -WorkingDirectory $repoRoot `
-            -RedirectStandardOutput $out `
-            -RedirectStandardError $err `
-            -WindowStyle Hidden `
-            -PassThru
-
-        $urls += "http://127.0.0.1:$rpcPort"
+        $rpcPort = $BaseRpcPort + (($i - 1) * 10)
+        $processes += Start-KanariValidator `
+            -NodeExe $nodeExe `
+            -RepoRoot $repoRoot `
+            -RunRoot $runRoot `
+            -Index $i `
+            -BaseP2pPort $BaseP2pPort `
+            -RpcPort $rpcPort `
+            -Genesis $genesis `
+            -KeysDir $keysDir `
+            -PeerAuthorityArg $peerAuthorityArg
         Start-Sleep -Milliseconds 900
     }
 
-    $body = @{ jsonrpc = '2.0'; id = 1; method = 'kanari_health'; params = @{} } | ConvertTo-Json -Compress
-    $ready = @{}
-    for ($attempt = 1; $attempt -le 120; $attempt++) {
-        foreach ($url in $urls) {
-            if ($ready[$url]) {
-                continue
-            }
-
-            try {
-                $resp = Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 2
-                if ($resp.result) {
-                    $ready[$url] = $true
-                    Write-Host "READY $url"
-                }
-            } catch {
-            }
-        }
-
-        if ($ready.Count -eq $urls.Count) {
-            break
-        }
-
-        foreach ($process in $processes) {
-            if ($process.HasExited) {
-                throw "node process exited early pid=$($process.Id) code=$($process.ExitCode); logs: $runRoot"
-            }
-        }
-
-        Start-Sleep -Seconds 1
-    }
-
-    if ($ready.Count -ne $urls.Count) {
-        throw "only $($ready.Count)/$($urls.Count) RPC endpoints became ready; logs: $runRoot"
-    }
+    Wait-KanariRpcReady -Urls $urls -Processes $processes -RunRoot $runRoot
 
     $loadArgs = @{
-        RpcUrl = $urls
-        Requests = $Requests
+        RpcUrl      = $urls
+        Requests    = $Requests
         Concurrency = $Concurrency
-        TimeoutSec = $TimeoutSec
-        SkipBuild = $true
+        TimeoutSec  = $TimeoutSec
+        SkipBuild   = $true
     }
     if ($IncludeMalformed) {
         $loadArgs.IncludeMalformed = $true
@@ -196,15 +120,8 @@ try {
 
     & $loadScript @loadArgs
     exit $LASTEXITCODE
-} finally {
-    foreach ($process in $processes) {
-        try {
-            if (-not $process.HasExited) {
-                Stop-Process -Id $process.Id -Force
-            }
-        } catch {
-        }
-    }
-
+}
+finally {
+    Stop-KanariProcesses -Processes $processes
     Write-Host "Run artifacts: $runRoot"
 }

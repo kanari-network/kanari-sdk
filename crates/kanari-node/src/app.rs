@@ -448,6 +448,7 @@ pub async fn run_node(
     data_dir: std::path::PathBuf,
     relay_server: bool,
     bootstrap_peers: Option<Vec<String>>,
+    peer_authorities: BTreeMap<String, String>,
 ) -> Result<()> {
     engine.validate_runtime_health()?;
     let runtime_guards = engine.runtime_guard_config();
@@ -508,6 +509,7 @@ pub async fn run_node(
         network_tx.clone(),
         peer_id.clone(),
         node_indexer.as_ref().map(|idx| idx.indexer().clone()),
+        peer_authorities,
     ));
     sync_manager.clone().start().await;
 

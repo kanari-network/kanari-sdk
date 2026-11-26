@@ -45,7 +45,8 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
@@ -90,7 +91,8 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     state.apply_changeset(&deny_changes)?;
     state.commit()?;
 
-    let rt_enforced = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_enforced =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     // Denied recipient through the plain, unchecked transfer path: the
     // output policy must reject the transaction after execution.
@@ -148,7 +150,8 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     state.apply_changeset(&pause_changes)?;
     state.commit()?;
 
-    let rt_paused = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_paused =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let error = attempt_transfer(
         &rt_paused,
         &module_id,
@@ -173,7 +176,8 @@ fn denied_recipient_cannot_receive_coin_via_plain_transfer() -> Result<()> {
     state.apply_changeset(&unpause_changes)?;
     state.commit()?;
 
-    let rt_unpaused = MoveRuntime::new_with_kanari_natives_and_store(store)?;
+    let rt_unpaused =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store)?;
     let restored = attempt_transfer(
         &rt_unpaused,
         &module_id,

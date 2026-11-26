@@ -46,7 +46,11 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    // Embedded framework bytecode keeps this persistence test independent of
+    // concurrent Move package builds that may rewrite the on-disk framework
+    // artifacts while the test runs.
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     // Genesis is run by the runtime constructor; the deny-list singleton must
     // exist at the well-known id and be typed as the framework `DenyList`.
@@ -106,7 +110,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     state.commit()?;
 
     // --- contains (fresh runtime) --------------------------------------
-    let rt_read = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_read =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_eq!(
         read_contains(&rt_read, &subject)?,
         JsonValue::from(1u64),
@@ -142,7 +147,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     state.apply_changeset(&remove_changes)?;
     state.commit()?;
 
-    let rt_after_remove = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_after_remove =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_eq!(
         read_contains(&rt_after_remove, &subject)?,
         JsonValue::from(0u64),
@@ -175,7 +181,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     state.apply_changeset(&pause_changes)?;
     state.commit()?;
 
-    let rt_paused = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_paused =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_eq!(
         read_paused(&rt_paused)?,
         JsonValue::from(1u64),
@@ -199,7 +206,8 @@ fn deny_list_singleton_persists_across_runtime_instances() -> Result<()> {
     state.apply_changeset(&unpause_changes)?;
     state.commit()?;
 
-    let rt_unpaused = MoveRuntime::new_with_kanari_natives_and_store(store)?;
+    let rt_unpaused =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store)?;
     assert_eq!(
         read_paused(&rt_unpaused)?,
         JsonValue::from(0u64),

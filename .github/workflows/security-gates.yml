@@ -109,99 +109,36 @@ jobs:
 
   four-node-chaos:
     name: Four-node RPC chaos
-    runs-on: windows-latest
     if: github.event_name == 'workflow_dispatch' && inputs.run_chaos == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-chaos-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build chaos binaries
-        shell: pwsh
-        run: |
-          cargo build -p kanari-node --release
-          cargo build -p kanari-rpc-loadgen --release
-
-      - name: Run four-node chaos gate
-        shell: pwsh
-        run: |
-          .\scripts\run-local-four-node-chaos.ps1 `
-            -Requests 500 `
-            -Concurrency 32 `
-            -TimeoutSec 5 `
-            -MinRps 1 `
-            -MaxP99Ms 5000 `
-            -MaxEndpointImbalancePercent 10 `
-            -SkipBuild
+    uses: ./.github/workflows/kanari-script-runner.yml
+    with:
+      script: scripts/run-local-four-node-chaos.ps1
+      args_json: >-
+        ["-Requests","500","-Concurrency","32","-TimeoutSec","5","-MinRps","1","-MaxP99Ms","5000","-MaxEndpointImbalancePercent","10","-SkipBuild"]
+      build_packages_json: '["kanari-node","kanari-rpc-loadgen"]'
+      cache_prefix: chaos-cargo
+      runs_on: windows-latest
+      timeout_minutes: 120
 
   fuzz-campaign:
     name: Fuzz / conflict campaign
-    runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && inputs.run_fuzz_campaign == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-fuzz-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run bounded fuzz/conflict campaign
-        shell: pwsh
-        run: |
-          .\scripts\run-fuzz-campaign.ps1 `
-            -Hours 1 `
-            -Workers 1 `
-            -IncludeIgnoredLongRuns
+    uses: ./.github/workflows/kanari-script-runner.yml
+    with:
+      script: scripts/run-fuzz-campaign.ps1
+      args_json: >-
+        ["-Hours","1","-Workers","1","-IncludeIgnoredLongRuns"]
+      cache_prefix: fuzz-cargo
+      timeout_minutes: 120
 
   crypto-fuzz-campaign:
     name: Kanari crypto fuzz / dependency campaign
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_crypto_fuzz_campaign == 'true')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/advisory-db
-            target
-          key: ${{ runner.os }}-crypto-fuzz-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run kanari-crypto long fuzz/dependency campaign
-        shell: pwsh
-        run: |
-          .\scripts\run-crypto-fuzz-campaign.ps1 `
-            -Hours 4 `
-            -Cases 8192 `
-            -Workers 1
+    uses: ./.github/workflows/kanari-script-runner.yml
+    with:
+      script: scripts/run-crypto-fuzz-campaign.ps1
+      args_json: >-
+        ["-Hours","4","-Cases","8192","-Workers","1"]
+      install_cargo_audit: true
+      cache_prefix: crypto-fuzz-cargo
+      timeout_minutes: 360

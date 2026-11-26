@@ -15,6 +15,14 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  workspace-tests:
+    name: Full workspace tests
+    uses: ./.github/workflows/kanari-script-runner.yml
+    with:
+      run_workspace_tests: true
+      cache_prefix: pr-gates-workspace-cargo
+      timeout_minutes: 180
+
   rust-gates:
     name: Rust fmt/clippy/tests
     runs-on: ubuntu-latest

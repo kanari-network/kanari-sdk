@@ -267,6 +267,9 @@ impl BlockchainEngine {
         let workers = Self::runtime_worker_count();
         let mut runtime_pool = Vec::new();
 
+        // Persistent nodes intentionally load framework bytecode from disk so
+        // on-disk framework upgrades take effect. Only in-memory engines use
+        // the embedded snapshot; tests use that snapshot too for determinism.
         let base_runtime = match if persistent_store.is_some() {
             MoveRuntime::new_with_kanari_natives_and_store(shared_runtime_store)
         } else {

@@ -21,7 +21,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $duration = if ($Minutes -gt 0) {
     [TimeSpan]::FromMinutes($Minutes)
-} else {
+}
+else {
     [TimeSpan]::FromHours($Hours)
 }
 $deadline = (Get-Date).Add($duration)
@@ -52,10 +53,12 @@ try {
         cargo test -p kanari-crypto --all-features --test signatures_test -- --test-threads=$Workers
         cargo test -p kanari-crypto --all-features --test compatibility_test -- --test-threads=$Workers
     }
-} finally {
+}
+finally {
     if ($null -eq $previousCases) {
         Remove-Item Env:\KANARI_CRYPTO_PROPTEST_CASES -ErrorAction SilentlyContinue
-    } else {
+    }
+    else {
         $env:KANARI_CRYPTO_PROPTEST_CASES = $previousCases
     }
     Pop-Location

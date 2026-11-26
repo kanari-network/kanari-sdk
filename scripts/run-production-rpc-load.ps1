@@ -37,6 +37,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $loadgen = Join-Path $repoRoot 'target\release\kanari-rpc-loadgen.exe'
 
@@ -47,47 +49,54 @@ Write-Host "  malformed=$IncludeMalformed oversized=$IncludeOversized fail_on_ra
 Write-Host "  gates min_rps=$MinRps max_p99_ms=$MaxP99Ms max_client_rejected_percent=$MaxClientRejectedPercent max_endpoint_imbalance_percent=$MaxEndpointImbalancePercent"
 
 if (-not $SkipBuild) {
-    Push-Location $repoRoot
-    try {
-        cargo build -p kanari-rpc-loadgen --release
-    } finally {
-        Pop-Location
-    }
+    Invoke-KanariFourNodeBuild `
+        -RepoRoot $repoRoot `
+        -Packages @('kanari-rpc-loadgen') `
+        -LogDirectory (Join-Path $repoRoot '.kanari-runlogs\rpc-loadgen-build')
 }
 
 if (-not (Test-Path $loadgen)) {
     throw "Release load generator not found at $loadgen. Run cargo build -p kanari-rpc-loadgen --release first."
 }
 
-$args = @()
+$loadArgs = @()
 foreach ($url in $RpcUrl) {
-    $args += @('--rpc-url', $url)
+    $loadArgs += @('--rpc-url', $url)
 }
-$args += @('--requests', $Requests)
-$args += @('--concurrency', $Concurrency)
-$args += @('--timeout-secs', $TimeoutSec)
+$loadArgs += @('--requests', $Requests)
+$loadArgs += @('--concurrency', $Concurrency)
+$loadArgs += @('--timeout-secs', $TimeoutSec)
 
 if ($IncludeMalformed) {
-    $args += @('--malformed-every', 17)
+    $loadArgs += @('--malformed-every', 17)
 }
 if ($IncludeOversized) {
-    $args += @('--oversized-every', 23, '--oversized-bytes', $OversizedBytes)
+    $loadArgs += @('--oversized-every', 23, '--oversized-bytes', $OversizedBytes)
 }
 if ($FailOnRateLimit) {
-    $args += '--fail-on-rate-limit'
+    $loadArgs += '--fail-on-rate-limit'
 }
 if ($MinRps -gt 0) {
-    $args += @('--min-rps', $MinRps)
+    $loadArgs += @('--min-rps', $MinRps)
 }
 if ($MaxP99Ms -gt 0) {
-    $args += @('--max-p99-ms', $MaxP99Ms)
+    $loadArgs += @('--max-p99-ms', $MaxP99Ms)
 }
 if ($MaxClientRejectedPercent -gt 0) {
-    $args += @('--max-client-rejected-percent', $MaxClientRejectedPercent)
+    $loadArgs += @('--max-client-rejected-percent', $MaxClientRejectedPercent)
 }
 if ($MaxEndpointImbalancePercent -gt 0) {
-    $args += @('--max-endpoint-imbalance-percent', $MaxEndpointImbalancePercent)
+    $loadArgs += @('--max-endpoint-imbalance-percent', $MaxEndpointImbalancePercent)
 }
 
-& $loadgen @args
-exit $LASTEXITCODE
+$loadLogRoot = Join-Path $repoRoot '.kanari-runlogs\rpc-loadgen'
+New-Item -ItemType Directory -Force -Path $loadLogRoot | Out-Null
+$loadProcess = Start-KanariLoggedProcess -Launch @{
+    FilePath               = $loadgen
+    ArgumentList           = $loadArgs
+    WorkingDirectory       = $repoRoot
+    RedirectStandardOutput = (Join-Path $loadLogRoot 'loadgen.out.log')
+    RedirectStandardError  = (Join-Path $loadLogRoot 'loadgen.err.log')
+    Wait                   = $true
+}
+exit [int]$loadProcess.ExitCode

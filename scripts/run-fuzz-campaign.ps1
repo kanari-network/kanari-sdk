@@ -23,7 +23,7 @@ Push-Location $repoRoot
 try {
     if (-not $SkipClippy) {
         cargo clippy `
-            -p kanari-move-runtime-v1 `
+            -p kanari-move-runtime-v2 `
             -p kanari-core `
             -p kanari-node `
             -p kanari-rpc-server `
@@ -35,8 +35,8 @@ try {
         $iteration += 1
         Write-Host "[$(Get-Date -Format o)] fuzz iteration $iteration"
 
-        cargo test -p kanari-move-runtime-v1 scheduler -- --test-threads=$Workers
-        cargo test -p kanari-move-runtime-v1 changeset -- --test-threads=$Workers
+        cargo test -p kanari-move-runtime-v2 scheduler -- --test-threads=$Workers
+        cargo test -p kanari-move-runtime-v2 changeset -- --test-threads=$Workers
         cargo test -p kanari-core produce_dag_vertex -- --test-threads=$Workers
         cargo test -p kanari-core conflicting_speculative_wave_replays_to_strict_serial_root -- --test-threads=1
         cargo test -p kanari-node arbitrary_compressed_input_never_panics -- --test-threads=$Workers
@@ -45,8 +45,8 @@ try {
         # BCS/RPC/object policy/consensus cannot silently reduce coverage.
         cargo test -p kanari-rpc-server rpc_adversarial_inputs_are_rejected_without_server_error -- --test-threads=$Workers
         cargo test -p kanari-rpc-server object_input -- --test-threads=$Workers
-        cargo test -p kanari-move-runtime-v1 object_input -- --test-threads=$Workers
-        cargo test -p kanari-move-runtime-v1 gas_object -- --test-threads=$Workers
+        cargo test -p kanari-move-runtime-v2 object_input -- --test-threads=$Workers
+        cargo test -p kanari-move-runtime-v2 gas_object -- --test-threads=$Workers
         cargo test -p smt --all-targets -- --test-threads=$Workers
 
         if ($IncludeIgnoredLongRuns) {
@@ -54,7 +54,8 @@ try {
             cargo test -p kanari-core long_run_byzantine_native_blocks_cannot_advance_checkpoint -- --ignored --test-threads=$Workers
         }
     }
-} finally {
+}
+finally {
     Pop-Location
 }
 

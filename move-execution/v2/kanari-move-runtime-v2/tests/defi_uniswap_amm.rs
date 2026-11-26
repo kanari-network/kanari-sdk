@@ -51,7 +51,8 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
     let mut nonce = Nonce::default();
     let _state = kanari_move_runtime_v2::state::StateManager::new(store.clone());
-    let writer = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let writer =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
 
     let _ = writer
         .publish_module(module_bytes, sender, None, None)
@@ -106,7 +107,8 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     );
 
     // A fresh runtime instance reads the persisted pool.
-    let reader = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let reader =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let reserves = reserves_view(&reader, &pool_id)?;
     assert_eq!(reserves, json!([USD_INITIAL, KAN_INITIAL]));
     let lp = lp_view(&reader, &pool_id)?;
@@ -148,7 +150,8 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     let k_after = usd_after as u128 * kan_after as u128;
     assert!(k_after >= k_before, "collected fees must not shrink the x * k invariant");
 
-    let reader2 = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let reader2 =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     assert_eq!(
         reserves_view(&reader2, &pool_id)?,
         json!([usd_after, kan_after]),
@@ -213,7 +216,8 @@ fn uniswap_like_amm_full_cycle() -> Result<()> {
     assert_eq!(event_u64(remove_data, 48), kan_after);
 
     // Final fresh instance observes the drained pool.
-    let final_reader = MoveRuntime::new_with_kanari_natives_and_store(store)?;
+    let final_reader =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store)?;
     assert_eq!(reserves_view(&final_reader, &pool_id)?, json!([0, 0]));
     assert_eq!(lp_view(&final_reader, &pool_id)?, JsonValue::from(0u64));
 

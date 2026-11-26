@@ -89,6 +89,10 @@ See [Move CLI Guide](crates/kanari/MOVE_CLI_GUIDE.md) for additional commands.
 
 ## Run Four Local Nodes
 
+For the complete index and run commands for every automation script in
+`scripts/` (local devnets, load, chaos, benchmarks, security campaigns,
+probes, and the rejoin test), see [Scripts Usage Guide](scripts/README.md).
+
 The local scripts are in `crates/kanari-node`.
 
 ```powershell
@@ -105,12 +109,12 @@ After the first clean setup, restart without reset flags to preserve state:
 
 Default RPC ports:
 
-| Node | Authority | RPC |
-|---|---|---|
-| 1 | `0x1` | `19001` |
-| 2 | `0x2` | `19011` |
-| 3 | `0x3` | `19021` |
-| 4 | `0x4` | `19031` |
+| Node | Authority | RPC     |
+| ---- | --------- | ------- |
+| 1    | `0x1`     | `19001` |
+| 2    | `0x2`     | `19011` |
+| 3    | `0x3`     | `19021` |
+| 4    | `0x4`     | `19031` |
 
 Every validator requires a unique consensus private key and the shared authority
 public-key map. The setup script generates local development keys when required.

@@ -111,35 +111,38 @@ exceptions = [
     { allow = [
         "MPL-2.0",
     ], crate = "sized-chunks@0.6.5" },
-    # Build-time FFI scaffolding pulled in via flutter_rust_bridge,
-    # file-level copyleft only.
+    # Build-time and generated FFI scaffolding pulled in via
+    # flutter_rust_bridge, file-level copyleft only.
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi@0.32.2" },
+    ], crate = "uniffi@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_bindgen@0.32.2" },
+    ], crate = "uniffi_bindgen@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_build@0.32.2" },
+    ], crate = "uniffi_build@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_core@0.32.2" },
+    ], crate = "uniffi_core@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_internal_macros@0.32.2" },
+    ], crate = "uniffi_internal_macros@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_macros@0.32.2" },
+    ], crate = "uniffi_macros@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_meta@0.32.2" },
+    ], crate = "uniffi_meta@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_pipeline@0.32.2" },
+    ], crate = "uniffi_parse_rs@0.33.0" },
     { allow = [
         "MPL-2.0",
-    ], crate = "uniffi_udl@0.32.2" },
+    ], crate = "uniffi_pipeline@0.33.0" },
+    { allow = [
+        "MPL-2.0",
+    ], crate = "uniffi_udl@0.33.0" },
     # Mozilla CA bundle data only, no executable code under CDLA.
     { allow = [
         "CDLA-Permissive-2.0",

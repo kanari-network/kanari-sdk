@@ -30,6 +30,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
+
 $env:KANARI_KEYSTORE_PATH = $KeystorePath
 $password = $env:KANARI_LOAD_PASSWORD
 if ([string]::IsNullOrWhiteSpace($password)) {
@@ -41,7 +44,7 @@ $arguments = @(
     'stress-test',
     '--from', $Sender,
     '--to', $Recipient,
-    '--amount', $Amount,
+    '--amount', (Format-KanariAmount -Amount $Amount),
     '--count', $Count,
     '--commit-timeout-sec', $CommitTimeoutSec,
     '--rpc', $Rpc,

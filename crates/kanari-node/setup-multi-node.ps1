@@ -17,7 +17,9 @@ param(
     [switch]$DisableFailFast,
     [switch]$SkipHealthCheck,
     [string]$ConsensusKeyDir = "$env:USERPROFILE\.kanari\consensus-keys",
-    [switch]$ResetConsensusKeys
+    [switch]$ResetConsensusKeys,
+    [string]$PeerAuthority = "",
+    [string]$PeerAuthorityFile = ""
 )
 
 . (Join-Path $PSScriptRoot 'node-script-common.ps1')
@@ -34,6 +36,17 @@ function Test-DirectoryHasEntries {
     }
 
     return $null -ne (Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
+}
+
+function Get-SetupNodeDataDir {
+    param(
+        [int]$NodeId
+    )
+
+    if ($NodeId -eq 1) {
+        return $SourceNodeDataDir
+    }
+    return Get-NodeDataDir -NodeId $NodeId -DataDir "" -BaseDataDir $ReplicaBaseDataDir
 }
 
 function Assert-SafeResetPath {
@@ -82,6 +95,7 @@ Write-Host "RPC bind host: $RpcHost" -ForegroundColor Cyan
 Write-Host "Supply fail-fast: $($env:KANARI_FAIL_FAST_ON_SUPPLY_MISMATCH)" -ForegroundColor Cyan
 Write-Host "Allow reuse existing data: $AllowReuseData" -ForegroundColor Cyan
 Write-Host "Consensus key dir: $ConsensusKeyDir" -ForegroundColor Cyan
+Write-Host "Peer-authority mapping: $(if ($PeerAuthority) { $PeerAuthority } elseif ($PeerAuthorityFile) { $PeerAuthorityFile } else { 'auto from node identities' })" -ForegroundColor Cyan
 Write-Host "Genesis manifest: $genesisPath" -ForegroundColor Cyan
 if (-not [string]::IsNullOrWhiteSpace($SnapshotPath)) {
     Write-Host "State snapshot: $SnapshotPath" -ForegroundColor Cyan
@@ -233,6 +247,40 @@ if (-not $localIp) {
 $bootstrapHost = if ($localIp) { $localIp } else { "127.0.0.1" }
 $rpcConnectHost = Get-RpcConnectHost -RpcHost $RpcHost -LanIp $localIp
 
+$peerAuthorityToUse = $PeerAuthority
+$peerAuthorityFileToUse = ""
+if (-not [string]::IsNullOrWhiteSpace($PeerAuthorityFile)) {
+    if (-not (Test-Path $PeerAuthorityFile)) {
+        Write-Host "Error: peer authority file not found: $PeerAuthorityFile" -ForegroundColor Red
+        exit 1
+    }
+    $peerAuthorityFileToUse = (Resolve-Path $PeerAuthorityFile).Path
+}
+
+if ([string]::IsNullOrWhiteSpace($peerAuthorityToUse) -and $peerAuthorityFileToUse -eq "") {
+    $mappedPeers = @()
+    for ($i = 1; $i -le $NodeCount; $i++) {
+        $nodeDataDir = Get-SetupNodeDataDir -NodeId $i
+        if (-not (Test-Path $nodeDataDir)) {
+            New-Item -ItemType Directory -Path $nodeDataDir -Force | Out-Null
+        }
+        $peerOutput = (& $exePath p2p-peer-id --network $Network --data-dir $nodeDataDir 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to read libp2p peer ID for node $i from $nodeDataDir" -ForegroundColor Red
+            Write-Host $peerOutput -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
+        $peerMatch = [regex]::Match($peerOutput, '12D3Koo[A-Za-z0-9]+')
+        if (-not $peerMatch.Success) {
+            Write-Host "Could not parse libp2p peer ID for node $i from: $peerOutput" -ForegroundColor Red
+            exit 1
+        }
+        $mappedPeers += "$($peerMatch.Value)=0x$i"
+        Write-Host "Node $i peer authority: $($mappedPeers[-1])" -ForegroundColor Yellow
+    }
+    $peerAuthorityToUse = $mappedPeers -join ','
+}
+
 Write-Host ""
 $startNow = Read-Host "Start all $NodeCount nodes now with node1 as source? (Y/N)"
 if ($startNow -notmatch '^[Yy]') {
@@ -242,6 +290,13 @@ if ($startNow -notmatch '^[Yy]') {
 
 $scriptPath = Join-Path $PSScriptRoot 'start-node.ps1'
 $currentPS = (Get-Process -Id $PID).Path
+$peerAuthorityCli = ""
+if (-not [string]::IsNullOrWhiteSpace($peerAuthorityToUse)) {
+    $peerAuthorityCli = " -PeerAuthority `"$peerAuthorityToUse`""
+}
+if ($peerAuthorityFileToUse -ne "") {
+    $peerAuthorityCli += " -PeerAuthorityFile `"$peerAuthorityFileToUse`""
+}
 
 for ($i = 1; $i -le $NodeCount; $i++) {
     $ports = Get-NodePorts -NodeId $i -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort
@@ -250,11 +305,11 @@ for ($i = 1; $i -le $NodeCount; $i++) {
 
     if ($i -eq 1) {
         $dataDir = $SourceNodeDataDir
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`"$peerAuthorityCli"
     } else {
         $dataDir = Get-NodeDataDir -NodeId $i -DataDir "" -BaseDataDir $ReplicaBaseDataDir
         $bootstrapAddr = "/ip4/$bootstrapHost/tcp/$BasePeerPort"
-        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`""
+        $argString = "-NoExit -ExecutionPolicy Bypass -File `"$scriptPath`" -NodeId $i -Network $Network -DataDir `"$dataDir`" -BasePeerPort $BasePeerPort -BaseRpcPort $BaseRpcPort -RpcHost `"$RpcHost`" -Authorities `"$authoritiesStr`" -Bootstrap `"$bootstrapAddr`" -GenesisPath `"$genesisPath`" -ConsensusKeyDir `"$ConsensusKeyDir`"$peerAuthorityCli"
     }
 
     Write-Host "Launching node $i | Authority 0x$i | P2P $nodeP2pPort | RPC $RpcHost`:$nodeRpcPort | DataDir $dataDir" -ForegroundColor Cyan

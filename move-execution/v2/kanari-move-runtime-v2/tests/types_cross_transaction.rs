@@ -41,7 +41,8 @@ fn witness_claims_persist_across_runtime_instances() -> Result<()> {
     let store = Arc::new(PersistentStore::open_in_memory()?);
 
     let mut state = StateManager::new(store.clone());
-    let runtime = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let runtime =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let _ = runtime
         .publish_module(module_bytes, *module_id.address(), None, None)
         .context("publish types_e2e module")?;
@@ -73,7 +74,8 @@ fn witness_claims_persist_across_runtime_instances() -> Result<()> {
     state.commit()?;
 
     // --- second claim from a fresh runtime aborts via durable state ---------
-    let rt_claimed = MoveRuntime::new_with_kanari_natives_and_store(store.clone())?;
+    let rt_claimed =
+        MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store.clone())?;
     let reclaim_err = call_entry(&rt_claimed, &module_id, "claim_otw")
         .err()
         .context("re-claiming after a fresh boot should abort")?;
@@ -89,7 +91,7 @@ fn witness_claims_persist_across_runtime_instances() -> Result<()> {
     state.commit()?;
 
     // --- ... and stays claimed across runtimes too ---------------------------
-    let rt_other = MoveRuntime::new_with_kanari_natives_and_store(store)?;
+    let rt_other = MoveRuntime::new_with_kanari_natives_and_store_with_embedded_frameworks(store)?;
     let reother_err = call_entry(&rt_other, &module_id, "claim_other")
         .err()
         .context("re-claiming OTHER after a fresh boot should abort")?;

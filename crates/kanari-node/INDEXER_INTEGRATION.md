@@ -46,8 +46,9 @@ The indexer is passed to the `SyncManager` during initialization:
 let sync_manager = Arc::new(SyncManager::new(
     engine.clone(),
     network_tx.clone(),
-    indexer.clone(),  // Optional Arc<Mutex<Indexer>>
     peer_id.clone(),
+    indexer.clone(),  // Optional Arc<Mutex<Indexer>>
+    peer_authorities, // libp2p PeerId -> consensus authority ID (admission only)
 ));
 ```
 

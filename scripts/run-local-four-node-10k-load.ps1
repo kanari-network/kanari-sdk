@@ -1,4 +1,12 @@
+﻿[System.Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password', Justification = 'Password is required by the kanari CLI --password argument; kept as a string only at the process boundary.')]
 param(
+    [string[]]$Senders = @(
+        '0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146',
+        '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350'
+    ),
+
+    [string]$Recipient = '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350',
+
     [ValidateRange(1, 1000000)]
     [int]$CountPerSender = 5000,
 
@@ -38,7 +46,7 @@ param(
     [int]$CrashDuringLoadFirstDelaySec = 10,
 
     [ValidateRange(1, 3600)]
-    [int]$CrashDuringLoadRestartDelaySec = 0,
+    [int]$CrashDuringLoadRestartDelaySec = 1,
 
     [ValidateRange(0, 20)]
     [int]$RecoveryAuditRounds = 0,
@@ -65,6 +73,8 @@ param(
 
     [string]$KeystorePath = 'C:\Users\TaroPukpui\.kanari\kanari_config\kanari.keystore',
 
+    [string]$Password = $env:KANARI_LOAD_PASSWORD,
+
     [ValidateSet('release', 'debug')]
     [string]$BuildProfile = 'release',
 
@@ -73,18 +83,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ([string]::IsNullOrWhiteSpace($env:KANARI_LOAD_PASSWORD)) {
-    throw 'KANARI_LOAD_PASSWORD must be set before starting the load run.'
-}
+. (Join-Path $PSScriptRoot 'lib\four-node-common.ps1')
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$envConfig = Set-KanariFourNodeEnv -KeystorePath $KeystorePath -Password $Password
+$KeystorePath = $envConfig.KeystorePath
+$Password = $envConfig.Password
+
+$repoRoot = Resolve-KanariFourNodeRoot -ScriptDirectory $PSScriptRoot
 $loadScript = Join-Path $repoRoot 'scripts\run-local-four-node-parallel-tx-chaos.ps1'
 
 & $loadScript `
-    -Senders '0x3ba63b92aac5f2bff87e580e820b61faf1c5fe9ae12f0bc8addd931a340b3146,0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350' `
-    -Recipient '0x7e669cf309e9761beb2083d12564895ccea1389f2851a479edcc0d1ad19e4350' `
+    -Senders $Senders `
+    -Recipient $Recipient `
     -SelfRecipient:$SelfRecipient `
-    -Password $env:KANARI_LOAD_PASSWORD `
+    -Password $Password `
     -KeystorePath $KeystorePath `
     -TempWalletCount $TempWalletCount `
     -FundSenders `
