@@ -1,5 +1,10 @@
 # kanari-move-runtime-v1
 
+> **Retired / disconnected.** This crate has been removed from the workspace
+> members and lockfile. It is no longer built, tested, or released. The source
+> is kept for reference only; production uses
+> `move-execution/v2/kanari-move-runtime-v2`.
+
 `kanari-move-runtime-v1` is Kanari's Move VM execution and canonical-state boundary. It executes Move transactions, collects typed effects, validates object/gas/supply rules, and applies accepted changes to an overlay, incremental SMT root, indexes, and persistent storage.
 
 This README describes the current implementation. For deeper diagrams and object details see:

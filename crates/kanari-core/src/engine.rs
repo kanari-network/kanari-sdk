@@ -2160,38 +2160,34 @@ impl BlockchainEngine {
         )
     }
 
-    fn can_trust_owned_native_conflict_keys(
+    /// Transaction-level owned-conflict validation. Owned-fastpath snapshots
+    /// were already filtered and key-disjoint when selected, so re-deriving the
+    /// same keys here would only repeat work. Other callers get the full check.
+    fn owned_conflict_keys_are_disjoint(
         transactions: &[SignedTransaction],
-        changesets: &[ChangeSet],
         selection_already_validated: bool,
     ) -> bool {
-        if transactions.len() != changesets.len() {
+        if selection_already_validated {
+            return true;
+        }
+        if transactions.iter().any(|tx| !Self::is_owned_fast_path_eligible(tx)) {
             return false;
         }
 
-        // Owned-fastpath snapshots are built from the mempool's precomputed
-        // conflict keys, so re-deriving them here would only repeat the same
-        // deterministic check. Other callers still get the full validation.
-        if !selection_already_validated {
-            let mut reserved_keys = HashSet::new();
-            for signed_tx in transactions {
-                if !Self::is_owned_fast_path_eligible(signed_tx) {
-                    return false;
-                }
+        let mut reserved_keys = HashSet::new();
+        transactions.iter().all(|signed_tx| {
+            let mut conflict_keys = signed_tx.transaction.get_conflict_keys();
+            conflict_keys.sort();
+            conflict_keys.dedup();
+            !conflict_keys.is_empty()
+                && conflict_keys.iter().all(|key| reserved_keys.insert(key.clone()))
+        })
+    }
 
-                let mut conflict_keys = signed_tx.transaction.get_conflict_keys();
-                conflict_keys.sort();
-                conflict_keys.dedup();
-                if conflict_keys.is_empty()
-                    || conflict_keys
-                        .iter()
-                        .any(|conflict_key| !reserved_keys.insert(conflict_key.clone()))
-                {
-                    return false;
-                }
-            }
-        }
-
+    /// Narrow shape handled by the native burn/transfer fast apply. Anything
+    /// outside this shape still uses the generic owned-object apply below; it
+    /// no longer forces a serial execution fallback by itself.
+    fn is_native_owned_fast_apply_shape(changesets: &[ChangeSet]) -> bool {
         changesets.iter().all(|changeset| {
             changeset.success
                 && changeset.events.is_empty()
@@ -2206,6 +2202,25 @@ impl BlockchainEngine {
                 && changeset.move_writes.is_empty()
                 && changeset.resolver_reads.is_empty()
         })
+    }
+
+    /// Exact conservative conflict check over precomputed change manifests.
+    fn access_sets_conflict(access_sets: &[StateAccessSet]) -> bool {
+        let mut reserved_reads = BTreeSet::new();
+        let mut reserved_writes = BTreeSet::new();
+        for access in access_sets {
+            let conflict = access
+                .writes
+                .iter()
+                .any(|key| reserved_reads.contains(key) || reserved_writes.contains(key))
+                || access.reads.iter().any(|key| reserved_writes.contains(key));
+            if conflict {
+                return true;
+            }
+            reserved_reads.extend(access.reads.iter().cloned());
+            reserved_writes.extend(access.writes.iter().cloned());
+        }
+        false
     }
 
     fn dependency_apply_batch_cap() -> usize {
@@ -2226,7 +2241,10 @@ impl BlockchainEngine {
         target.writes.extend(source.writes.iter().cloned());
     }
 
-    fn schedule_dependency_aware_apply_batches(changesets: &[ChangeSet]) -> Vec<Vec<usize>> {
+    fn schedule_dependency_aware_apply_batches(
+        changesets: &[ChangeSet],
+        precomputed_access_sets: Option<&[StateAccessSet]>,
+    ) -> Vec<Vec<usize>> {
         if changesets.is_empty() {
             return Vec::new();
         }
@@ -2239,8 +2257,21 @@ impl BlockchainEngine {
         let mut current = Vec::with_capacity(batch_cap.min(changesets.len()));
         let mut current_access = StateAccessSet::default();
 
-        for (index, changeset) in changesets.iter().enumerate() {
-            let access = changeset.deterministic_access_set();
+        // Reuse manifests already derived for conflict validation on the owned
+        // fast path; other callers derive the whole batch once, with the shared
+        // dynamic-field fence already propagated.
+        let computed_sets;
+        let access_sets = match precomputed_access_sets {
+            Some(sets) => sets,
+            None => {
+                computed_sets =
+                    kanari_move_runtime_v2::changeset::deterministic_access_sets(changesets.iter());
+                &computed_sets
+            }
+        };
+
+        for (index, _) in changesets.iter().enumerate() {
+            let access = &access_sets[index];
             let batch_full = current.len() >= batch_cap;
             let has_dependency = !current.is_empty() && access.conflicts_with(&current_access);
             if !current.is_empty() && (batch_full || has_dependency) {
@@ -2248,7 +2279,7 @@ impl BlockchainEngine {
                 current_access = StateAccessSet::default();
             }
 
-            Self::extend_access_set(&mut current_access, &access);
+            Self::extend_access_set(&mut current_access, access);
             current.push(index);
         }
 
@@ -2289,10 +2320,12 @@ impl BlockchainEngine {
     fn apply_dependency_aware_changesets_without_supply_validation(
         state: &mut StateManager,
         changesets: &mut [ChangeSet],
+        precomputed_access_sets: Option<&[StateAccessSet]>,
     ) -> Result<(usize, usize)> {
         let profile = Self::env_flag_enabled("KANARI_DEPENDENCY_APPLY_PROFILE");
         let started_at = std::time::Instant::now();
-        let batches = Self::schedule_dependency_aware_apply_batches(changesets);
+        let batches =
+            Self::schedule_dependency_aware_apply_batches(changesets, precomputed_access_sets);
         let scheduled_at = std::time::Instant::now();
         let batch_count = batches.len();
         for batch in &batches {
@@ -2376,33 +2409,38 @@ impl BlockchainEngine {
             .into_iter()
             .collect::<Result<Vec<_>>>()
             .context("Failed to collect conflict-free execution results")?;
-        let trusted_owned_native_conflict_keys = Self::can_trust_owned_native_conflict_keys(
-            transactions,
-            &changesets,
-            selection_already_validated,
-        );
-        if !trusted_owned_native_conflict_keys {
-            let mut reserved_reads = BTreeSet::new();
-            let mut reserved_writes = BTreeSet::new();
-            for changeset in &changesets {
-                let access_set = changeset.deterministic_access_set();
-                let has_conflict = access_set
-                    .writes
-                    .iter()
-                    .any(|key| reserved_reads.contains(key) || reserved_writes.contains(key))
-                    || access_set.reads.iter().any(|key| reserved_writes.contains(key));
-                if has_conflict {
-                    return self.execute_tx_waves_deterministic_parallel_with_effects(
-                        transactions.to_vec(),
-                        state_arc,
-                        timestamp,
-                        persist_objects,
-                    );
-                }
-                reserved_reads.extend(access_set.reads);
-                reserved_writes.extend(access_set.writes);
+        let conflict_keys_ok = transactions.len() == changesets.len()
+            && Self::owned_conflict_keys_are_disjoint(transactions, selection_already_validated);
+        let native_fast_apply =
+            conflict_keys_ok && Self::is_native_owned_fast_apply_shape(&changesets);
+
+        // Native burn/transfer batches have a dedicated apply path and do not
+        // need change manifests. Every other owned-object shape still stays on
+        // the parallel path: derive its manifest once, require it to be
+        // conflict-free, and hand the same manifest to the apply scheduler.
+        let access_sets = if native_fast_apply {
+            None
+        } else {
+            if !conflict_keys_ok || changesets.iter().any(|cs| !cs.shared_inputs.is_empty()) {
+                return self.execute_tx_waves_deterministic_parallel_with_effects(
+                    transactions.to_vec(),
+                    state_arc,
+                    timestamp,
+                    persist_objects,
+                );
             }
-        }
+            let sets =
+                kanari_move_runtime_v2::changeset::deterministic_access_sets(changesets.iter());
+            if Self::access_sets_conflict(&sets) {
+                return self.execute_tx_waves_deterministic_parallel_with_effects(
+                    transactions.to_vec(),
+                    state_arc,
+                    timestamp,
+                    persist_objects,
+                );
+            }
+            Some(sets)
+        };
         let access_checked_at = std::time::Instant::now();
 
         let mut state_write = state_arc.write().unwrap_or_else(|poisoned| {
@@ -2421,7 +2459,7 @@ impl BlockchainEngine {
         let apply_started_at = std::time::Instant::now();
         let mut candidate = state_write.clone();
         let candidate_cloned_at = std::time::Instant::now();
-        let apply_result = if trusted_owned_native_conflict_keys {
+        let apply_result = if native_fast_apply {
             match candidate.try_apply_owned_native_burn_batch_without_supply_validation(&changesets)
             {
                 Ok(true) => Ok((usize::from(!changesets.is_empty()), changesets.len())),
@@ -2435,14 +2473,15 @@ impl BlockchainEngine {
             Self::apply_dependency_aware_changesets_without_supply_validation(
                 &mut candidate,
                 &mut changesets,
+                access_sets.as_deref(),
             )
         };
         let merged_applied_at = std::time::Instant::now();
         let apply_batches = apply_result.as_ref().map(|(batches, _)| *batches).unwrap_or(0);
-        let validate_result = if trusted_owned_native_conflict_keys {
-            // Owned-fastpath conflict-free batches are pre-validated and applied
-            // without supply validation; checkpoint finalize/audit provides strict
-            // canonical safety. Keep expensive per-batch scans opt-in for debug.
+        let validate_result = if native_fast_apply {
+            // Native owned batches are pre-validated and applied without supply
+            // validation; checkpoint finalize/audit provides strict canonical
+            // safety. Keep expensive per-batch scans opt-in for debug.
             let validate_owned_fastpath =
                 Self::env_flag_enabled("KANARI_VALIDATE_OWNED_FASTPATH_SUPPLY");
             if validate_owned_fastpath {
@@ -2455,6 +2494,8 @@ impl BlockchainEngine {
                 apply_result.map(|_| ())
             }
         } else {
+            // General owned objects keep the full canonical supply comparison;
+            // only the redundant manifest/serial-execution work was removed.
             apply_result
                 .map(|_| ())
                 .and_then(|_| candidate.repair_legacy_native_wallet_overcount())
@@ -2697,18 +2738,16 @@ impl BlockchainEngine {
             let results_at = std::time::Instant::now();
             result_secs += results_at.duration_since(wave_started_at).as_secs_f64();
 
-            let access_sets = results
-                .iter()
-                .map(|result| result.as_ref().ok().map(ChangeSet::deterministic_access_set))
-                .collect::<Vec<_>>();
+            let ok_changesets =
+                results.iter().filter_map(|result| result.as_ref().ok()).collect::<Vec<_>>();
+            let access_sets = kanari_move_runtime_v2::changeset::deterministic_access_sets(
+                ok_changesets.into_iter(),
+            );
             let mut retry_reason = results.iter().any(Result::is_err).then_some("execution_error");
             let mut retry_serial = retry_reason.is_some();
             for i in 0..access_sets.len() {
-                let Some(left) = &access_sets[i] else {
-                    continue;
-                };
-                let conflicts =
-                    access_sets[..i].iter().flatten().any(|right| left.conflicts_with(right));
+                let left = &access_sets[i];
+                let conflicts = access_sets[..i].iter().any(|right| left.conflicts_with(right));
                 if conflicts {
                     retry_reason.get_or_insert("intra_wave_conflict");
                     retry_serial = true;
@@ -2752,6 +2791,7 @@ impl BlockchainEngine {
                             Self::apply_dependency_aware_changesets_without_supply_validation(
                                 &mut candidate,
                                 &mut wave_changesets,
+                                None,
                             )
                             .map(|_| ())
                     {

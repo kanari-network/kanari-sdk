@@ -32,14 +32,23 @@ impl KanariMoveResolver {
         overlay: Option<crate::StateOverlay>,
     ) -> (Self, Arc<Mutex<BTreeSet<Vec<u8>>>>) {
         let trace = Arc::new(Mutex::new(BTreeSet::new()));
-        (
-            Self {
-                state: self.state.with_overlay(overlay),
-                object_storage: self.object_storage.clone(),
-                read_trace: Some(trace.clone()),
-            },
-            trace,
-        )
+        let resolver = self.tracing_clone_with_overlay_and_trace(overlay, trace.clone());
+        (resolver, trace)
+    }
+
+    /// Clone with an externally owned read trace. Entry execution and its
+    /// consensus policy gates share one trace so every dynamic-field read made
+    /// on behalf of a transaction lands in the same ChangeSet manifest.
+    pub(crate) fn tracing_clone_with_overlay_and_trace(
+        &self,
+        overlay: Option<crate::StateOverlay>,
+        trace: Arc<Mutex<BTreeSet<Vec<u8>>>>,
+    ) -> Self {
+        Self {
+            state: self.state.with_overlay(overlay),
+            object_storage: self.object_storage.clone(),
+            read_trace: Some(trace),
+        }
     }
 
     fn record_read(&self, key: Vec<u8>) {

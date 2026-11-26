@@ -16,6 +16,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod changeset_access;
+pub use changeset_access::{
+    deterministic_access_sets, propagate_untraced_dynamic_field_fence, untraced_dynamic_field_fence,
+};
 mod changeset_effects;
 mod changeset_gas;
 mod changeset_merge;
@@ -165,6 +168,12 @@ pub struct ChangeSet {
     /// This is execution metadata and is intentionally not persisted as chain state.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub resolver_reads: BTreeSet<Vec<u8>>,
+    /// True when dynamic-field native reads were traced into `resolver_reads`.
+    /// Execution metadata only: `serde(skip)` keeps the BCS layout unchanged, and
+    /// deserialized changesets default to `false` so they retain the conservative
+    /// `df:*` conflict fence.
+    #[serde(skip)]
+    pub dynamic_field_reads_traced: bool,
     pub gas_used: u64,
     pub success: bool,
     pub error_message: Option<String>,
@@ -194,6 +203,7 @@ impl ChangeSet {
             removed_dynamic_fields: Vec::new(),
             move_writes: BTreeMap::new(),
             resolver_reads: BTreeSet::new(),
+            dynamic_field_reads_traced: false,
             gas_used,
             success,
             error_message,

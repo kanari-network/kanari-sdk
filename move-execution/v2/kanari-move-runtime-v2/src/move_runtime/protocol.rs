@@ -9,6 +9,7 @@
 
 use super::*;
 use kanari_types::{coin::CoinModule, krc_721::Krc721Module};
+use std::collections::BTreeSet;
 
 /// Gas budget for one framework deny-policy read inside a consensus gate.
 pub(crate) const DENY_POLICY_GAS_BUDGET: u64 = 1_000_000;
@@ -20,11 +21,13 @@ impl MoveRuntime {
         vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
         resolver: KanariMoveResolver,
         state_overlay: Option<crate::StateOverlay>,
+        dynamic_field_read_trace: Option<Arc<Mutex<BTreeSet<Vec<u8>>>>>,
     ) -> Session<'r, 'r, KanariMoveResolver> {
         // Register the core extensions used by object, event, and dynamic-field natives.
         let mut extensions = NativeContextExtensions::default();
         extensions.add(DynamicFieldsExt::default());
-        extensions.add(self.dynamic_field_storage_ext(state_overlay.clone()));
+        extensions
+            .add(self.dynamic_field_storage_ext(state_overlay.clone(), dynamic_field_read_trace));
         extensions.add(EventsExt::default());
         extensions.add(SavedObjectsExt::default());
         extensions.add(DeletedObjectsExt::default());
@@ -437,6 +440,7 @@ impl MoveRuntime {
         cs: &ChangeSet,
         transferred: &[TransferredObject],
         state_overlay: Option<crate::StateOverlay>,
+        read_trace: &Arc<Mutex<BTreeSet<Vec<u8>>>>,
     ) -> Result<()> {
         use std::str::FromStr;
 
@@ -471,9 +475,15 @@ impl MoveRuntime {
                 Self::deny_list_singleton_full_id(),
             );
         };
-        let (resolver, _resolver_trace) =
-            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
-        let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
+        let resolver = self
+            .resolver
+            .tracing_clone_with_overlay_and_trace(state_overlay.clone(), read_trace.clone());
+        let mut session = self.create_session_with_resolver(
+            vm_guard,
+            resolver,
+            state_overlay,
+            Some(read_trace.clone()),
+        );
         let coin_module = ModuleId::new(
             kanari_types::address::Address::kanari_system_account_address(),
             move_core_types::identifier::Identifier::new(CoinModule::COIN_MODULE)?,
@@ -566,6 +576,7 @@ impl MoveRuntime {
         _cs: &ChangeSet,
         transferred: &[TransferredObject],
         state_overlay: Option<crate::StateOverlay>,
+        read_trace: &Arc<Mutex<BTreeSet<Vec<u8>>>>,
     ) -> Result<()> {
         // Unlike fungible coins, a freshly minted KRC-721 object is not a
         // transfer.  Restrict this scan to transfer-native records: that
@@ -601,9 +612,15 @@ impl MoveRuntime {
                 Self::deny_list_singleton_full_id(),
             );
         };
-        let (resolver, _resolver_trace) =
-            self.resolver.tracing_clone_with_overlay(state_overlay.clone());
-        let mut session = self.create_session_with_resolver(vm_guard, resolver, state_overlay);
+        let resolver = self
+            .resolver
+            .tracing_clone_with_overlay_and_trace(state_overlay.clone(), read_trace.clone());
+        let mut session = self.create_session_with_resolver(
+            vm_guard,
+            resolver,
+            state_overlay,
+            Some(read_trace.clone()),
+        );
         let mut policy_gas = crate::kanari_gas_meter::KanariGasMeter::new(DENY_POLICY_GAS_BUDGET);
         for (collection, recipient) in targets {
             let collection_bytes = bcs::to_bytes(&collection)?;

@@ -15,16 +15,30 @@ use kanari_types::transaction::{ObjectInput, ObjectOwnerKind};
 use move_core_types::account_address::AccountAddress;
 use move_core_types::language_storage::StructTag;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 struct RuntimeDynamicFieldResolver {
     store: Arc<crate::storage::persistent_store::PersistentStore>,
     overlay: Option<crate::StateOverlay>,
+    read_trace: Option<Arc<Mutex<BTreeSet<Vec<u8>>>>>,
 }
 
 impl RuntimeDynamicFieldResolver {
     fn dynamic_field_key(object_id: &str, name_bytes: &[u8]) -> Vec<u8> {
         crate::common::keys::dynamic_field_key(object_id, name_bytes)
+    }
+
+    fn record_read(&self, key: Vec<u8>) {
+        if let Some(trace) = &self.read_trace {
+            match trace.lock() {
+                Ok(mut reads) => {
+                    reads.insert(key);
+                }
+                Err(poisoned) => {
+                    poisoned.into_inner().insert(key);
+                }
+            }
+        }
     }
 }
 
@@ -35,6 +49,14 @@ impl DynamicFieldResolver for RuntimeDynamicFieldResolver {
         name_bytes: &[u8],
     ) -> Result<Option<Vec<u8>>, String> {
         let key = Self::dynamic_field_key(object_id, name_bytes);
+        // Record before the overlay lookup: cache/overlay hits are still reads
+        // that must conflict with another transaction writing the same field.
+        // Emit both the raw storage spelling and the canonical spelling so a
+        // read and a write cannot miss each other through ID aliasing.
+        self.record_read(key.clone());
+        if let Some(canonical) = crate::common::ids::canonical_object_id(object_id) {
+            self.record_read(Self::dynamic_field_key(&canonical, name_bytes));
+        }
         if let Some(value) = self.overlay.as_ref().and_then(|overlay| overlay.get(&key)) {
             return match value {
                 Some(bytes) => bcs::from_bytes(bytes)
@@ -105,10 +127,12 @@ impl super::MoveRuntime {
     pub(crate) fn dynamic_field_storage_ext(
         &self,
         overlay: Option<crate::StateOverlay>,
+        read_trace: Option<Arc<Mutex<BTreeSet<Vec<u8>>>>>,
     ) -> DynamicFieldStorageExt {
         DynamicFieldStorageExt::new(Arc::new(RuntimeDynamicFieldResolver {
             store: self.state.store(),
             overlay,
+            read_trace,
         }))
     }
 

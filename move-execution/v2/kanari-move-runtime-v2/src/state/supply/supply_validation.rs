@@ -115,8 +115,14 @@ impl StateManager {
         let tracked = self.tracked_fungible_token_types()?;
         let token_types = Self::known_token_types_from_index(&canonical_index, &tracked);
 
-        for token_type in token_types {
-            let summary = self.token_supply_summary(&token_type)?;
+        // Batch summaries perform one canonical object pass for every token.
+        // Calling `token_supply_summary` per token repeated that pass and made
+        // checkpoint validation O(tokens * objects). The returned numbers are
+        // identical, so every bound/index/no-lost comparison below is unchanged.
+        let summaries =
+            self.token_supply_summaries(&token_types.into_iter().collect::<Vec<_>>())?;
+        for summary in summaries {
+            let token_type = summary.token_type;
             Self::validate_token_supply_bound(
                 &token_type,
                 summary.total_supply,

@@ -20,7 +20,7 @@ The design covers delayed, duplicated, reordered, and missing P2P messages, foll
 
 ## 2.4 Components
 
-`kanari-core` orchestrates execution and checkpoints. `kanari-node` provides startup, P2P, synchronization, and service wiring. `kanari-rpc-server` exposes validated APIs. `kanari-move-runtime-v1` applies Move state. `crates/smt` maintains canonical sparse roots.
+`kanari-core` orchestrates execution and checkpoints. `kanari-node` provides startup, P2P, synchronization, and service wiring. `kanari-rpc-server` exposes validated APIs. `kanari-move-runtime-v2` applies Move state. `crates/smt` maintains canonical sparse roots.
 
 ## 2.5 Protocol phases
 

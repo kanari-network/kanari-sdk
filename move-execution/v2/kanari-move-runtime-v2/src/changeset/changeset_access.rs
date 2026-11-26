@@ -16,10 +16,14 @@ impl ChangeSet {
         let mut access = StateAccessSet::default();
 
         access.reads.extend(self.resolver_reads.iter().cloned());
-        // Dynamic-field natives use a separate resolver extension. Until that
-        // extension exposes its precise read key, serialize only transactions
-        // that write a dynamic field against this conservative read fence.
-        access.read(b"df:*".to_vec());
+        // Entry execution traces every dynamic-field native read into
+        // `resolver_reads`, so only legacy/untraced changesets still need the
+        // coarse reader fence. `propagate_untraced_dynamic_field_fence` adds the
+        // matching writer fence to dynamic-field writers when a batch mixes
+        // traced and untraced transactions.
+        if !self.dynamic_field_reads_traced {
+            access.read(untraced_dynamic_field_fence());
+        }
 
         for input in &self.input_objects {
             access.read(Self::object_access_key(&input.object_ref.object_id));
@@ -64,13 +68,19 @@ impl ChangeSet {
         for change in &self.explicit_object_changes {
             access.write(Self::object_access_key(&change.object_ref.object_id));
         }
+        // An untraced writer still publishes the historical coarse write fence,
+        // but only when it actually writes a dynamic field. Read-only changesets
+        // keep the old read-only fence so read/read remains conflict-free.
+        if !self.dynamic_field_reads_traced
+            && (!self.added_dynamic_fields.is_empty() || !self.removed_dynamic_fields.is_empty())
+        {
+            access.write(untraced_dynamic_field_fence());
+        }
         for (object_id, name, _) in &self.added_dynamic_fields {
-            access.write(b"df:*".to_vec());
-            access.write(Self::dynamic_field_access_key(object_id, name));
+            access.writes.extend(Self::dynamic_field_access_key(object_id, name));
         }
         for (object_id, name) in &self.removed_dynamic_fields {
-            access.write(b"df:*".to_vec());
-            access.write(Self::dynamic_field_access_key(object_id, name));
+            access.writes.extend(Self::dynamic_field_access_key(object_id, name));
         }
         for key in self.move_writes.keys() {
             access.write(key.clone());
@@ -127,8 +137,62 @@ impl ChangeSet {
         format!("object:{}", Self::canonicalize_object_id(object_id))
     }
 
-    /// Deterministic-access key for one dynamic-field record.
-    pub(crate) fn dynamic_field_access_key(object_id: &str, name: &[u8]) -> String {
-        format!("dynamic:{}:{}", Self::canonicalize_object_id(object_id), hex::encode(name))
+    /// Deterministic-access key for one dynamic-field record. This is the exact
+    /// storage key used by both the dynamic-field natives and `apply_dynamic_fields`,
+    /// so precise traced reads and writes compare equal.
+    pub(crate) fn dynamic_field_access_key(object_id: &str, name: &[u8]) -> Vec<Vec<u8>> {
+        let mut keys = vec![crate::common::keys::dynamic_field_key(object_id, name)];
+        if let Some(canonical) = Self::canonical_object_id(object_id) {
+            let canonical_key = crate::common::keys::dynamic_field_key(&canonical, name);
+            if canonical_key != keys[0] {
+                keys.push(canonical_key);
+            }
+        }
+        keys
+    }
+
+    fn canonical_object_id(object_id: &str) -> Option<String> {
+        crate::common::ids::canonical_object_id(object_id)
+    }
+}
+
+/// Coarse read/write fence used only for executions that cannot trace dynamic-field
+/// reads (legacy changesets, publish/init sessions, deserialized metadata).
+pub fn untraced_dynamic_field_fence() -> Vec<u8> {
+    b"df:*".to_vec()
+}
+
+/// Derive access manifests for a whole batch and add the writer side of the
+/// dynamic-field fence when any member is untraced. Exact-field writers then
+/// conflict with an untraced reader without forcing read-only changesets to
+/// conflict with unrelated dynamic-field writes.
+pub fn deterministic_access_sets<'a, I>(changesets: I) -> Vec<StateAccessSet>
+where
+    I: IntoIterator<Item = &'a ChangeSet>,
+{
+    let changesets = changesets.into_iter().collect::<Vec<_>>();
+    let writes_dynamic_field = changesets
+        .iter()
+        .map(|cs| !cs.added_dynamic_fields.is_empty() || !cs.removed_dynamic_fields.is_empty())
+        .collect::<Vec<_>>();
+    let mut sets = changesets.iter().map(|cs| cs.deterministic_access_set()).collect::<Vec<_>>();
+    propagate_untraced_dynamic_field_fence(&mut sets, &writes_dynamic_field);
+    sets
+}
+
+/// Add the coarse writer fence only to dynamic-field writers in a batch that
+/// contains an untraced reader. Read-only changesets keep their read-only fence
+/// so read/read parallelism is preserved.
+pub fn propagate_untraced_dynamic_field_fence(
+    sets: &mut [StateAccessSet],
+    writes_dynamic_field: &[bool],
+) {
+    let fence = untraced_dynamic_field_fence();
+    if sets.iter().any(|set| set.reads.contains(&fence)) {
+        for (set, writes_df) in sets.iter_mut().zip(writes_dynamic_field) {
+            if *writes_df {
+                set.writes.insert(fence.clone());
+            }
+        }
     }
 }

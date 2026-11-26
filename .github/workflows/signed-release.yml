@@ -1,0 +1,105 @@
+name: Sign and attest published release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to sign (for example v0.4.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  sign-release:
+    name: Sign release assets with keyless OIDC
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: ref
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.tag }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Download published release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-assets
+          gh release download "${{ steps.ref.outputs.tag }}" --dir release-assets --clobber
+
+      - name: Generate checksum manifest and SBOM
+        shell: bash
+        run: |
+          find release-assets -maxdepth 1 -type f -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum > release-assets/sha256sums.txt
+          syft dir:. -o spdx-json=kanari-sbom.spdx.json
+
+      - name: Sign assets and SBOM
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for file in release-assets/*; do
+            [ -f "$file" ] || continue
+            cosign sign-blob --yes --bundle "$file.sigstore.json" "$file"
+          done
+          cosign sign-blob --yes --bundle kanari-sbom.spdx.json.sigstore.json kanari-sbom.spdx.json
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release-assets/*
+            kanari-sbom.spdx.json
+
+      - name: Verify signatures before publishing them
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for bundle in release-assets/*.sigstore.json; do
+            subject="${bundle%.sigstore.json}"
+            cosign verify-blob \
+              --bundle "$bundle" \
+              --certificate-identity-regexp "https://github.com/${{ github.repository }}/.*" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$subject"
+          done
+          cosign verify-blob \
+            --bundle kanari-sbom.spdx.json.sigstore.json \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.*" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            kanari-sbom.spdx.json
+
+      - name: Upload signatures and SBOM to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.ref.outputs.tag }}" \
+            release-assets/sha256sums.txt \
+            release-assets/*.sigstore.json \
+            kanari-sbom.spdx.json \
+            kanari-sbom.spdx.json.sigstore.json \
+            --clobber

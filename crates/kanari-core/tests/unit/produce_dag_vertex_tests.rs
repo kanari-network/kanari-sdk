@@ -12,6 +12,9 @@ use kanari_types::transaction::{ObjectRef, SignedTransaction, Transaction};
 use move_core_types::account_address::AccountAddress;
 use proptest::prelude::*;
 
+#[path = "byzantine_fault_injection_tests.rs"]
+mod byzantine_fault_injection_tests;
+
 #[test]
 fn dag_repair_requests_quorum_without_a_local_vertex_after_restart() {
     let policy = DagProductionPolicy {

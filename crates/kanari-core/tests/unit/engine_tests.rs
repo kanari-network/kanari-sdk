@@ -11,7 +11,7 @@ use crate::engine::{
 use crate::file_io::write_file_atomically;
 use anyhow::{Context, Result};
 use kanari_crypto::keys::{CurveType, generate_keypair};
-use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject};
+use kanari_move_runtime_v2::changeset::{ChangeSet, CreatedObject, deterministic_access_sets};
 use kanari_move_runtime_v2::state::OwnerState;
 use kanari_move_runtime_v2::storage::persistent_store::PersistentStore;
 use kanari_types::address::Address as KanariAddress;
@@ -2503,6 +2503,28 @@ fn owned_fast_checkpoint_commits_no_shared_pending_transactions() {
     assert!(engine.try_is_transaction_committed(tx_a.transaction_hash()).unwrap());
     assert!(engine.try_is_transaction_committed(tx_b.transaction_hash()).unwrap());
     assert_eq!(info.checkpoint.unwrap().tx_count, 2);
+}
+
+#[test]
+fn generic_owned_changesets_stay_on_the_conflict_free_parallel_path() {
+    // A Move call that writes state outside the native burn/transfer shape used
+    // to force the serial fallback. It is still owned-only and conflict-free,
+    // so one derived access manifest must be enough for both validation and
+    // dependency-aware apply scheduling.
+    let mut left = ChangeSet::new();
+    left.success = true;
+    left.record_move_write(b"object:0xaa".to_vec(), Some(vec![1]));
+    let mut right = ChangeSet::new();
+    right.success = true;
+    right.record_move_write(b"object:0xbb".to_vec(), Some(vec![2]));
+
+    assert!(!BlockchainEngine::is_native_owned_fast_apply_shape(&[left.clone()]));
+    let access_sets = deterministic_access_sets([&left, &right]);
+    assert!(!BlockchainEngine::access_sets_conflict(&access_sets));
+
+    right.record_move_write(b"object:0xaa".to_vec(), Some(vec![3]));
+    let conflicting = deterministic_access_sets([&left, &right]);
+    assert!(BlockchainEngine::access_sets_conflict(&conflicting));
 }
 
 #[test]

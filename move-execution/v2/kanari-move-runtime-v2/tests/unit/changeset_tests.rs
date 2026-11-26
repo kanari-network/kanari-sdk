@@ -238,6 +238,61 @@ fn dynamic_field_write_conflicts_with_conservative_read_fence() {
 }
 
 #[test]
+fn traced_dynamic_field_reads_conflict_only_with_the_same_field() {
+    let mut reader = ChangeSet::new();
+    reader.dynamic_field_reads_traced = true;
+    let read_key = crate::common::keys::dynamic_field_key("0x1", b"alpha");
+    reader.record_resolver_reads([read_key]);
+
+    let mut unrelated_writer = ChangeSet::new();
+    unrelated_writer.dynamic_field_reads_traced = true;
+    unrelated_writer.added_dynamic_fields.push(("0x1".to_string(), b"beta".to_vec(), vec![9]));
+
+    let mut same_field_writer = ChangeSet::new();
+    same_field_writer.dynamic_field_reads_traced = true;
+    same_field_writer.added_dynamic_fields.push(("0x1".to_string(), b"alpha".to_vec(), vec![9]));
+
+    let disjoint = deterministic_access_sets([&reader, &unrelated_writer]);
+    assert!(!disjoint[0].conflicts_with(&disjoint[1]));
+
+    let overlapping = deterministic_access_sets([&reader, &same_field_writer]);
+    assert!(overlapping[0].conflicts_with(&overlapping[1]));
+}
+
+#[test]
+fn untraced_reader_still_conflicts_with_traced_writer_in_a_batch() {
+    let reader = ChangeSet::new(); // untraced: blanket `df:*` reader
+    let mut writer = ChangeSet::new();
+    writer.dynamic_field_reads_traced = true;
+    writer.added_dynamic_fields.push(("0x1".to_string(), b"alpha".to_vec(), vec![9]));
+
+    let sets = deterministic_access_sets([&reader, &writer]);
+    assert!(sets[0].conflicts_with(&sets[1]));
+}
+
+#[test]
+fn df_trace_flag_is_execution_metadata_only() {
+    let mut traced = ChangeSet::new();
+    traced.dynamic_field_reads_traced = true;
+    traced.record_resolver_reads([b"df:probe".to_vec()]);
+    let mut plain = ChangeSet::new();
+    plain.record_resolver_reads([b"df:probe".to_vec()]);
+
+    let traced_bytes = bcs::to_bytes(&traced).invariant("serialize traced changeset");
+    assert_eq!(
+        traced_bytes,
+        bcs::to_bytes(&plain).invariant("serialize plain changeset"),
+        "the trace flag must not enter the BCS layout"
+    );
+    assert!(
+        !bcs::from_bytes::<ChangeSet>(&traced_bytes)
+            .invariant("deserialize traced changeset")
+            .dynamic_field_reads_traced,
+        "deserialized changesets must keep the conservative untraced fence"
+    );
+}
+
+#[test]
 fn object_backed_native_gas_debits_do_not_lock_entire_owner() {
     let owner = AccountAddress::from_hex_literal("0x42").unwrap();
     let mut left = ChangeSet::new();

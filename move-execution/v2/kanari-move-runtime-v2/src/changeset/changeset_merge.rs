@@ -55,6 +55,8 @@ impl ChangeSet {
             self.move_writes.insert(key, value);
         }
         self.resolver_reads.append(&mut other.resolver_reads);
+        // A merged batch is fully traced only when every source changeset was.
+        self.dynamic_field_reads_traced &= other.dynamic_field_reads_traced;
 
         self.gas_used = self.gas_used.saturating_add(other.gas_used);
         if !other.success {
@@ -124,6 +126,7 @@ impl ChangeSet {
             self.move_writes.insert(key.clone(), value.clone());
         }
         self.resolver_reads.extend(other.resolver_reads.iter().cloned());
+        self.dynamic_field_reads_traced &= other.dynamic_field_reads_traced;
 
         self.gas_used = self.gas_used.saturating_add(other.gas_used);
         if !other.success {

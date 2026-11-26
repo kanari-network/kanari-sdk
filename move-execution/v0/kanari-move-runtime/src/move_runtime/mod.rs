@@ -285,7 +285,7 @@ impl MoveRuntime {
         let compiled = CompiledModule::deserialize_with_defaults(&module_bytes)?;
         let module_id = compiled.self_id();
         // Fresh publishes run the module's `init` below; upgrades (module
-        // already present) never re-run it, mirroring kanari-move-runtime-v1.
+        // already present) never re-run it.
         let is_fresh_publish = self.state.get_module(&module_id).is_none();
 
         let (move_changeset, events) = {
@@ -774,10 +774,9 @@ impl MoveRuntime {
                 }
 
                 // System calls synthesize one-time-witness bytes into empty
-                // struct slots, mirroring kanari-move-runtime-v1: a fieldless
-                // struct keeps empty bytes and a single-bool struct takes
-                // `true`. Anything else keeps its bytes and fails naturally
-                // at deserialization.
+                // struct slots: a fieldless struct keeps empty bytes and a
+                // single-bool struct takes `true`. Anything else keeps its
+                // bytes and fails naturally at deserialization.
                 if bypass_entry_check && final_args[i].is_empty() {
                     let base_type = match param_type {
                         RuntimeType::Reference(inner) | RuntimeType::MutableReference(inner) => {

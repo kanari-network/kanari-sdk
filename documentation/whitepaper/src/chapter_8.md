@@ -54,7 +54,7 @@ The implementation described by this paper is distributed across these repositor
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | `crates/kanari-core`                       | transaction engine, DAG vertex production, checkpoint orchestration, and state application coordination |
 | `crates/kanari-node`                       | validator process, P2P, synchronization, RPC/service wiring, and operational status                     |
-| `move-execution/v1/kanari-move-runtime-v1` | Move VM integration, object policy, gas, changesets, persistent state, and recovery                     |
+| `move-execution/v2/kanari-move-runtime-v2` | Move VM integration, object policy, gas, changesets, persistent state, and recovery                     |
 | `crates/smt`                               | sparse Merkle nodes, overlays, incremental root updates, and root verification                          |
 | `crates/kanari-crypto`                     | key derivation, wallet/keystore primitives, classical/PQC/hybrid signatures, hashing, and encryption    |
 | `crates/kanari-rpc-server`                 | JSON/BCS request validation, transaction submission, query, and adversarial input boundaries            |

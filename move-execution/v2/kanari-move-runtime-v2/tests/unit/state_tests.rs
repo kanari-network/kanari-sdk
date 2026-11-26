@@ -553,6 +553,82 @@ fn token_supply_summary_uses_treasury_supply_for_custom_tokens() -> Result<()> {
 }
 
 #[test]
+fn batched_token_supply_summaries_match_per_token_summaries() -> Result<()> {
+    let owner = AccountAddress::from_hex_literal("0x1111")?;
+    let other = AccountAddress::from_hex_literal("0x2222")?;
+    let custom_token = "0x2::usdc::USDC";
+    let unused_token = "0x2::test::TEST";
+    let mut state = StateManager::new_in_memory();
+    let base = state.token_supply_summary(GAS_COIN)?;
+    let native_cached = base.wallet_visible_supply + 10;
+
+    // Native: stale-low cache, an owner ledger, and an object fanout coin. The
+    // indexed path must win for `max(cached, indexed)` in both summary APIs.
+    state.save_owner_state(&OwnerState::with_native_balance(owner, 900))?;
+    state.save_owner_state(&OwnerState::with_native_balance(other, 100))?;
+    set_native_supply_for_test(&mut state, base.total_supply + 1_000)?;
+    state.global_token_supplies.insert(GAS_COIN.to_string(), native_cached);
+
+    let mut native = ChangeSet::new();
+    native.created_objects.push((
+        "0xaaa1".to_string(),
+        address_owned_object(
+            owner,
+            format!("0x2::coin::Coin<{}>", GAS_COIN),
+            coin_object_data_with_leading_byte(1, 40),
+            1,
+        ),
+    ));
+    state.apply_changeset(&native)?;
+
+    // Fungible token: an old index version forces both APIs to derive wallet
+    // supply from canonical objects, and a locked record contributes separately.
+    let cap_type = format!("0x2::coin::TreasuryCap<{}>", custom_token);
+    let coin_type = format!("0x2::coin::Coin<{}>", custom_token);
+    let mut setup = ChangeSet::new();
+    setup.add_treasury(owner, custom_token.to_string(), 400);
+    setup.created_objects.push((
+        "0xbbb1".to_string(),
+        address_owned_object(owner, cap_type, coin_object_data([1u8; UID_SIZE], 400), 1),
+    ));
+    setup.created_objects.push((
+        "0xbbb2".to_string(),
+        address_owned_object(owner, coin_type.clone(), coin_object_data([2u8; UID_SIZE], 250), 1),
+    ));
+    setup.created_objects.push((
+        "0xbbb3".to_string(),
+        address_owned_object(other, coin_type, coin_object_data([3u8; UID_SIZE], 90), 1),
+    ));
+    state.apply_changeset(&setup)?;
+    state.save_object_locked_coin_records(&[ObjectLockedCoinRecord {
+        holder_object_id: "0x000000000000000000000000000000000000000000000000000000000000bbb1"
+            .to_string(),
+        holder_type: "0x2::escrow::Vault".to_string(),
+        owner,
+        token_type: custom_token.to_string(),
+        amount: 10,
+    }])?;
+    state.global_token_supplies.insert(custom_token.to_string(), 0);
+    state.save_internal(WALLET_SUPPLY_INDEX_VERSION_KEY, &0u32)?;
+
+    let token_types =
+        vec![GAS_COIN.to_string(), custom_token.to_string(), unused_token.to_string()];
+    let per_token = token_types
+        .iter()
+        .map(|token| state.token_supply_summary(token))
+        .collect::<Result<Vec<_>>>()?;
+    let batched = state.token_supply_summaries(&token_types)?;
+
+    assert_eq!(per_token, batched);
+    assert!(batched[0].wallet_visible_supply >= native_cached);
+    assert_eq!(batched[1].wallet_visible_supply, 340);
+    assert_eq!(batched[1].object_locked_supply, 10);
+    assert_eq!(batched[2].total_supply, 0);
+
+    Ok(())
+}
+
+#[test]
 fn resolve_owner_token_balances_requires_object_backed_non_native_assets() -> Result<()> {
     let object_owner = AccountAddress::from_hex_literal("0x1111")?;
     let token_type = "0x2::test::TEST";

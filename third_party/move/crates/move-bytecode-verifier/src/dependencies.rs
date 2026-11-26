@@ -37,14 +37,14 @@ impl<'a, 'b> Context<'a, 'b> {
     fn module(
         module: &'a CompiledModule,
         dependencies: impl IntoIterator<Item = &'b CompiledModule>,
-    ) -> Self {
+    ) -> PartialVMResult<Self> {
         Self::new(module, dependencies)
     }
 
     fn new(
         module: &'a CompiledModule,
         dependencies: impl IntoIterator<Item = &'b CompiledModule>,
-    ) -> Self {
+    ) -> PartialVMResult<Self> {
         let self_module = module.self_id();
         let self_module_idx = module.self_handle_idx();
         let self_function_defs = module.function_defs();
@@ -112,8 +112,17 @@ impl<'a, 'b> Context<'a, 'b> {
                 .module
                 .module_id_for_handle(context.module.module_handle_at(function_handle.module));
             let function_name = context.module.identifier_at(function_handle.name);
-            let dep_file_format_version =
-                context.dependency_map.get(&dep_module_id).unwrap().version;
+            let dep_file_format_version = context
+                .dependency_map
+                .get(&dep_module_id)
+                .ok_or_else(|| {
+                    verification_error(
+                        StatusCode::MISSING_DEPENDENCY,
+                        IndexKind::FunctionHandle,
+                        idx as TableIndex,
+                    )
+                })?
+                .version;
             let dep_function = (dep_module_id, function_name.to_owned());
             let (visibility, is_entry) = match dependency_visibilities.get(&dep_function) {
                 // The visibility does not need to be set here. If the function does not
@@ -128,7 +137,7 @@ impl<'a, 'b> Context<'a, 'b> {
             }
         }
 
-        context
+        Ok(context)
     }
 }
 
@@ -144,7 +153,7 @@ fn verify_module_impl<'a>(
     module: &CompiledModule,
     dependencies: impl IntoIterator<Item = &'a CompiledModule>,
 ) -> PartialVMResult<()> {
-    let context = &Context::module(module, dependencies);
+    let context = &Context::module(module, dependencies)?;
 
     verify_imported_modules(context)?;
     verify_imported_structs(context)?;

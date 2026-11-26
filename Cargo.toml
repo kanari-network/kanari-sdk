@@ -11,7 +11,7 @@ resolver = "2"                   # Use the version 2 feature resolver for more c
 exclude = [
     "third_party/move",                                   # Exclude the 'third_party/move' directory from workspace builds.
     "crates/kanari-crypto/fuzz",                          # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
-    "move-execution/v1/kanari-move-runtime-v1/fuzz",      # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
+    "move-execution/v1/kanari-move-runtime-v1/fuzz",      # Retired runtime: source retained, kept out of workspace builds
     "move-execution/v2/kanari-move-runtime-v2/fuzz",      # Exclude fuzz targets from workspace builds (fuzzing uses separate Cargo.toml)
     "crates/mysticeti",                                   # Nested Mysticeti workspace used through explicit path dependencies.
 ]
@@ -47,7 +47,6 @@ members = [
       "crates/kanari-open-rpc-spec-builder",
 
       # move-execution
-      "move-execution/v1/kanari-move-runtime-v1",
       "move-execution/v2/kanari-move-runtime-v2",
 
       # libraries mobile and desktop apps can use to interact with the kanari-sdk

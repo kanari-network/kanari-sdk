@@ -2,6 +2,11 @@
 
 Date: 2026-07-23
 
+> Historical record. `move-execution/v1/kanari-move-runtime-v1` has since been
+> disconnected from the workspace (source retained for reference); commands and
+> results referencing v1 below no longer apply to the current workspace.
+> Current runtime scope is `kanari-move-runtime-v2` only.
+
 This audit simulates a sandboxed development/runtime posture: tests are run with
 temporary state paths, no production node data is required, and checks focus on
 path handling, secret exposure, bounded network/RPC behavior, consensus/DAG
@@ -114,11 +119,11 @@ release validator/RPC binaries.
 Local production-style loopback using release `kanari-rpc-loadgen` against a
 temporary release `kanari-node local` process:
 
-| Scenario | Completed | Throughput | Success | Client rejected | 5xx/server errors | Network errors | Latency |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| Healthy JSON-RPC, concurrency 256 | 10,000/10,000 | ~5,202 req/s | 10,000 | 0 | 0 | 0 | p50 40 ms, p95 114 ms, p99 150 ms, max 199 ms |
-| Mixed malformed/oversized, concurrency 256 | 10,000/10,000 | ~5,814 req/s | 9,411 | 589 | 0 | 0 | p50 35 ms, p95 97 ms, p99 167 ms, max 377 ms |
-| Healthy JSON-RPC, concurrency 512 | 20,000/20,000 | ~5,596 req/s | 20,000 | 0 | 0 | 0 | p50 83 ms, p95 169 ms, p99 237 ms, max 476 ms |
+| Scenario                                   |     Completed |   Throughput | Success | Client rejected | 5xx/server errors | Network errors | Latency                                       |
+| ------------------------------------------ | ------------: | -----------: | ------: | --------------: | ----------------: | -------------: | --------------------------------------------- |
+| Healthy JSON-RPC, concurrency 256          | 10,000/10,000 | ~5,202 req/s |  10,000 |               0 |                 0 |              0 | p50 40 ms, p95 114 ms, p99 150 ms, max 199 ms |
+| Mixed malformed/oversized, concurrency 256 | 10,000/10,000 | ~5,814 req/s |   9,411 |             589 |                 0 |              0 | p50 35 ms, p95 97 ms, p99 167 ms, max 377 ms  |
+| Healthy JSON-RPC, concurrency 512          | 20,000/20,000 | ~5,596 req/s |  20,000 |               0 |                 0 |              0 | p50 83 ms, p95 169 ms, p99 237 ms, max 476 ms |
 
 This release-node result confirms the RPC server rejects malformed/oversized
 requests without producing server-side 5xx responses or dropping network

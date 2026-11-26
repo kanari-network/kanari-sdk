@@ -186,8 +186,12 @@ impl MoveRuntime {
         let vm_guard = self.read_vm();
         let (resolver, resolver_trace) =
             self.resolver.tracing_clone_with_overlay(state_overlay.clone());
-        let mut session =
-            self.create_session_with_resolver(&vm_guard, resolver, state_overlay.clone());
+        let mut session = self.create_session_with_resolver(
+            &vm_guard,
+            resolver,
+            state_overlay.clone(),
+            Some(resolver_trace.clone()),
+        );
         let mut deterministic_reads =
             std::collections::BTreeSet::from([crate::common::keys::module_key(
                 module_id.address(),
@@ -560,12 +564,14 @@ impl MoveRuntime {
                         &cs,
                         &transferred,
                         state_overlay.clone(),
+                        &resolver_trace,
                     )?;
                     self.enforce_krc721_output_policy(
                         &vm_guard,
                         &cs,
                         &transferred,
                         state_overlay.clone(),
+                        &resolver_trace,
                     )?;
                 }
 
@@ -612,6 +618,10 @@ impl MoveRuntime {
                 };
                 cs.record_resolver_reads(reads);
                 cs.record_resolver_reads(deterministic_reads);
+                // Every dynamic-field read in this transaction (including the
+                // consensus policy gates) used the shared trace above, so the
+                // access manifest can drop the blanket `df:*` fence.
+                cs.dynamic_field_reads_traced = true;
                 Ok((cs, pure_return_values))
             }
             Err(e) => {
@@ -639,6 +649,6 @@ impl MoveRuntime {
         &'r self,
         vm_guard: &'r std::sync::RwLockReadGuard<'r, MoveVM>,
     ) -> Session<'r, 'r, KanariMoveResolver> {
-        self.create_session_with_resolver(vm_guard, self.resolver.clone(), None)
+        self.create_session_with_resolver(vm_guard, self.resolver.clone(), None, None)
     }
 }

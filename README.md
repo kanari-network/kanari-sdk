@@ -93,6 +93,12 @@ For the complete index and run commands for every automation script in
 `scripts/` (local devnets, load, chaos, benchmarks, security campaigns,
 probes, and the rejoin test), see [Scripts Usage Guide](scripts/README.md).
 
+## Security and Release Policy
+
+- [External audit scope and readiness checklist](SECURITY/SECURITY_AUDIT_SCOPE.md)
+- [Framework upgrade, hash pinning, and rollback](SECURITY/FRAMEWORK_UPGRADE_POLICY.md)
+- [Release signing, SBOM, and provenance](SECURITY/RELEASE_SIGNING_POLICY.md)
+
 The local scripts are in `crates/kanari-node`.
 
 ```powershell
