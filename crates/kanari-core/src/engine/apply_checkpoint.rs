@@ -7,7 +7,10 @@ use anyhow::{Context, Result, bail};
 use kanari_move_runtime_v2::state::{PrecomputedSmtChanges, StateManager};
 use kanari_types::transaction::SignedTransaction;
 use log::info;
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
+
+type CheckpointRawChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>);
 
 /// Checkpoint transaction hashes are canonical 32-byte digests. Converting once
 /// here keeps the fixed-size set allocations out of the hot finalize path.
@@ -237,6 +240,7 @@ impl BlockchainEngine {
     ) -> Result<()> {
         let profile = Self::env_flag_enabled("KANARI_CHECKPOINT_FINALIZE_PROFILE");
         let started_at = std::time::Instant::now();
+        let inspected_at = std::time::Instant::now();
         let has_module_publish = checkpoint.transactions.iter().any(|signed_tx| {
             matches!(
                 signed_tx.transaction,
@@ -246,18 +250,45 @@ impl BlockchainEngine {
                     | kanari_types::transaction::Transaction::UpgradePackage { .. }
             )
         });
-        let inspected_at = std::time::Instant::now();
-        if validate_supply {
-            // Single canonical scan: bounds, index consistency, and no-lost-tokens.
-            new_state.validate_no_lost_tokens().context(
-                "Supply invariants failed before checkpoint commit (lost/overcount/index mismatch)",
-            )?;
-        }
-        let validated_at = std::time::Instant::now();
         let inline_checkpoint_metadata = self.persistent_store.as_ref().is_some_and(|store| {
             !Self::persist_blockchain_json_snapshot_enabled(store)
                 && Self::history_retention_checkpoints().is_none()
         });
+
+        // Encode checkpoint metadata and the durable marker in parallel with
+        // supply validation. Both closures only read the checkpoint/store, and
+        // the exact same raw changes are still passed to the single atomic
+        // commit below, so the committed bytes and recovery ordering are
+        // unchanged. `rayon::join` borrows instead of cloning the checkpoint.
+        let (validation_result, prepared_metadata) = rayon::join(
+            || {
+                if validate_supply {
+                    // Single canonical scan: bounds, index consistency, and no-lost-tokens.
+                    new_state.validate_no_lost_tokens().context(
+                        "Supply invariants failed before checkpoint commit (lost/overcount/index mismatch)",
+                    )
+                } else {
+                    Ok(())
+                }
+            },
+            || -> Result<CheckpointRawChanges> {
+                let Some(store) = self.persistent_store.as_ref() else {
+                    return Ok((Vec::new(), Vec::new()));
+                };
+                let (mut updates, deletes) = if inline_checkpoint_metadata {
+                    Self::checkpoint_persistence_raw_changes(store, &checkpoint, true)
+                        .context("Failed to encode checkpoint metadata for state commit")?
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+                let marker = bcs::to_bytes(&checkpoint)
+                    .context("Failed to serialize durable checkpoint commit marker")?;
+                updates.push((Self::pending_checkpoint_commit_key().to_vec(), marker));
+                Ok((updates, deletes))
+            },
+        );
+        validation_result?;
+        let validated_at = std::time::Instant::now();
 
         {
             // Keep the previous live state installed until the staged state and
@@ -266,20 +297,8 @@ impl BlockchainEngine {
             // state paired with old checkpoint metadata.
             let mut live_state = self.state_write();
             let mut committed_state = new_state;
-            if let Some(store) = &self.persistent_store {
-                let mut raw_deletes = Vec::new();
-                let mut raw_updates = if inline_checkpoint_metadata {
-                    let (updates, deletes) =
-                        Self::checkpoint_persistence_raw_changes(store, &checkpoint, true)
-                            .context("Failed to encode checkpoint metadata for state commit")?;
-                    raw_deletes = deletes;
-                    updates
-                } else {
-                    Vec::new()
-                };
-                let marker = bcs::to_bytes(&checkpoint)
-                    .context("Failed to serialize durable checkpoint commit marker")?;
-                raw_updates.push((Self::pending_checkpoint_commit_key().to_vec(), marker));
+            if self.persistent_store.is_some() {
+                let (raw_updates, raw_deletes) = prepared_metadata?;
                 committed_state
                     .commit_with_raw_changes_verified_root_and_smt_changes(
                         raw_updates,
@@ -353,10 +372,21 @@ impl BlockchainEngine {
             .iter()
             .map(|tx| committed_hash_key(tx.transaction_hash(), "transaction hash"))
             .collect();
-        // 1. Update blockchain metadata in-memory.
+        // 1. Update blockchain metadata in-memory. Duplicate detection and the
+        // vertex index key are prepared before taking the write lock; only
+        // sequence/replay checks and insertion stay under the lock.
+        let chain_tx_hashes: HashSet<Vec<u8>> =
+            committed_hashes.iter().map(|hash| hash.to_vec()).collect();
+        let chain_vertex_set_hash =
+            crate::blockchain::Blockchain::checkpoint_vertex_set_hash(&checkpoint);
         {
             let mut chain = self.blockchain_write();
-            chain.add_checkpoint_with_validation(checkpoint, true)?;
+            chain.add_checkpoint_with_prevalidated_hashes(
+                checkpoint,
+                true,
+                Some(chain_tx_hashes),
+                chain_vertex_set_hash,
+            )?;
         }
         let chain_added_at = std::time::Instant::now();
 
@@ -380,10 +410,15 @@ impl BlockchainEngine {
             // The mempool and checkpoint use different sort keys, so compare as
             // sets instead of relying on zip order. When every pending tx is
             // committed, all derived indexes can be cleared in O(1).
-            let can_clear_all_pending = mempool.pending_txs.len() == committed_hashes.len()
-                && mempool.pending_txs.iter().all(|tx| {
-                    committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
-                });
+            // `pending_tx_hashes` mirrors `pending_txs`; test the set directly
+            // instead of scanning the underlying records. The length guard
+            // keeps this safe even if a future bug lets the two views diverge.
+            let can_clear_all_pending = mempool.pending_txs.len()
+                == mempool.pending_tx_hashes.len()
+                && mempool.pending_txs.len() == committed_hashes.len()
+                && committed_hashes
+                    .iter()
+                    .all(|hash| mempool.pending_tx_hashes.contains(hash.as_slice()));
             if can_clear_all_pending {
                 // Dropping 100k pending records (each with several owned key
                 // strings) is pure cleanup work. Move the whole state out and
@@ -392,56 +427,47 @@ impl BlockchainEngine {
                 let drained = std::mem::take(&mut *mempool);
                 std::thread::spawn(move || drop(drained));
             } else {
-                let removed_metadata = mempool
-                    .pending_txs
-                    .iter()
-                    .filter(|tx| {
-                        committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
-                    })
-                    .map(|tx| {
-                        (
-                            tx.normalized_sender.clone(),
-                            tx.primary_access_key.clone(),
-                            tx.congestion_access_key.clone(),
-                            tx.access_keys.clone(),
-                            tx.size_bytes,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let removed_bytes =
-                    removed_metadata.iter().fold(0usize, |total, (_, _, _, _, size_bytes)| {
-                        total.saturating_add(*size_bytes)
-                    });
-                mempool.pending_txs.retain(|tx| {
-                    !committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
-                });
+                // Partition once instead of collecting metadata clones and
+                // running a second retain. Survivor order and decrement order
+                // stay identical to the previous implementation.
+                let pending = std::mem::take(&mut mempool.pending_txs);
+                let mut kept = Vec::with_capacity(pending.len());
+                let mut removed_bytes = 0usize;
+                for tx in pending {
+                    if !committed_hashes.contains(&committed_hash_key(&tx.tx_hash, "pending hash"))
+                    {
+                        kept.push(tx);
+                        continue;
+                    }
+                    removed_bytes = removed_bytes.saturating_add(tx.size_bytes);
+                    Self::decrement_pending_count(
+                        &mut mempool.pending_sender_counts,
+                        &tx.normalized_sender,
+                    );
+                    Self::decrement_pending_count(
+                        &mut mempool.pending_primary_access_counts,
+                        &tx.primary_access_key,
+                    );
+                    Self::decrement_pending_count(
+                        &mut mempool.pending_congestion_access_counts,
+                        &tx.congestion_access_key,
+                    );
+                    Self::decrement_pending_count(
+                        &mut mempool.pending_access_counts,
+                        &tx.primary_access_key,
+                    );
+                    for access_key in &tx.access_keys {
+                        Self::decrement_pending_count(
+                            &mut mempool.pending_access_counts,
+                            access_key,
+                        );
+                    }
+                }
+                mempool.pending_txs = kept;
                 mempool.pending_bytes = mempool.pending_bytes.saturating_sub(removed_bytes);
                 mempool.pending_tx_hashes.retain(|hash| {
                     !committed_hashes.contains(&committed_hash_key(hash, "pending hash"))
                 });
-                for (sender, primary_access_key, congestion_access_key, access_keys, _) in
-                    removed_metadata
-                {
-                    Self::decrement_pending_count(&mut mempool.pending_sender_counts, &sender);
-                    Self::decrement_pending_count(
-                        &mut mempool.pending_primary_access_counts,
-                        &primary_access_key,
-                    );
-                    Self::decrement_pending_count(
-                        &mut mempool.pending_congestion_access_counts,
-                        &congestion_access_key,
-                    );
-                    Self::decrement_pending_count(
-                        &mut mempool.pending_access_counts,
-                        &primary_access_key,
-                    );
-                    for access_key in access_keys {
-                        Self::decrement_pending_count(
-                            &mut mempool.pending_access_counts,
-                            &access_key,
-                        );
-                    }
-                }
             }
         }
         let mempool_drained_at = std::time::Instant::now();

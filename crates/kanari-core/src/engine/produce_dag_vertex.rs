@@ -105,6 +105,16 @@ impl DagVertex {
             cached_serialized_data: None,
         }
     }
+
+    /// Cache the exact JSON representation once. The field is `#[serde(skip)]`,
+    /// so serializing the vertex to populate it cannot recurse, and sync/size
+    /// checks can reuse the bytes instead of re-encoding the whole vertex.
+    fn cache_serialized_bytes(&mut self) -> anyhow::Result<()> {
+        if self.cached_serialized_data.is_none() {
+            self.cached_serialized_data = Some(serde_json::to_vec(&*self)?);
+        }
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +224,7 @@ impl MysticetiBackend {
         vertex.id = mysticeti_reference_to_vertex_id(block.reference());
         vertex.signature = block.signature().as_ref().to_vec();
         vertex.native_block = block.serialized_bytes().to_vec();
+        vertex.cache_serialized_bytes()?;
         Ok(vertex)
     }
 
@@ -496,7 +507,7 @@ struct MysticetiBlockSummary {
 
 fn signed_tx_to_mysticeti_transaction(tx: &SignedTransaction) -> Result<MysticetiTransaction> {
     let bytes = bcs::to_bytes(tx).context("Failed to encode transaction for Mysticeti")?;
-    Ok(MysticetiTransaction::new(minibytes::Bytes::copy_from_slice(&bytes)))
+    Ok(MysticetiTransaction::new(minibytes::Bytes::from(bytes)))
 }
 
 pub fn mysticeti_reference_to_vertex_id(reference: &MysticetiBlockReference) -> [u8; 32] {
@@ -710,6 +721,7 @@ impl DagEngine {
         vertex.id = block.vertex_id;
         vertex.signature = block.signature;
         vertex.native_block = block.native_block;
+        vertex.cache_serialized_bytes()?;
         let tx_count = vertex.transactions.len();
 
         if let Some(committed) = self.finalize_ready_commits()? {
@@ -755,12 +767,8 @@ impl DagEngine {
 
         let mut checkpoint_info = None;
         for batch in committed_batches {
-            if let Some(checkpoint) = self.finalize_committed_batch(batch)? {
-                checkpoint_info = Some(CheckpointInfo {
-                    sequence: checkpoint.sequence,
-                    vertex_count: checkpoint.vertices.len(),
-                    tx_count: checkpoint.transactions.len(),
-                });
+            if let Some(info) = self.finalize_committed_batch(batch)? {
+                checkpoint_info = Some(info);
             }
         }
         lock_write(&self.state).mysticeti.ack_committed_batches();
@@ -770,7 +778,7 @@ impl DagEngine {
     fn finalize_committed_batch(
         &self,
         batch: MysticetiCommittedBatch,
-    ) -> Result<Option<Checkpoint>> {
+    ) -> Result<Option<CheckpointInfo>> {
         // O(1) duplicate detection via vertex-set hash index instead of O(n)
         // linear scan of dag_checkpoints comparing full vertex vectors.
         let vertex_set_hash =
@@ -779,7 +787,11 @@ impl DagEngine {
         if let Some(existing_seq) = chain.committed_vertex_sets.get(&vertex_set_hash)
             && let Some(existing) = chain.get_checkpoint(*existing_seq)
         {
-            return Ok(Some(existing.clone()));
+            return Ok(Some(CheckpointInfo {
+                sequence: existing.sequence,
+                vertex_count: existing.vertices.len(),
+                tx_count: existing.transactions.len(),
+            }));
         }
         drop(chain);
         let mut seen = HashSet::new();
@@ -818,8 +830,13 @@ impl DagEngine {
         checkpoint.transaction_effects = prepared.effects.into();
         let requires_runtime_side_effect_persistence =
             BlockchainEngine::requires_runtime_side_effect_persistence(&prepared.transactions);
+        let checkpoint_info = CheckpointInfo {
+            sequence: checkpoint.sequence,
+            vertex_count: checkpoint.vertices.len(),
+            tx_count: checkpoint.transactions.len(),
+        };
         self.engine.apply_prepared_checkpoint(
-            checkpoint.clone(),
+            checkpoint,
             prepared.state,
             prepared.smt_changes,
             requires_runtime_side_effect_persistence,
@@ -828,9 +845,9 @@ impl DagEngine {
         info!(
             "[DAG v2] Finalized committed sub-DAG anchor {} as checkpoint {}",
             hex::encode(batch.anchor),
-            checkpoint.sequence
+            checkpoint_info.sequence
         );
-        Ok(Some(checkpoint))
+        Ok(Some(checkpoint_info))
     }
 
     /// Returns the latest vertices produced by this authority, up to the given limit.
@@ -1025,9 +1042,12 @@ impl DagEngine {
                 truncated = true;
                 break;
             }
-            let vertex_bytes = serde_json::to_vec(&vertex)
-                .context("Failed to size DAG vertex for checkpoint sync")?
-                .len();
+            let vertex_bytes = match &vertex.cached_serialized_data {
+                Some(bytes) => bytes.len(),
+                None => serde_json::to_vec(&vertex)
+                    .context("Failed to size DAG vertex for checkpoint sync")?
+                    .len(),
+            };
             if !checkpoint_roots.contains(&vertex.id)
                 && encoded_bytes.saturating_add(vertex_bytes) > MAX_SYNC_VERTEX_JSON_BYTES
             {

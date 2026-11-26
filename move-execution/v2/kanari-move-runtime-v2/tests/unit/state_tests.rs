@@ -203,6 +203,23 @@ fn query_objects_rejects_missing_object_index_entries() -> Result<()> {
 }
 
 #[test]
+fn speculative_state_clone_shares_overlay_until_first_write() -> Result<()> {
+    let mut state = StateManager::new_in_memory();
+    state.save_internal(b"shared:key", &vec![1u8, 2, 3])?;
+
+    let mut candidate = state.clone();
+    assert!(Arc::ptr_eq(&state.overlay, &candidate.overlay));
+
+    candidate.save_internal(b"candidate:key", &vec![9u8])?;
+    assert!(!Arc::ptr_eq(&state.overlay, &candidate.overlay));
+    assert_eq!(state.overlay.len(), 1);
+    assert_eq!(candidate.overlay.len(), 2);
+    assert_eq!(state.load_internal::<Vec<u8>>(b"candidate:key")?, None);
+    assert_eq!(candidate.load_internal::<Vec<u8>>(b"shared:key")?, Some(vec![1u8, 2, 3]));
+    Ok(())
+}
+
+#[test]
 fn access_version_overflow_rejects_changeset_without_partial_state() -> Result<()> {
     let mut state = StateManager::new_in_memory();
     let key = b"resource:overflow".to_vec();
@@ -286,7 +303,7 @@ fn move_writes_commit_with_canonical_state_and_update_module_index() -> Result<(
 fn smt_diagnostics_are_read_only_and_full_audit_is_explicit() -> Result<()> {
     let temp_dir = tempfile::tempdir()?;
     let store = Arc::new(PersistentStore::open_with_path(Some(temp_dir.path().join("state")))?);
-    let state = StateManager::try_new(store)?;
+    let state = StateManager::try_new_with_persisted_smt(store)?;
 
     let status = state.smt_diagnostics(false)?;
     assert!(status.enabled);
@@ -905,7 +922,7 @@ fn compute_state_root_is_stable_across_rocksdb_commit() -> Result<()> {
 fn materialized_sparse_root_for_test(state: &StateManager) -> Result<Vec<u8>> {
     let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
         state.store.logical_entries()?.into_iter().collect();
-    for (key, value_opt) in &state.overlay {
+    for (key, value_opt) in state.overlay.iter() {
         if let Some(value) = value_opt {
             entries.insert(key.clone(), value.clone());
         } else {

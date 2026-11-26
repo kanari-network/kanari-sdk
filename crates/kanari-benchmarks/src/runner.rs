@@ -26,9 +26,9 @@ pub fn run_harness(config: &HarnessConfig) -> Result<HarnessReport> {
     eprintln!(
         "State backend: {}",
         if use_persistent_state {
-            "rocksdb-temp (production SMT incremental root)"
+            "rocksdb-temp (canonical state-root recompute)"
         } else {
-            "in-memory (full state-root recompute fallback)"
+            "in-memory (canonical state-root recompute)"
         }
     );
 

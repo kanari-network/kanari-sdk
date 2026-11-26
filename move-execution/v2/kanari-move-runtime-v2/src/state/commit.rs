@@ -74,7 +74,7 @@ impl StateManager {
 
         // Move the overlay into the write batch. All derived views above have
         // already inspected it, so cloning 100k values here is unnecessary.
-        for (key, val_opt) in std::mem::take(&mut self.overlay) {
+        for (key, val_opt) in std::mem::take(std::sync::Arc::make_mut(&mut self.overlay)) {
             if let Some(val) = val_opt {
                 updates.push((key, val));
             } else {
@@ -105,7 +105,7 @@ impl StateManager {
                 )?;
                 db.write(batch)?;
                 smt.apply_precomputed_node_overlay(node_overlay);
-                self.overlay.clear();
+                std::sync::Arc::make_mut(&mut self.overlay).clear();
                 return Ok(());
             }
 
@@ -143,7 +143,7 @@ impl StateManager {
             self.store.apply_raw_changes_owned(updates, deletes)?;
         }
 
-        self.overlay.clear();
+        std::sync::Arc::make_mut(&mut self.overlay).clear();
         Ok(())
     }
 }

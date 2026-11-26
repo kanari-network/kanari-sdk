@@ -184,10 +184,50 @@ impl Blockchain {
     /// previous-hash linkage, and absence of duplicate or replayed transactions.
     /// Old checkpoints beyond [`MAX_RETAINED_BLOCKS`] are evicted (genesis is
     /// always retained).
+    /// Collect canonical transaction hashes once, before taking the chain lock.
+    pub(crate) fn checkpoint_transaction_hashes(
+        checkpoint: &Checkpoint,
+    ) -> Result<HashSet<Vec<u8>>> {
+        let mut seen_txs = HashSet::with_capacity(checkpoint.transactions.len());
+        for tx in checkpoint.transactions.iter() {
+            let tx_hash = tx.transaction_hash().to_vec();
+            if !seen_txs.insert(tx_hash) {
+                anyhow::bail!("Duplicate transaction found within checkpoint");
+            }
+        }
+        Ok(seen_txs)
+    }
+
+    /// Precompute the vertex-set index key outside the chain lock.
+    pub(crate) fn checkpoint_vertex_set_hash(checkpoint: &Checkpoint) -> [u8; 32] {
+        blake3(&checkpoint.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>())
+    }
+
     pub fn add_checkpoint_with_validation(
         &mut self,
         checkpoint: Checkpoint,
         validate: bool,
+    ) -> Result<()> {
+        let tx_hashes =
+            if validate { Some(Self::checkpoint_transaction_hashes(&checkpoint)?) } else { None };
+        let vertex_set_hash = Self::checkpoint_vertex_set_hash(&checkpoint);
+        self.add_checkpoint_with_prevalidated_hashes(
+            checkpoint,
+            validate,
+            tx_hashes,
+            vertex_set_hash,
+        )
+    }
+
+    /// Hot-path variant: duplicate hashes and the vertex-set key are prepared
+    /// by the caller before acquiring `blockchain_write`, leaving only the
+    /// sequence/replay checks and index insertion under the lock.
+    pub(crate) fn add_checkpoint_with_prevalidated_hashes(
+        &mut self,
+        checkpoint: Checkpoint,
+        validate: bool,
+        tx_hashes: Option<HashSet<Vec<u8>>>,
+        vertex_set_hash: [u8; 32],
     ) -> Result<()> {
         if validate {
             let expected_seq = self.latest_checkpoint().sequence + 1;
@@ -202,13 +242,10 @@ impl Blockchain {
                 anyhow::bail!("Invalid previous checkpoint hash");
             }
 
-            let mut seen_txs = HashSet::new();
-            for tx in checkpoint.transactions.iter() {
-                let tx_hash = tx.transaction_hash().to_vec();
-                if !seen_txs.insert(tx_hash.clone()) {
-                    anyhow::bail!("Duplicate transaction found within checkpoint");
-                }
-                if self.executed_tx_hashes.contains(&tx_hash) {
+            let tx_hashes =
+                tx_hashes.expect("validated checkpoint must provide transaction hashes");
+            for tx_hash in &tx_hashes {
+                if self.executed_tx_hashes.contains(tx_hash) {
                     anyhow::bail!("Replay attack detected: Transaction already executed");
                 }
             }
@@ -217,9 +254,6 @@ impl Blockchain {
         self.track_checkpoint_transactions(&checkpoint);
 
         // Index the vertex set for O(1) duplicate detection during commit.
-        let vertex_set_hash = blake3(
-            &checkpoint.vertices.iter().flat_map(|v| v.iter().copied()).collect::<Vec<u8>>(),
-        );
         self.committed_vertex_sets.insert(vertex_set_hash, checkpoint.sequence);
 
         self.dag_checkpoints.push_back(checkpoint);

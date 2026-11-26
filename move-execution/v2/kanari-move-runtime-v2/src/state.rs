@@ -59,6 +59,7 @@ type RawStateUpdate = (RawStateKey, RawStateValue);
 type RawStateDelete = RawStateKey;
 type OverlaySmtChanges = (Vec<RawStateUpdate>, Vec<RawStateDelete>);
 pub type PrecomputedSmtChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>, smt::SmtNodeOverlay);
+
 type DerivedIndexes = (Vec<String>, BTreeMap<AccountAddress, Vec<String>>, Vec<String>);
 
 /// Owner state in the blockchain
@@ -178,9 +179,11 @@ pub(crate) struct ObjectLockedCoinRecord {
 pub struct StateManager {
     pub store: Arc<PersistentStore>,
 
-    /// Overlay for speculative execution / buffering
-    /// Key -> Some(Value) or None (Deleted)
-    pub overlay: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    /// Overlay for speculative execution / buffering.
+    /// Key -> Some(Value) or None (Deleted). The `Arc` makes speculative
+    /// candidate clones share the read view; the first mutation copies only
+    /// the overlay map on write (`Arc::make_mut`), preserving value semantics.
+    pub overlay: crate::StateOverlay,
 
     // Cache for total supply to avoid frequent DB reads
     pub total_supply: u64,
@@ -225,7 +228,27 @@ impl StateManager {
     }
 
     /// Create new state with genesis allocation and return initialization errors.
+    ///
+    /// The canonical state root is always computed from canonical state entries.
+    /// A DB-backed SMT is deliberately not attached to the hot execution path:
+    /// per-checkpoint node lookups/writes made large batches orders of magnitude
+    /// slower. Use `try_new_with_persisted_smt` only for explicit diagnostics or
+    /// maintenance tooling.
     pub fn try_new(store: Arc<PersistentStore>) -> Result<Self> {
+        Self::try_new_with_smt_mode(store, false)
+    }
+
+    /// Explicitly attach the persisted SMT for diagnostics/maintenance. This is
+    /// not used by consensus or checkpoint execution.
+    #[cfg(test)]
+    pub(crate) fn try_new_with_persisted_smt(store: Arc<PersistentStore>) -> Result<Self> {
+        Self::try_new_with_smt_mode(store, true)
+    }
+
+    fn try_new_with_smt_mode(
+        store: Arc<PersistentStore>,
+        enable_persisted_smt: bool,
+    ) -> Result<Self> {
         // Try to load total supply from DB
         let persisted_total_supply_record =
             store.load::<u64>(b"total_supply").context("Failed to load total_supply")?;
@@ -299,13 +322,16 @@ impl StateManager {
         let genesis_already_initialized =
             genesis_marker || recovered_total_supply > 0 || legacy_zero_supply_evidence;
 
-        // Initialize SMT only for the durable RocksDB backend. The in-memory
-        // fallback recomputes the canonical root from a full scan.
-        let smt = store.get_db().map(|db| Arc::new(smt::SparseMerkleTree::new(db)));
+        // Hot execution never consults DB-backed SMT nodes: canonical root
+        // recomputation is cheaper and already fails closed on corrupt indexes.
+        // The optional tree exists only for explicit maintenance diagnostics.
+        let smt = enable_persisted_smt
+            .then(|| store.get_db().map(|db| Arc::new(smt::SparseMerkleTree::new(db))))
+            .flatten();
 
         let mut state = Self {
             store,
-            overlay: BTreeMap::new(),
+            overlay: Arc::new(BTreeMap::new()),
             total_supply: recovered_total_supply,
             global_token_supplies,
             smt,

@@ -129,7 +129,8 @@ impl StateManager {
 
         let legacy_owner_ids = self.load_index_list(LEGACY_ACCOUNT_INDEX_KEY)?;
         if !legacy_owner_ids.is_empty() {
-            self.overlay.insert(LEGACY_ACCOUNT_INDEX_KEY.to_vec(), None);
+            std::sync::Arc::make_mut(&mut self.overlay)
+                .insert(LEGACY_ACCOUNT_INDEX_KEY.to_vec(), None);
             changed = true;
         }
 

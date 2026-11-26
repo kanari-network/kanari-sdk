@@ -237,7 +237,7 @@ impl StateManager {
         let mut updates = Vec::new();
         let mut deletes = Vec::new();
 
-        for (key, value_opt) in &self.overlay {
+        for (key, value_opt) in self.overlay.iter() {
             match value_opt {
                 Some(value) => {
                     let canonical = if let Some(object_id) = key.strip_prefix(b"object:")
@@ -324,7 +324,7 @@ impl StateManager {
     }
 
     pub(crate) fn canonical_membership_changed(&self) -> Result<bool> {
-        for (key, value_opt) in &self.overlay {
+        for (key, value_opt) in self.overlay.iter() {
             if key != b"module_index" && !key.starts_with(b"owned_objects:") {
                 continue;
             }
@@ -377,7 +377,7 @@ impl StateManager {
         let logical_count = entries.len();
         let logical_at = std::time::Instant::now();
 
-        for (key, value_opt) in &self.overlay {
+        for (key, value_opt) in self.overlay.iter() {
             if let Some(value) = value_opt {
                 entries.insert(key.clone(), value.clone());
             } else {
@@ -429,7 +429,7 @@ impl StateManager {
         let mut entries: BTreeMap<Vec<u8>, Vec<u8>> =
             self.store.logical_entries()?.into_iter().collect();
 
-        for (key, value_opt) in &self.overlay {
+        for (key, value_opt) in self.overlay.iter() {
             if let Some(value) = value_opt {
                 entries.insert(key.clone(), value.clone());
             } else {

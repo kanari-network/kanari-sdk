@@ -101,7 +101,8 @@ Important fields:
 - Production may use the engine's zero-effect native fast path; its `executed`/`failed` counts
   still come from checkpoint execution and state validation.
 - Larger `--txs` values can take much longer in production mode because they include signature verification, state-root work, and block production.
-- On the current Windows test machine, `production --txs 10000 --senders 10000 --runs 3` measured about 65k median TPS after the SMT/zero-effect fast-path work.
+- On the current Windows test machine, `production --txs 10000 --senders 10000 --runs 3` measured **13,836.711 TPS median** (12,928.019–14,662.251) with the in-memory backend and about 9.0k TPS with `KANARI_BENCH_STATE_BACKEND=rocksdb-temp`. The same workload with `--senders 256` measured about 26.8k TPS; `--high-throughput` is admission-only and must not be reported as committed TPS.
+- Canonical roots are recomputed from canonical state entries on both backends. The DB-backed SMT is not on the hot commit path; it remains available only for explicit diagnostics/maintenance tooling.
 
 ## Soak Test
 

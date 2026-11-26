@@ -79,7 +79,8 @@ impl StateManager {
         owner_state: &OwnerState,
     ) -> Result<()> {
         if owner_state.is_empty() {
-            self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
+            std::sync::Arc::make_mut(&mut self.overlay)
+                .insert(Self::owner_state_key(&owner_state.address), None);
             self.remove_from_index_list(OWNER_INDEX_KEY, &owner_state.address.to_hex_literal())
         } else {
             self.save_owner_record(owner_state)?;

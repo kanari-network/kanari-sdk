@@ -15,7 +15,7 @@ impl StateManager {
         value: &T,
     ) -> Result<()> {
         let bytes = bcs::to_bytes(value)?;
-        self.overlay.insert(key.to_vec(), Some(bytes));
+        std::sync::Arc::make_mut(&mut self.overlay).insert(key.to_vec(), Some(bytes));
         Ok(())
     }
 

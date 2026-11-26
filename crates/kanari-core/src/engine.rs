@@ -2228,8 +2228,11 @@ impl BlockchainEngine {
         // Splitting a purely disjoint owned-object workload too eagerly can
         // force repeated state-index and balance reconciliation passes. The
         // scheduler still cuts a new batch on real dependencies, and ops can
-        // lower this cap explicitly for memory-bound workloads.
+        // lower this cap explicitly for memory-bound workloads. The cap only
+        // controls local batch boundaries: batches are applied sequentially in
+        // canonical index order, so it cannot change roots or tx ordering.
         env_usize_positive("KANARI_DEPENDENCY_APPLY_BATCH_CAP", 100_000)
+            .max(DEFAULT_MAX_OWNED_FAST_CHECKPOINT_TRANSACTIONS)
     }
 
     fn dependency_apply_scheduler_enabled() -> bool {
@@ -2373,10 +2376,7 @@ impl BlockchainEngine {
                 error!("State lock poisoned while snapshotting execution overlay; recovering...");
                 poisoned.into_inner()
             });
-            (
-                state.access_epoch(),
-                (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
-            )
+            (state.access_epoch(), (!state.overlay.is_empty()).then(|| state.overlay.clone()))
         };
         let results = transactions
             .par_iter()
@@ -2694,13 +2694,13 @@ impl BlockchainEngine {
             let (access_epoch, wave_overlay) = match state_arc.read() {
                 Ok(state) => (
                     state.access_epoch(),
-                    (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
+                    (!state.overlay.is_empty()).then(|| state.overlay.clone()),
                 ),
                 Err(poisoned) => {
                     let state = poisoned.into_inner();
                     (
                         state.access_epoch(),
-                        (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone())),
+                        (!state.overlay.is_empty()).then(|| state.overlay.clone()),
                     )
                 }
             };
@@ -2740,9 +2740,8 @@ impl BlockchainEngine {
 
             let ok_changesets =
                 results.iter().filter_map(|result| result.as_ref().ok()).collect::<Vec<_>>();
-            let access_sets = kanari_move_runtime_v2::changeset::deterministic_access_sets(
-                ok_changesets.into_iter(),
-            );
+            let access_sets =
+                kanari_move_runtime_v2::changeset::deterministic_access_sets(ok_changesets);
             let mut retry_reason = results.iter().any(Result::is_err).then_some("execution_error");
             let mut retry_serial = retry_reason.is_some();
             for i in 0..access_sets.len() {
@@ -3276,7 +3275,7 @@ impl BlockchainEngine {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
-            (!state.overlay.is_empty()).then(|| Arc::new(state.overlay.clone()))
+            (!state.overlay.is_empty()).then(|| state.overlay.clone())
         };
         self.execute_transaction_with_runtime_overlay(
             tx,
@@ -4130,12 +4129,29 @@ impl BlockchainEngine {
             return Ok(());
         }
 
+        // Read chain metadata first so the two locks are never nested.
+        let (sequence, expected_root) = {
+            let chain = self.blockchain_read();
+            let latest = chain.latest_checkpoint();
+            (latest.sequence, latest.state_root.clone())
+        };
         let state = self.state_read();
         state
             .validate_no_lost_tokens()
             .context("Owned-fastpath periodic strict supply audit failed")?;
-        if Self::owned_fastpath_smt_audit_enabled() {
-            state.validate_smt_consistency().context("Owned-fastpath periodic SMT audit failed")?;
+        if Self::owned_fastpath_smt_audit_enabled() && sequence > 0 {
+            // DB-backed SMT nodes are no longer part of the hot path. Audit the
+            // same safety property directly: the committed state must still
+            // reproduce the canonical root recorded by the latest checkpoint.
+            let computed_root = state
+                .try_compute_state_root()
+                .context("Owned-fastpath periodic canonical state-root audit failed")?;
+            ensure!(
+                computed_root == expected_root,
+                "Owned-fastpath periodic state-root mismatch: computed={} checkpoint={}",
+                hex::encode(&computed_root),
+                hex::encode(&expected_root)
+            );
         }
         Ok(())
     }

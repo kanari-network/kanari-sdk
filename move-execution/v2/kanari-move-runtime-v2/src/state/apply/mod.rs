@@ -445,7 +445,8 @@ impl StateManager {
                 owner_state.add_module(module_name.clone());
             }
             if owner_state.is_empty() {
-                self.overlay.insert(Self::owner_state_key(&owner_state.address), None);
+                std::sync::Arc::make_mut(&mut self.overlay)
+                    .insert(Self::owner_state_key(&owner_state.address), None);
                 self.remove_from_index_list(
                     OWNER_INDEX_KEY,
                     &owner_state.address.to_hex_literal(),
@@ -574,7 +575,8 @@ impl StateManager {
                     )?;
                 }
                 if stored_id != canonical_obj_id {
-                    self.overlay.insert(object_key(&stored_id), None);
+                    std::sync::Arc::make_mut(&mut self.overlay)
+                        .insert(object_key(&stored_id), None);
                 }
                 Self::record_object_balance_owner_if_needed(
                     owners_to_recompute,
@@ -743,7 +745,7 @@ impl StateManager {
             };
             self.save_internal(&object_key(&canonical_gas_id), &next_object)?;
             if stored_id != canonical_gas_id {
-                self.overlay.insert(object_key(&stored_id), None);
+                std::sync::Arc::make_mut(&mut self.overlay).insert(object_key(&stored_id), None);
             }
             object_index_additions.push(canonical_gas_id.clone());
             if matches!(next_object.owner_kind, ObjectOwnerKind::AddressOwner(_)) {
@@ -1046,7 +1048,8 @@ impl StateManager {
             };
             owner_state.set_token_balance_value(GAS_COIN, next);
             if owner_state.is_empty() {
-                self.overlay.insert(Self::owner_state_key(&owner), None);
+                std::sync::Arc::make_mut(&mut self.overlay)
+                    .insert(Self::owner_state_key(&owner), None);
                 self.remove_from_index_list(OWNER_INDEX_KEY, &owner.to_hex_literal())?;
             } else {
                 self.save_owner_record(&owner_state)?;
@@ -1055,7 +1058,7 @@ impl StateManager {
         }
 
         for (key, bytes) in object_writes {
-            self.overlay.insert(key, Some(bytes));
+            std::sync::Arc::make_mut(&mut self.overlay).insert(key, Some(bytes));
         }
         self.add_many_to_index_list(OWNER_INDEX_KEY, owner_index_additions)?;
         self.advance_access_versions_for_keys(written_keys)?;

@@ -229,37 +229,66 @@ impl SparseMerkleTree {
         }
     }
 
-    fn stage_leaf_node_update_to_depth(
+    /// Stage a subtree root from a sorted set of changed leaves, sharing every
+    /// internal node between leaves. Empty siblings are read from the existing
+    /// cache/overlay exactly as the per-leaf path walker did, so the resulting
+    /// root and node overlay are byte-identical while avoiding ~244 repeated
+    /// lookups and hashes per changed leaf.
+    fn stage_sparse_subtree_from_changes(
         &self,
         cache: &HashMap<Vec<u8>, [u8; 32]>,
         overlay: &mut HashMap<Vec<u8>, Option<[u8; 32]>>,
-        key_hash: [u8; 32],
-        leaf_hash: [u8; 32],
-        stop_depth: usize,
+        entries: &[([u8; 32], Option<&Vec<u8>>)],
+        prefix: [u8; 32],
+        depth: usize,
     ) -> [u8; 32] {
-        debug_assert!(stop_depth <= 256);
-        if stop_depth == 256 {
-            self.stage_node(overlay, &key_hash, 256, leaf_hash);
-            return leaf_hash;
+        debug_assert!(!entries.is_empty());
+        debug_assert!(depth <= 256);
+
+        if depth == 256 {
+            let (key_hash, value) = entries[0];
+            let leaf =
+                value.map(|value| hash_leaf(&key_hash, value)).unwrap_or(self.default_hashes[256]);
+            self.stage_node(overlay, &key_hash, 256, leaf);
+            return leaf;
         }
 
-        let mut current = leaf_hash;
-        for depth in ((stop_depth + 1)..=256).rev() {
-            let mut sibling_prefix = key_hash;
-            let (byte_idx, bit_in_byte) = key_bit_position(depth);
-            let bit_mask = 1u8 << bit_in_byte;
-            sibling_prefix[byte_idx] ^= bit_mask;
-            let sibling = self.node_hash_from_overlay(cache, overlay, &sibling_prefix, depth);
-            let current_is_left = (key_hash[byte_idx] & bit_mask) == 0;
-            let parent = if current_is_left {
-                hash_node(&current, &sibling)
-            } else {
-                hash_node(&sibling, &current)
-            };
-            self.stage_node(overlay, &key_hash, depth - 1, parent);
-            current = parent;
-        }
-        current
+        let next_depth = depth + 1;
+        let (byte_idx, bit_in_byte) = key_bit_position(next_depth);
+        let bit_mask = 1u8 << bit_in_byte;
+        let split = entries.partition_point(|(key_hash, _)| (key_hash[byte_idx] & bit_mask) == 0);
+
+        let mut left_prefix = prefix;
+        left_prefix[byte_idx] &= !bit_mask;
+        let mut right_prefix = prefix;
+        right_prefix[byte_idx] |= bit_mask;
+
+        let left = if split == 0 {
+            self.node_hash_from_overlay(cache, overlay, &left_prefix, next_depth)
+        } else {
+            self.stage_sparse_subtree_from_changes(
+                cache,
+                overlay,
+                &entries[..split],
+                left_prefix,
+                next_depth,
+            )
+        };
+        let right = if split == entries.len() {
+            self.node_hash_from_overlay(cache, overlay, &right_prefix, next_depth)
+        } else {
+            self.stage_sparse_subtree_from_changes(
+                cache,
+                overlay,
+                &entries[split..],
+                right_prefix,
+                next_depth,
+            )
+        };
+
+        let parent = hash_node(&left, &right);
+        self.stage_node(overlay, &prefix, depth, parent);
+        parent
     }
 
     fn apply_node_overlay_to_cache(
@@ -443,21 +472,14 @@ impl SparseMerkleTree {
             .filter(|(_, bucket)| !bucket.is_empty())
             .map(|(bucket_index, bucket)| {
                 let mut overlay = HashMap::new();
-                let mut bucket_root = self.default_hashes[PARALLEL_BUCKET_DEPTH];
                 let bucket_prefix = prefix_from_top_bits(bucket_index, PARALLEL_BUCKET_DEPTH);
-                for (key_hash, value) in bucket {
-                    let leaf = value
-                        .map(|value| hash_leaf(key_hash, value))
-                        .unwrap_or(self.default_hashes[256]);
-                    bucket_root = self.stage_leaf_node_update_to_depth(
-                        cache,
-                        &mut overlay,
-                        *key_hash,
-                        leaf,
-                        PARALLEL_BUCKET_DEPTH,
-                    );
-                }
-                self.stage_node(&mut overlay, &bucket_prefix, PARALLEL_BUCKET_DEPTH, bucket_root);
+                let bucket_root = self.stage_sparse_subtree_from_changes(
+                    cache,
+                    &mut overlay,
+                    bucket,
+                    bucket_prefix,
+                    PARALLEL_BUCKET_DEPTH,
+                );
                 (bucket_prefix, bucket_root, overlay)
             })
             .collect::<Vec<_>>();
@@ -704,17 +726,79 @@ pub fn compute_sparse_root(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
         return DEFAULT_HASHES[0];
     }
 
-    if entries.len() >= 2_048 {
-        return compute_sparse_root_parallel_byte(entries);
+    // Sort once by the exact key digest used by every leaf/node hash. The
+    // recursive implementation shares internal nodes across leaves and only
+    // spawns work once a subtree is large enough to amortize rayon's overhead.
+    // Previously buckets were flattened at a fixed depth (12 bits), which
+    // forced every leaf to hash its remaining ~244 levels independently.
+    let mut hashed = entries.iter().map(|(key, value)| (digest(key), value)).collect::<Vec<_>>();
+    hashed.sort_by_key(|entry| entry.0);
+    compute_sparse_subtree_root_parallel(&hashed, 0)
+}
+
+fn compute_sparse_subtree_root_parallel(
+    entries: &[([u8; 32], &Vec<u8>)],
+    subtree_depth: usize,
+) -> [u8; 32] {
+    if entries.is_empty() {
+        return DEFAULT_HASHES[subtree_depth];
+    }
+    if entries.len() == 1 {
+        let (key_hash, value) = entries[0];
+        let mut current = hash_leaf(&key_hash, value);
+        for depth in ((subtree_depth + 1)..=256).rev() {
+            let (byte_idx, bit_in_byte) = key_bit_position(depth);
+            let bit_is_left = ((key_hash[byte_idx] >> bit_in_byte) & 1u8) == 0;
+            current = if bit_is_left {
+                hash_node(&current, &DEFAULT_HASHES[depth])
+            } else {
+                hash_node(&DEFAULT_HASHES[depth], &current)
+            };
+        }
+        return current;
+    }
+    if subtree_depth == 256 {
+        return hash_leaf(&entries[0].0, entries[0].1);
     }
 
+    const PARALLEL_SPLIT_THRESHOLD: usize = 32;
+    let next_depth = subtree_depth + 1;
+    let (byte_idx, bit_in_byte) = key_bit_position(next_depth);
+    let split =
+        entries.partition_point(|(key_hash, _)| ((key_hash[byte_idx] >> bit_in_byte) & 1u8) == 0);
+    let left_entries = &entries[..split];
+    let right_entries = &entries[split..];
+
+    let (left, right) = if entries.len() >= PARALLEL_SPLIT_THRESHOLD {
+        rayon::join(
+            || compute_sparse_subtree_root_parallel(left_entries, next_depth),
+            || compute_sparse_subtree_root_parallel(right_entries, next_depth),
+        )
+    } else {
+        (
+            compute_sparse_subtree_root_parallel(left_entries, next_depth),
+            compute_sparse_subtree_root_parallel(right_entries, next_depth),
+        )
+    };
+    hash_node(&left, &right)
+}
+
+#[cfg(test)]
+fn compute_sparse_root_legacy_reference(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
+    if entries.is_empty() {
+        return DEFAULT_HASHES[0];
+    }
+    if entries.len() >= 2_048 {
+        return compute_sparse_root_parallel_byte_legacy(entries);
+    }
     compute_sparse_subtree_root(
         &entries.iter().map(|(key, value)| (digest(key), value)).collect::<Vec<_>>(),
         0,
     )
 }
 
-fn compute_sparse_root_parallel_byte(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
+#[cfg(test)]
+fn compute_sparse_root_parallel_byte_legacy(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
     const PARALLEL_BUCKET_DEPTH: usize = 12;
     let mut buckets =
         (0..(1usize << PARALLEL_BUCKET_DEPTH)).map(|_| Vec::new()).collect::<Vec<_>>();
@@ -736,6 +820,7 @@ fn compute_sparse_root_parallel_byte(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32]
     roots[0]
 }
 
+#[cfg(test)]
 fn compute_sparse_subtree_root(entries: &[([u8; 32], &Vec<u8>)], subtree_depth: usize) -> [u8; 32] {
     if entries.is_empty() {
         return DEFAULT_HASHES[subtree_depth];
@@ -749,6 +834,7 @@ fn compute_sparse_subtree_root(entries: &[([u8; 32], &Vec<u8>)], subtree_depth: 
     compute_sparse_subtree_root_sorted(&sorted, subtree_depth)
 }
 
+#[cfg(test)]
 fn compute_sparse_subtree_root_sorted(
     entries: &[([u8; 32], &Vec<u8>)],
     subtree_depth: usize,
@@ -828,6 +914,31 @@ mod tests {
         opts.create_if_missing(true);
         let db = DB::open(&opts, path).unwrap();
         SparseMerkleTree::new(Arc::new(db))
+    }
+
+    #[test]
+    fn test_parallel_sparse_root_matches_legacy_algorithm() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+
+        for len in [0usize, 1, 2, 31, 32, 33, 2_047, 2_048, 5_000] {
+            let mut entries = Vec::with_capacity(len);
+            for index in 0..len {
+                let key = format!("root-equivalence:{index}:{}", next()).into_bytes();
+                let value = next().to_le_bytes().to_vec();
+                entries.push((key, value));
+            }
+            assert_eq!(
+                compute_sparse_root(&entries),
+                compute_sparse_root_legacy_reference(&entries),
+                "root changed for {len} entries"
+            );
+        }
     }
 
     #[test]
@@ -970,6 +1081,41 @@ mod tests {
         smt.delete(&deletes)?;
         smt.insert(&updates)?;
 
+        assert_eq!(speculative_root, smt.root_hash()?);
+        Ok(())
+    }
+
+    #[test]
+    fn test_large_root_hash_with_changes_matches_applied_batch() -> Result<()> {
+        let dir = tempdir()?;
+        let smt = open_test_db(dir.path());
+        let mut state = 0x1234_5678_9abc_def0u64;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+
+        let base = (0..1_000u64)
+            .map(|index| {
+                (format!("base:{index}:{}", next()).into_bytes(), next().to_le_bytes().to_vec())
+            })
+            .collect::<Vec<_>>();
+        smt.insert(&base)?;
+
+        // Above the 1024-change threshold this exercises the shared-subtree
+        // staging path used by production checkpoint commits.
+        let updates = (0..1_100u64)
+            .map(|index| {
+                (format!("update:{index}:{}", next()).into_bytes(), next().to_le_bytes().to_vec())
+            })
+            .collect::<Vec<_>>();
+        let deletes = base.iter().take(64).map(|(key, _)| key.clone()).collect::<Vec<_>>();
+
+        let speculative_root = smt.root_hash_with_changes(&updates, &deletes)?;
+        smt.delete(&deletes)?;
+        smt.insert(&updates)?;
         assert_eq!(speculative_root, smt.root_hash()?);
         Ok(())
     }

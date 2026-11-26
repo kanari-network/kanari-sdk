@@ -310,11 +310,31 @@ impl BlockchainEngine {
             }
         }
         tracing::info!(workers = runtime_pool.len(), "Move runtime pool ready");
-        state
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .repair_persisted_smt()
-            .context("Failed to reconcile state SMT after runtime initialization")?;
+        // Verify committed state against the checkpoint root instead of
+        // reconciling a DB-backed SMT, which made large checkpoints orders of
+        // magnitude slower and is no longer part of the hot commit path.
+        // Genesis is the single historical exception: it intentionally carries
+        // the empty SMT root while canonical genesis objects already exist.
+        {
+            let (sequence, expected_root) = {
+                let chain = blockchain.read().unwrap_or_else(|e| e.into_inner());
+                let latest = chain.latest_checkpoint();
+                (latest.sequence, latest.state_root.clone())
+            };
+            if sequence > 0 {
+                let computed_root = state
+                    .read()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .try_compute_state_root()
+                    .context("Failed to compute canonical state root at startup")?;
+                ensure!(
+                    computed_root == expected_root,
+                    "Persistent state root mismatch at startup: computed={} checkpoint={}",
+                    hex::encode(&computed_root),
+                    hex::encode(&expected_root)
+                );
+            }
+        }
         tracing::info!("Preparing mempool, proof cache, and authority defaults");
 
         let mempool = Arc::new(RwLock::new(MempoolState::default()));
@@ -359,11 +379,15 @@ impl BlockchainEngine {
     }
 
     fn runtime_worker_count() -> usize {
-        const DEFAULT_MAX_RUNTIME_WORKERS: usize = 4;
+        // Runtime workers are a local execution resource knob: results are
+        // collected by canonical input index and state writes are serialized,
+        // so this value cannot change roots, tx order, quorum, or replay.
+        const DEFAULT_MAX_RUNTIME_WORKERS: usize = 8;
+        const MAX_RUNTIME_WORKERS: usize = 64;
 
         if let Ok(raw) = std::env::var("KANARI_RUNTIME_WORKERS") {
             match raw.trim().parse::<usize>() {
-                Ok(value) if value > 0 => return value,
+                Ok(value) if value > 0 => return value.min(MAX_RUNTIME_WORKERS),
                 _ => tracing::warn!(
                     "Ignoring invalid KANARI_RUNTIME_WORKERS='{}'. Using default.",
                     raw

@@ -193,7 +193,7 @@ impl StateManager {
                 (object_key(obj_id), None)
             };
 
-            self.overlay.insert(obj_key, None);
+            std::sync::Arc::make_mut(&mut self.overlay).insert(obj_key, None);
             if let Some(stored_id) = &stored_id {
                 self.remove_from_index_list(b"object_index", stored_id)?;
             }
@@ -246,7 +246,7 @@ impl StateManager {
             match value {
                 Some(bytes) => self.save_internal(key, bytes)?,
                 None => {
-                    self.overlay.insert(key.clone(), None);
+                    std::sync::Arc::make_mut(&mut self.overlay).insert(key.clone(), None);
                 }
             }
 
@@ -276,7 +276,7 @@ impl StateManager {
         for (object_id, name_bytes) in &changeset.removed_dynamic_fields {
             let df_key = dynamic_field_key(object_id, name_bytes);
             // Record as None so commit() will delete it from RocksDB
-            self.overlay.insert(df_key, None);
+            std::sync::Arc::make_mut(&mut self.overlay).insert(df_key, None);
         }
         Ok(())
     }
