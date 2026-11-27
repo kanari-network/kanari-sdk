@@ -59,7 +59,7 @@ dunce = "1.0.5"
 ed25519-dalek = { version = "3.0.0", default-features = false, features = [
     "serde",
 ] }
-blake3 = "1.8.7"
+blake3 = "1.8.8"
 blake2b_simd = "1.0.5"
 ethnum = "1.5.3"
 fail = "0.5.1"

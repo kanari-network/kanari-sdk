@@ -797,11 +797,8 @@ impl DagEngine {
         // One committed-index lookup for the whole DAG instead of one
         // persistent get per transaction. Duplicate hashes keep their own
         // result slots, so the `seen` filter below behaves exactly as before.
-        let hashes = batch
-            .transactions
-            .iter()
-            .map(|tx| tx.transaction_hash().to_vec())
-            .collect::<Vec<_>>();
+        let hashes =
+            batch.transactions.iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
         let committed = self.engine.try_are_transactions_committed(&hashes)?;
         let mut seen = HashSet::new();
         let mut transactions = Vec::with_capacity(batch.transactions.len());

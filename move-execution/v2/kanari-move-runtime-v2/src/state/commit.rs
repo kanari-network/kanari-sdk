@@ -90,12 +90,7 @@ impl StateManager {
                 && !node_overlay.is_empty()
             {
                 let mut batch = WriteBatch::default();
-                for (key, value) in &updates {
-                    batch.put(key, value);
-                }
-                for key in &deletes {
-                    batch.delete(key);
-                }
+                self.store.stage_raw_changes_in_batch(&mut batch, &updates, &deletes)?;
                 smt.stage_changes_with_precomputed_overlay(
                     &mut batch,
                     &smt_updates,

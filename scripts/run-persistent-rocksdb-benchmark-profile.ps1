@@ -8,6 +8,9 @@ param(
     [ValidateRange(1, 10)]
     [int]$Runs = 1,
 
+    [ValidateRange(1, 64)]
+    [int]$StateCfShards = 8,
+
     [switch]$SkipBuild
 )
 
@@ -31,13 +34,15 @@ $previousBackend = $env:KANARI_BENCH_STATE_BACKEND
 $previousProfile = $env:KANARI_BENCH_ROCKSDB_PROFILE
 $previousFlush = $env:KANARI_BENCH_ROCKSDB_FLUSH_PROFILE
 $previousCompact = $env:KANARI_BENCH_ROCKSDB_COMPACT_PROFILE
+$previousShards = $env:KANARI_STATE_CF_SHARDS
 try {
     $env:KANARI_BENCH_STATE_BACKEND = 'rocksdb'
     $env:KANARI_BENCH_ROCKSDB_PROFILE = '1'
     $env:KANARI_BENCH_ROCKSDB_FLUSH_PROFILE = '1'
     $env:KANARI_BENCH_ROCKSDB_COMPACT_PROFILE = '1'
+    $env:KANARI_STATE_CF_SHARDS = [string]$StateCfShards
 
-    Write-Host "Persistent RocksDB benchmark profile: txs=$Transactions senders=$Senders runs=$Runs"
+    Write-Host "Persistent RocksDB benchmark profile: txs=$Transactions senders=$Senders runs=$Runs cf_shards=$StateCfShards"
     Push-Location $repoRoot
     try {
         cargo run --release -p kanari-benchmarks -- `
@@ -56,4 +61,5 @@ finally {
     if ($null -eq $previousProfile) { Remove-Item Env:\KANARI_BENCH_ROCKSDB_PROFILE -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_ROCKSDB_PROFILE = $previousProfile }
     if ($null -eq $previousFlush) { Remove-Item Env:\KANARI_BENCH_ROCKSDB_FLUSH_PROFILE -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_ROCKSDB_FLUSH_PROFILE = $previousFlush }
     if ($null -eq $previousCompact) { Remove-Item Env:\KANARI_BENCH_ROCKSDB_COMPACT_PROFILE -ErrorAction SilentlyContinue } else { $env:KANARI_BENCH_ROCKSDB_COMPACT_PROFILE = $previousCompact }
+    if ($null -eq $previousShards) { Remove-Item Env:\KANARI_STATE_CF_SHARDS -ErrorAction SilentlyContinue } else { $env:KANARI_STATE_CF_SHARDS = $previousShards }
 }

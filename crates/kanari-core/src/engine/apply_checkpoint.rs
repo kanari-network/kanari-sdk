@@ -160,10 +160,8 @@ impl BlockchainEngine {
         let has_transactions = !candidate_txs.is_empty();
         // One committed-index lookup per checkpoint instead of one per tx.
         // Results keep candidate order, so execution order is unchanged.
-        let hashes = candidate_txs
-            .iter()
-            .map(|tx| tx.transaction_hash().to_vec())
-            .collect::<Vec<_>>();
+        let hashes =
+            candidate_txs.iter().map(|tx| tx.transaction_hash().to_vec()).collect::<Vec<_>>();
         let committed = self.try_are_transactions_committed(&hashes)?;
         let to_execute = candidate_txs
             .into_iter()
@@ -260,12 +258,12 @@ impl BlockchainEngine {
                 && Self::history_retention_checkpoints().is_none()
         });
 
-        // Encode checkpoint metadata and the durable marker in parallel with
-        // supply validation. Both closures only read the checkpoint/store, and
-        // the exact same raw changes are still passed to the single atomic
-        // commit below, so the committed bytes and recovery ordering are
-        // unchanged. `rayon::join` borrows instead of cloning the checkpoint.
-        let (validation_result, prepared_metadata) = rayon::join(
+        // Supply validation, checkpoint metadata, and the durable marker are
+        // independent reads of the immutable checkpoint/state. Encoding them in
+        // parallel keeps the exact bytes and the marker ordering while hiding
+        // the larger serialization behind validation. The same raw changes are
+        // still passed to the single atomic commit below.
+        let (validation_result, (metadata_result, marker_result)) = rayon::join(
             || {
                 if validate_supply {
                     // Single canonical scan: bounds, index consistency, and no-lost-tokens.
@@ -276,23 +274,32 @@ impl BlockchainEngine {
                     Ok(())
                 }
             },
-            || -> Result<CheckpointRawChanges> {
-                let Some(store) = self.persistent_store.as_ref() else {
-                    return Ok((Vec::new(), Vec::new()));
-                };
-                let (mut updates, deletes) = if inline_checkpoint_metadata {
-                    Self::checkpoint_persistence_raw_changes(store, &checkpoint, true)
-                        .context("Failed to encode checkpoint metadata for state commit")?
-                } else {
-                    (Vec::new(), Vec::new())
-                };
-                let marker = bcs::to_bytes(&checkpoint)
-                    .context("Failed to serialize durable checkpoint commit marker")?;
-                updates.push((Self::pending_checkpoint_commit_key().to_vec(), marker));
-                Ok((updates, deletes))
+            || {
+                rayon::join(
+                    || -> Result<CheckpointRawChanges> {
+                        let Some(store) = self.persistent_store.as_ref() else {
+                            return Ok((Vec::new(), Vec::new()));
+                        };
+                        if inline_checkpoint_metadata {
+                            Self::checkpoint_persistence_raw_changes(store, &checkpoint, true)
+                                .context("Failed to encode checkpoint metadata for state commit")
+                        } else {
+                            Ok((Vec::new(), Vec::new()))
+                        }
+                    },
+                    || -> Result<Vec<u8>> {
+                        bcs::to_bytes(&checkpoint)
+                            .context("Failed to serialize durable checkpoint commit marker")
+                    },
+                )
             },
         );
+        // Preserve the original error priority: validation, then metadata,
+        // then marker. Results are assembled in the original key order.
         validation_result?;
+        let (mut raw_updates, raw_deletes) = metadata_result?;
+        let marker = marker_result?;
+        raw_updates.push((Self::pending_checkpoint_commit_key().to_vec(), marker));
         let validated_at = std::time::Instant::now();
 
         {
@@ -303,7 +310,6 @@ impl BlockchainEngine {
             let mut live_state = self.state_write();
             let mut committed_state = new_state;
             if self.persistent_store.is_some() {
-                let (raw_updates, raw_deletes) = prepared_metadata?;
                 committed_state
                     .commit_with_raw_changes_verified_root_and_smt_changes(
                         raw_updates,
