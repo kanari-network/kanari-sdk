@@ -1533,29 +1533,17 @@ impl BlockchainEngine {
     }
 
     /// Checks whether a transaction has been committed, returning an error on index failure.
+    /// Delegates to the batch form so both paths share identical fail-closed logic.
+    /// Production call sites use the batch form; this single-hash entry point is
+    /// retained for the integration test suite.
+    #[allow(dead_code)]
     pub(crate) fn try_is_transaction_committed(&self, tx_hash: &[u8]) -> Result<bool> {
-        if self
-            .blockchain
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_transaction_hash_executed(tx_hash)
-        {
-            return Ok(true);
-        }
-        let Some(store) = self.persistent_store.as_ref() else {
-            return Ok(false);
-        };
-        Ok(store
-            .load::<PersistedTransactionLocation>(&Self::transaction_index_key(tx_hash))
-            .with_context(|| {
-                format!("Failed to load committed transaction index for {}", hex::encode(tx_hash))
-            })?
-            .is_some())
+        Ok(self.try_are_transactions_committed(&[tx_hash.to_vec()])?[0])
     }
 
     /// Batch form of [`Self::try_is_transaction_committed`]. The blockchain read
     /// lock is acquired once for the whole batch instead of once per hash; the
-    /// persistent index lookups still run in parallel with the same fail-closed
+    /// persistent index lookups use one `multi_get` with the same fail-closed
     /// error handling. Result order matches the input slice.
     pub(crate) fn try_are_transactions_committed(
         &self,
@@ -1571,24 +1559,38 @@ impl BlockchainEngine {
         let Some(store) = self.persistent_store.as_ref() else {
             return Ok(in_memory);
         };
-        tx_hashes
-            .par_iter()
+        // Hashes already in the in-memory index need no disk lookup. Build one
+        // ordered key list for the rest and issue a single RocksDB multi_get;
+        // duplicate keys are kept so every input hash still has one result.
+        let pending = in_memory
+            .iter()
             .enumerate()
-            .map(|(index, hash)| {
-                if in_memory[index] {
-                    return Ok(true);
-                }
-                Ok(store
-                    .load::<PersistedTransactionLocation>(&Self::transaction_index_key(hash))
-                    .with_context(|| {
-                        format!(
-                            "Failed to load committed transaction index for {}",
-                            hex::encode(hash)
-                        )
-                    })?
-                    .is_some())
-            })
-            .collect::<Result<Vec<_>>>()
+            .filter(|(_, found)| !**found)
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let keys = pending
+            .iter()
+            .map(|index| Self::transaction_index_key(&tx_hashes[*index]))
+            .collect::<Vec<_>>();
+        let loaded = store.load_many::<PersistedTransactionLocation>(&keys);
+        ensure!(
+            loaded.len() == keys.len(),
+            "Committed transaction index batch returned {} results for {} keys",
+            loaded.len(),
+            keys.len()
+        );
+        let mut committed = in_memory;
+        for (index, result) in pending.into_iter().zip(loaded) {
+            committed[index] = result
+                .with_context(|| {
+                    format!(
+                        "Failed to load committed transaction index for {}",
+                        hex::encode(&tx_hashes[index])
+                    )
+                })?
+                .is_some();
+        }
+        Ok(committed)
     }
 
     /// Lists committed transactions from history, applying a predicate filter.
@@ -3187,13 +3189,38 @@ impl BlockchainEngine {
         tx: &Transaction,
         serialized_tx_bytes: usize,
     ) -> Result<()> {
+        self.validate_transaction_admission_shape_inner(tx, serialized_tx_bytes, None)
+    }
+
+    /// Admission-batch variant: the caller parsed this sender once for the whole
+    /// batch. Only the sender-address parse is skipped; every other check and
+    /// error message is identical to the shared implementation.
+    pub(crate) fn validate_transaction_admission_shape_with_parsed_sender(
+        &self,
+        tx: &Transaction,
+        serialized_tx_bytes: usize,
+        sender_address_valid: bool,
+    ) -> Result<()> {
+        self.validate_transaction_admission_shape_inner(
+            tx,
+            serialized_tx_bytes,
+            Some(sender_address_valid),
+        )
+    }
+
+    fn validate_transaction_admission_shape_inner(
+        &self,
+        tx: &Transaction,
+        serialized_tx_bytes: usize,
+        sender_address_valid: Option<bool>,
+    ) -> Result<()> {
         ensure!(
             serialized_tx_bytes <= MAX_TRANSACTION_BYTES,
             "Transaction exceeds {} byte admission limit",
             MAX_TRANSACTION_BYTES
         );
-        let object_count = tx.object_inputs().len()
-            + tx.gas_payment().map(|payment| payment.payment_objects.len()).unwrap_or(0);
+        let object_count = tx.object_inputs_ref().len()
+            + tx.gas_payment_ref().map(|payment| payment.payment_objects.len()).unwrap_or(0);
         ensure!(
             object_count <= MAX_TRANSACTION_OBJECTS,
             "Transaction references {} objects, exceeding maximum {}",
@@ -3204,14 +3231,14 @@ impl BlockchainEngine {
         // the canonical full form, so a non-hex id can never resolve.
         // Rejecting at admission keeps every downstream canonicalization
         // infallible (no fallbacks on execution paths).
-        for input in tx.object_inputs() {
+        for input in tx.object_inputs_ref() {
             ensure!(
                 kanari_types::object::canonical_object_id(&input.object_ref.object_id).is_some(),
                 "Object input id {} is not a valid hex object address",
                 input.object_ref.object_id
             );
         }
-        if let Some(payment) = tx.gas_payment() {
+        if let Some(payment) = tx.gas_payment_ref() {
             for payment_object in &payment.payment_objects {
                 ensure!(
                     kanari_types::object::canonical_object_id(&payment_object.object_id).is_some(),
@@ -3253,8 +3280,14 @@ impl BlockchainEngine {
             };
             ensure!(amount > 0, "Native transfer/burn amount must be non-zero");
         }
-        KanariAddress::parse_to_account_address(tx.sender_address())
-            .context("Invalid transaction sender address")?;
+        match sender_address_valid {
+            None => {
+                KanariAddress::parse_to_account_address(tx.sender_address())
+                    .context("Invalid transaction sender address")?;
+            }
+            Some(true) => {}
+            Some(false) => anyhow::bail!("Invalid transaction sender address"),
+        }
 
         if let Transaction::ExecuteFunction { module, type_args, .. } = tx {
             let mut parts = module.split("::");

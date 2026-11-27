@@ -133,13 +133,20 @@ impl Transaction {
     /// Get conflict keys for this transaction.
     /// Transactions with overlapping conflict keys must be executed sequentially.
     pub fn get_conflict_keys(&self) -> Vec<String> {
+        let object_access_keys = self.object_access_keys();
+        self.get_conflict_keys_with_object_keys(&object_access_keys)
+    }
+
+    /// Same conflict keys as [`Self::get_conflict_keys`], reusing object keys the
+    /// caller already computed for access-lane accounting. Ordering and spelling
+    /// of every key are unchanged.
+    pub fn get_conflict_keys_with_object_keys(&self, object_access_keys: &[String]) -> Vec<String> {
         let sender_norm = super::access_keys::normalized_sender(self.sender());
 
         let mut keys = Vec::new();
 
-        let object_access_keys = self.object_access_keys();
         if !object_access_keys.is_empty() {
-            keys.extend(object_access_keys);
+            keys.extend(object_access_keys.iter().cloned());
         } else {
             keys.push(format!("owner:{}", sender_norm));
         }

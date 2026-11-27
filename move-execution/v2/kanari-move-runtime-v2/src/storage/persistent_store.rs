@@ -190,6 +190,41 @@ impl PersistentStore {
         }
     }
 
+    /// Batch form of [`Self::load`]. Results keep the exact input order, and
+    /// each slot carries its own backend/deserialization error so callers can
+    /// attribute a failure to the same key they passed in. The RocksDB backend
+    /// uses one `multi_get` for the whole batch instead of one `get` per key;
+    /// the single-key behavior (including fail-closed errors) is unchanged.
+    pub fn load_many<T: DeserializeOwned>(
+        &self,
+        keys: &[Vec<u8>],
+    ) -> Vec<std::result::Result<Option<T>, PersistentStoreError>> {
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        if let Some(db) = &self.db {
+            return db
+                .multi_get(keys)
+                .into_iter()
+                .map(|result| match result? {
+                    Some(bytes) => Ok(Some(bcs::from_bytes::<T>(&bytes)?)),
+                    None => Ok(None),
+                })
+                .collect();
+        }
+        if let Some(store) = &self.memory_store {
+            let guard = Self::read_memory_store(store);
+            return keys
+                .iter()
+                .map(|key| match guard.get(key) {
+                    Some(bytes) => Ok(Some(bcs::from_bytes::<T>(bytes)?)),
+                    None => Ok(None),
+                })
+                .collect();
+        }
+        (0..keys.len()).map(|_| Ok(None)).collect()
+    }
+
     /// Delete a key from the store.
     pub fn delete(&self, key: &[u8]) -> std::result::Result<(), PersistentStoreError> {
         if let Some(db) = &self.db {
@@ -355,5 +390,44 @@ impl PersistentStore {
 
     fn is_internal_smt_key(key: &[u8]) -> bool {
         key.starts_with(b"n:") || key.starts_with(b"d:")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_many_preserves_order_and_missing_slots() {
+        let store = PersistentStore::open_in_memory().unwrap();
+        let keys = vec![b"k0".to_vec(), b"k1".to_vec(), b"k2".to_vec()];
+        store.save(&keys[0], &10u64).unwrap();
+        store.save(&keys[2], &30u64).unwrap();
+
+        let loaded = store.load_many::<u64>(&keys);
+        assert_eq!(loaded.len(), keys.len());
+        assert_eq!(loaded[0].as_ref().unwrap(), &Some(10));
+        assert!(loaded[1].as_ref().unwrap().is_none());
+        assert_eq!(loaded[2].as_ref().unwrap(), &Some(30));
+    }
+
+    #[test]
+    fn load_many_keeps_error_on_matching_slot() {
+        let store = PersistentStore::open_in_memory().unwrap();
+        let good = b"good".to_vec();
+        let bad = b"bad".to_vec();
+        store.save(&good, &7u64).unwrap();
+        // A single byte cannot decode as BCS u64 (needs eight bytes).
+        store.write_raw(&bad, vec![0xff]).unwrap();
+
+        let loaded = store.load_many::<u64>(&[good, bad]);
+        assert_eq!(loaded[0].as_ref().unwrap(), &Some(7));
+        assert!(loaded[1].is_err());
+    }
+
+    #[test]
+    fn load_many_empty_input_is_empty() {
+        let store = PersistentStore::open_in_memory().unwrap();
+        assert!(store.load_many::<u64>(&[]).is_empty());
     }
 }

@@ -158,12 +158,18 @@ impl BlockchainEngine {
         let candidate_txs =
             owned_transactions.unwrap_or_else(|| checkpoint.transactions.iter().cloned().collect());
         let has_transactions = !candidate_txs.is_empty();
-        let mut to_execute = Vec::with_capacity(candidate_txs.len());
-        for signed_tx in candidate_txs {
-            if !self.try_is_transaction_committed(signed_tx.transaction_hash())? {
-                to_execute.push(signed_tx);
-            }
-        }
+        // One committed-index lookup per checkpoint instead of one per tx.
+        // Results keep candidate order, so execution order is unchanged.
+        let hashes = candidate_txs
+            .iter()
+            .map(|tx| tx.transaction_hash().to_vec())
+            .collect::<Vec<_>>();
+        let committed = self.try_are_transactions_committed(&hashes)?;
+        let to_execute = candidate_txs
+            .into_iter()
+            .zip(committed)
+            .filter_map(|(tx, is_committed)| (!is_committed).then_some(tx))
+            .collect::<Vec<_>>();
 
         if has_transactions {
             self.apply_system_prologue_to_state(&state_arc, checkpoint.timestamp, false)?;

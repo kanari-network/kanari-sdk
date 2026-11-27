@@ -794,11 +794,20 @@ impl DagEngine {
             }));
         }
         drop(chain);
+        // One committed-index lookup for the whole DAG instead of one
+        // persistent get per transaction. Duplicate hashes keep their own
+        // result slots, so the `seen` filter below behaves exactly as before.
+        let hashes = batch
+            .transactions
+            .iter()
+            .map(|tx| tx.transaction_hash().to_vec())
+            .collect::<Vec<_>>();
+        let committed = self.engine.try_are_transactions_committed(&hashes)?;
         let mut seen = HashSet::new();
-        let mut transactions = Vec::new();
-        for tx in batch.transactions {
+        let mut transactions = Vec::with_capacity(batch.transactions.len());
+        for (tx, is_committed) in batch.transactions.into_iter().zip(committed) {
             let hash = tx.transaction_hash().to_vec();
-            if seen.insert(hash.clone()) && !self.engine.try_is_transaction_committed(&hash)? {
+            if seen.insert(hash) && !is_committed {
                 transactions.push(tx);
             }
         }

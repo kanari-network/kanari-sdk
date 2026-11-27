@@ -665,6 +665,33 @@ fn admission_rejects_client_faults_fail_closed() {
         error.to_string().contains("objects"),
         "object-count overflow must be rejected: {error:#}"
     );
+
+    // The batch admission path parses each sender once, then passes the cached
+    // result into shape validation. Valid and invalid cached results must match
+    // the normal per-transaction path exactly.
+    engine
+        .validate_transaction_admission_shape_with_parsed_sender(
+            &good_tx,
+            bcs::serialized_size(&good_tx).unwrap(),
+            true,
+        )
+        .unwrap();
+
+    let mut bad_sender_tx = good_tx.clone();
+    if let Transaction::ExecuteFunction { sender, .. } = &mut bad_sender_tx {
+        *sender = "not-an-address".to_string();
+    }
+    let error = engine
+        .validate_transaction_admission_shape_with_parsed_sender(
+            &bad_sender_tx,
+            bcs::serialized_size(&bad_sender_tx).unwrap(),
+            false,
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("Invalid transaction sender address"),
+        "cached invalid sender must still be rejected: {error:#}"
+    );
 }
 
 #[test]

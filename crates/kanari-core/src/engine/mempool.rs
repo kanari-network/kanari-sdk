@@ -19,6 +19,15 @@ impl NormalizeAddr for BlockchainEngine {
     }
 }
 
+/// Sender metadata derived once per unique sender in a whole admission batch.
+/// Tagged senders are long public keys, so re-normalizing and re-parsing them
+/// for every transaction made a 100k batch repeat the same work 100k times.
+struct CachedSender {
+    sender_address: String,
+    normalized_sender: String,
+    sender_address_valid: bool,
+}
+
 impl BlockchainEngine {
     /// Decrements the pending count for a given key, removing it if it reaches zero.
     pub(crate) fn decrement_pending_count(counts: &mut ahash::AHashMap<String, u64>, key: &str) {
@@ -95,7 +104,22 @@ impl BlockchainEngine {
         let mut sender_cache = ahash::AHashMap::with_capacity(batch_size);
         for signed_tx in &signed_txs {
             let sender = signed_tx.transaction.sender_address();
-            sender_cache.entry(sender.to_string()).or_insert_with(|| Self::normalize_addr(sender));
+            if sender_cache.contains_key(sender) {
+                continue;
+            }
+            // Keep the exact failure path: an invalid sender is still rejected
+            // by shape validation below, not by cache construction.
+            sender_cache.insert(
+                sender.to_string(),
+                CachedSender {
+                    sender_address: sender.to_string(),
+                    normalized_sender: Self::normalize_addr(sender),
+                    sender_address_valid: kanari_types::address::Address::parse_to_account_address(
+                        sender,
+                    )
+                    .is_ok(),
+                },
+            );
         }
 
         // Hash, verify, and extract metadata in one parallel pass.
@@ -114,31 +138,41 @@ impl BlockchainEngine {
                     signed_tx.into_verified_from_serialized_transaction(&serialized_transaction)?;
                 let tx_hash = verified.hash().to_vec();
                 let tx = verified.transaction();
+                let sender = tx.sender_address();
+                let fallback;
+                let cached = match sender_cache.get(sender) {
+                    Some(cached) => cached,
+                    None => {
+                        log::warn!(
+                            "[MEMPOOL] Sender normalization cache miss for verified transaction; normalizing inline"
+                        );
+                        fallback = CachedSender {
+                            sender_address: sender.to_string(),
+                            normalized_sender: Self::normalize_addr(sender),
+                            sender_address_valid:
+                                kanari_types::address::Address::parse_to_account_address(sender)
+                                    .is_ok(),
+                        };
+                        &fallback
+                    }
+                };
                 // Shape-validate first so an invalid tx never lands in the
                 // zkLogin replay guard. record_zklogin_admission is deferred
                 // to the acceptance loop below so a tx that passes shape
                 // validation but later fails lane/nonce checks is not locked
                 // out of resubmission.
-                self.validate_transaction_admission_shape_with_size(
+                self.validate_transaction_admission_shape_with_parsed_sender(
                     tx,
                     serialized_transaction.len(),
+                    cached.sender_address_valid,
                 )?;
-                let sender = tx.sender_address();
-                let normalized_sender = sender_cache
-                    .get(sender)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        log::warn!(
-                            "[MEMPOOL] Sender normalization cache miss for verified transaction; normalizing inline"
-                        );
-                        Self::normalize_addr(sender)
-                    });
-                let sender_address = sender.to_string();
+                let normalized_sender = cached.normalized_sender.clone();
+                let sender_address = cached.sender_address.clone();
                 let nonce = tx.nonce();
                 let primary_access_key = tx.primary_access_key();
                 let congestion_access_key = Self::congestion_access_key(tx);
                 let access_keys = tx.object_access_keys();
-                let conflict_keys = tx.get_conflict_keys();
+                let conflict_keys = tx.get_conflict_keys_with_object_keys(&access_keys);
                 let signed_tx = verified.into_signed_transaction();
                 let size_bytes = Self::pending_record_size_from_parts(
                     serialized_signed_len,
