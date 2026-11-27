@@ -184,18 +184,20 @@ impl Blockchain {
     /// previous-hash linkage, and absence of duplicate or replayed transactions.
     /// Old checkpoints beyond [`MAX_RETAINED_BLOCKS`] are evicted (genesis is
     /// always retained).
-    /// Collect canonical transaction hashes once, before taking the chain lock.
-    pub(crate) fn checkpoint_transaction_hashes(
-        checkpoint: &Checkpoint,
-    ) -> Result<HashSet<Vec<u8>>> {
+    /// Collect canonical transaction hashes in checkpoint order before taking
+    /// the chain lock. Keeping the ordered vector lets index updates avoid a
+    /// second transaction walk while preserving exact (sequence, index) pairs.
+    pub(crate) fn checkpoint_transaction_hashes(checkpoint: &Checkpoint) -> Result<Vec<Vec<u8>>> {
         let mut seen_txs = HashSet::with_capacity(checkpoint.transactions.len());
+        let mut hashes = Vec::with_capacity(checkpoint.transactions.len());
         for tx in checkpoint.transactions.iter() {
             let tx_hash = tx.transaction_hash().to_vec();
-            if !seen_txs.insert(tx_hash) {
+            if !seen_txs.insert(tx_hash.clone()) {
                 anyhow::bail!("Duplicate transaction found within checkpoint");
             }
+            hashes.push(tx_hash);
         }
-        Ok(seen_txs)
+        Ok(hashes)
     }
 
     /// Precompute the vertex-set index key outside the chain lock.
@@ -208,8 +210,7 @@ impl Blockchain {
         checkpoint: Checkpoint,
         validate: bool,
     ) -> Result<()> {
-        let tx_hashes =
-            if validate { Some(Self::checkpoint_transaction_hashes(&checkpoint)?) } else { None };
+        let tx_hashes = Self::checkpoint_transaction_hashes(&checkpoint)?;
         let vertex_set_hash = Self::checkpoint_vertex_set_hash(&checkpoint);
         self.add_checkpoint_with_prevalidated_hashes(
             checkpoint,
@@ -219,14 +220,14 @@ impl Blockchain {
         )
     }
 
-    /// Hot-path variant: duplicate hashes and the vertex-set key are prepared
-    /// by the caller before acquiring `blockchain_write`, leaving only the
-    /// sequence/replay checks and index insertion under the lock.
+    /// Hot-path variant: ordered transaction hashes and the vertex-set key are
+    /// prepared by the caller before acquiring `blockchain_write`, leaving only
+    /// the sequence/replay checks and index insertion under the lock.
     pub(crate) fn add_checkpoint_with_prevalidated_hashes(
         &mut self,
         checkpoint: Checkpoint,
         validate: bool,
-        tx_hashes: Option<HashSet<Vec<u8>>>,
+        tx_hashes: Vec<Vec<u8>>,
         vertex_set_hash: [u8; 32],
     ) -> Result<()> {
         if validate {
@@ -242,8 +243,6 @@ impl Blockchain {
                 anyhow::bail!("Invalid previous checkpoint hash");
             }
 
-            let tx_hashes =
-                tx_hashes.expect("validated checkpoint must provide transaction hashes");
             for tx_hash in &tx_hashes {
                 if self.executed_tx_hashes.contains(tx_hash) {
                     anyhow::bail!("Replay attack detected: Transaction already executed");
@@ -251,7 +250,7 @@ impl Blockchain {
             }
         }
 
-        self.track_checkpoint_transactions(&checkpoint);
+        self.track_checkpoint_transactions(&checkpoint, &tx_hashes);
 
         // Index the vertex set for O(1) duplicate detection during commit.
         self.committed_vertex_sets.insert(vertex_set_hash, checkpoint.sequence);
@@ -277,10 +276,9 @@ impl Blockchain {
         Ok(())
     }
 
-    fn track_checkpoint_transactions(&mut self, checkpoint: &Checkpoint) {
-        for (index, tx) in checkpoint.transactions.iter().enumerate() {
-            let hash = tx.transaction_hash().to_vec();
-            self.track_one_transaction(hash, checkpoint.sequence, index);
+    fn track_checkpoint_transactions(&mut self, checkpoint: &Checkpoint, tx_hashes: &[Vec<u8>]) {
+        for (index, hash) in tx_hashes.iter().enumerate() {
+            self.track_one_transaction(hash.clone(), checkpoint.sequence, index);
         }
 
         self.evict_retained_tx_hashes();

@@ -1553,6 +1553,44 @@ impl BlockchainEngine {
             .is_some())
     }
 
+    /// Batch form of [`Self::try_is_transaction_committed`]. The blockchain read
+    /// lock is acquired once for the whole batch instead of once per hash; the
+    /// persistent index lookups still run in parallel with the same fail-closed
+    /// error handling. Result order matches the input slice.
+    pub(crate) fn try_are_transactions_committed(
+        &self,
+        tx_hashes: &[Vec<u8>],
+    ) -> Result<Vec<bool>> {
+        let in_memory = {
+            let chain = self.blockchain_read();
+            tx_hashes
+                .par_iter()
+                .map(|hash| chain.is_transaction_hash_executed(hash))
+                .collect::<Vec<_>>()
+        };
+        let Some(store) = self.persistent_store.as_ref() else {
+            return Ok(in_memory);
+        };
+        tx_hashes
+            .par_iter()
+            .enumerate()
+            .map(|(index, hash)| {
+                if in_memory[index] {
+                    return Ok(true);
+                }
+                Ok(store
+                    .load::<PersistedTransactionLocation>(&Self::transaction_index_key(hash))
+                    .with_context(|| {
+                        format!(
+                            "Failed to load committed transaction index for {}",
+                            hex::encode(hash)
+                        )
+                    })?
+                    .is_some())
+            })
+            .collect::<Result<Vec<_>>>()
+    }
+
     /// Lists committed transactions from history, applying a predicate filter.
     ///
     /// `cursor_hash` resumes the newest-to-oldest walk after a known

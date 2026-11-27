@@ -731,7 +731,10 @@ pub fn compute_sparse_root(entries: &[(Vec<u8>, Vec<u8>)]) -> [u8; 32] {
     // spawns work once a subtree is large enough to amortize rayon's overhead.
     // Previously buckets were flattened at a fixed depth (12 bits), which
     // forced every leaf to hash its remaining ~244 levels independently.
-    let mut hashed = entries.iter().map(|(key, value)| (digest(key), value)).collect::<Vec<_>>();
+    // Rayon's collect on an indexed iterator preserves input order, so the
+    // stable sort below sees the same digest/value pairs and the root is unchanged.
+    let mut hashed =
+        entries.par_iter().map(|(key, value)| (digest(key), value)).collect::<Vec<_>>();
     hashed.sort_by_key(|entry| entry.0);
     compute_sparse_subtree_root_parallel(&hashed, 0)
 }
@@ -761,7 +764,10 @@ fn compute_sparse_subtree_root_parallel(
         return hash_leaf(&entries[0].0, entries[0].1);
     }
 
-    const PARALLEL_SPLIT_THRESHOLD: usize = 32;
+    // Only controls when recursion is split across rayon tasks; it never
+    // changes the root bytes. 16 amortises task overhead better than 32 on the
+    // canonical state-root workload.
+    const PARALLEL_SPLIT_THRESHOLD: usize = 16;
     let next_depth = subtree_depth + 1;
     let (byte_idx, bit_in_byte) = key_bit_position(next_depth);
     let split =

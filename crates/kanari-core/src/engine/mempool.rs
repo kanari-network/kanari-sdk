@@ -163,7 +163,9 @@ impl BlockchainEngine {
             total.checked_add(item.size_bytes).context("Mempool batch byte size overflow")
         })?;
 
-        verified_txs.sort_by(|a, b| {
+        // Comparator is total (tx_hash breaks every tie) and `par_sort_by` is
+        // stable, so the resulting order is identical to the sequential sort.
+        verified_txs.par_sort_by(|a, b| {
             a.primary_access_key
                 .cmp(&b.primary_access_key)
                 .then_with(|| a.normalized_sender.cmp(&b.normalized_sender))
@@ -181,21 +183,36 @@ impl BlockchainEngine {
         let executed_hashes = if skip_committed_check {
             AHashSet::new()
         } else {
-            use rayon::prelude::*;
-            verified_txs
-                .par_iter()
-                .map(|item| -> Result<Option<Vec<u8>>> {
-                    Ok(self
-                        .try_is_transaction_committed(&item.tx_hash)?
-                        .then(|| item.tx_hash.clone()))
-                })
-                .collect::<Result<Vec<_>>>()?
+            // One blockchain read guard for the whole batch instead of one per
+            // transaction. Persistent lookups still fail admission closed.
+            let hashes = verified_txs.iter().map(|item| item.tx_hash.clone()).collect::<Vec<_>>();
+            let committed = self.try_are_transactions_committed(&hashes)?;
+            committed
                 .into_iter()
-                .flatten()
+                .zip(verified_txs.iter())
+                .filter(|(is_committed, _)| *is_committed)
+                .map(|(_, item)| item.tx_hash.clone())
                 .collect::<AHashSet<_>>()
         };
 
         let checked_at = std::time::Instant::now();
+
+        // Per-sender committed nonce watermark (persistent nodes). Any tx whose
+        // nonce is not strictly greater than the sender's highest committed nonce
+        // is a replay of the same or an earlier sequence, regardless of payload.
+        //
+        // Cap at JSON-safe range so legacy huge random nonces don't permanently
+        // lock senders out. Load it before taking the mempool write lock so
+        // persistent I/O does not stretch the exclusive admission critical section.
+        let sender_watermark = self
+            .persistent_store
+            .as_ref()
+            .map(|store| super::BlockchainEngine::load_sender_nonce_watermark(store))
+            .transpose()?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k, v)| (k, kanari_types::transaction::sanitize_nonce_watermark(v).unwrap_or(0)))
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         // Account sequence is intentionally not a consensus admission rule. Object refs,
         // gas refs, and duplicate transaction hashes are the canonical replay/double-spend guards.
@@ -212,22 +229,6 @@ impl BlockchainEngine {
         let mut accepted_counts_by_access = ahash::AHashMap::new();
         let mut accepted_counts_by_primary_access = ahash::AHashMap::new();
         let mut accepted_counts_by_congestion_access = ahash::AHashMap::new();
-
-        // Per-sender committed nonce watermark (persistent nodes). Any tx whose
-        // nonce is not strictly greater than the sender's highest committed nonce
-        // is a replay of the same or an earlier sequence, regardless of payload.
-        //
-        // Cap at JSON-safe range so legacy huge random nonces don't permanently
-        // lock senders out.
-        let sender_watermark = self
-            .persistent_store
-            .as_ref()
-            .map(|store| super::BlockchainEngine::load_sender_nonce_watermark(store))
-            .transpose()?
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(k, v)| (k, kanari_types::transaction::sanitize_nonce_watermark(v).unwrap_or(0)))
-            .collect::<std::collections::BTreeMap<_, _>>();
 
         for item in &verified_txs {
             let tx_hash = &item.tx_hash;

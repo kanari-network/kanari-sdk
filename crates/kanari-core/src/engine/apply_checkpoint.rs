@@ -7,7 +7,6 @@ use anyhow::{Context, Result, bail};
 use kanari_move_runtime_v2::state::{PrecomputedSmtChanges, StateManager};
 use kanari_types::transaction::SignedTransaction;
 use log::info;
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 type CheckpointRawChanges = (Vec<(Vec<u8>, Vec<u8>)>, Vec<Vec<u8>>);
@@ -365,18 +364,21 @@ impl BlockchainEngine {
         // Capture committed hashes before moving the checkpoint into chain
         // storage; cloning 100k signed transactions just to drain the mempool
         // is pure hot-path overhead.
+        // Capture canonical hashes once, in checkpoint order. The same vector
+        // feeds the mempool drain set and the blockchain index, so (sequence,
+        // index) pairs and duplicate detection stay identical while the chain
+        // write lock does not re-walk every signed transaction.
+        let ordered_tx_hashes =
+            crate::blockchain::Blockchain::checkpoint_transaction_hashes(&checkpoint)?;
         // Fixed-size keys avoid one heap allocation per committed transaction;
         // checkpoint hashes are canonical 32-byte digests.
-        let committed_hashes: ahash::AHashSet<[u8; 32]> = checkpoint
-            .transactions
+        let committed_hashes: ahash::AHashSet<[u8; 32]> = ordered_tx_hashes
             .iter()
-            .map(|tx| committed_hash_key(tx.transaction_hash(), "transaction hash"))
+            .map(|hash| committed_hash_key(hash, "transaction hash"))
             .collect();
         // 1. Update blockchain metadata in-memory. Duplicate detection and the
         // vertex index key are prepared before taking the write lock; only
         // sequence/replay checks and insertion stay under the lock.
-        let chain_tx_hashes: HashSet<Vec<u8>> =
-            committed_hashes.iter().map(|hash| hash.to_vec()).collect();
         let chain_vertex_set_hash =
             crate::blockchain::Blockchain::checkpoint_vertex_set_hash(&checkpoint);
         {
@@ -384,7 +386,7 @@ impl BlockchainEngine {
             chain.add_checkpoint_with_prevalidated_hashes(
                 checkpoint,
                 true,
-                Some(chain_tx_hashes),
+                ordered_tx_hashes,
                 chain_vertex_set_hash,
             )?;
         }
